@@ -476,16 +476,19 @@ def _compute_aggregates(
     if avg_gen_tps and avg_power and avg_power > 0:
         tokens_per_watt = float(avg_gen_tps / avg_power)
 
-    # Compute Safe Max Concurrency
-    # Group results by concurrency level; a concurrency level is safe if:
+    # Compute Safe Max Concurrency with Monotonicity Enforcement
+    # Group results by concurrency level in ascending order.
+    # A concurrency tier C is safe if:
     # 1. Error rate <= 0.05 (<= 5%)
     # 2. Quality integrity rate >= 0.95 (>= 95%)
+    # Monotonicity rule: Once an intermediate concurrency tier fails SLA, progression halts.
+    # A higher tier cannot mask a lower failing tier (e.g. tier 20 failing cannot be masked by tier 30).
     by_concurrency: dict[int, list] = {}
     for r in all_results:
         cu = r.concurrent_users or 1
         by_concurrency.setdefault(cu, []).append(r)
 
-    safe_concurrency_candidates = []
+    safe_max_concurrency = 0 if not successful else 1
     for cu, group in sorted(by_concurrency.items()):
         if not group:
             continue
@@ -495,9 +498,10 @@ def _compute_aggregates(
         quality_count = sum(1 for r in group if getattr(r, "quality_valid", True) and r.success)
         quality_rate = quality_count / n
         if err_rate <= 0.05 and quality_rate >= 0.95:
-            safe_concurrency_candidates.append(cu)
-
-    safe_max_concurrency = max(safe_concurrency_candidates) if safe_concurrency_candidates else (1 if successful else 0)
+            safe_max_concurrency = cu
+        else:
+            # Monotonicity boundary: stop at the first tier that violated SLA
+            break
 
     return {
         "total_requests": len(all_results),

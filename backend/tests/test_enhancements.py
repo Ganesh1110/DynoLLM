@@ -74,6 +74,17 @@ def test_safe_max_concurrency_calculation():
     # Safe max concurrency should be 20 because 30 had a 20% error rate (> 5%)
     assert aggregates["safe_max_concurrency"] == 20
 
+    # Monotonicity test:
+    # Tier 10 passes, Tier 20 fails (e.g. 15% error rate), Tier 30 passes (100% success)
+    # Tier 30 MUST NOT mask Tier 20's failure. Result must be 10.
+    m_10 = [FakeResult(10, success=True, quality_valid=True) for _ in range(20)]
+    m_20 = [FakeResult(20, success=True, quality_valid=True) for _ in range(17)] + \
+           [FakeResult(20, success=False, quality_valid=False) for _ in range(3)]  # 15% fail
+    m_30 = [FakeResult(30, success=True, quality_valid=True) for _ in range(20)]  # 100% success
+
+    mono_aggregates = _compute_aggregates(m_10 + m_20 + m_30)
+    assert mono_aggregates["safe_max_concurrency"] == 10, f"Expected 10, got {mono_aggregates['safe_max_concurrency']}"
+
 
 @pytest.mark.asyncio
 async def test_multi_gpu_aggregation():
