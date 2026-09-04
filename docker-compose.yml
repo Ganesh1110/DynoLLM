@@ -5,11 +5,11 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: llm-platform-backend
+    container_name: dynollm-backend
     ports:
       - "8000:8000"
     environment:
-      - APP_NAME=Local LLM Testing & Monitoring Platform
+      - APP_NAME=DynoLLM
       - DEBUG=True
       - DATABASE_URL=sqlite+aiosqlite:///./llm_platform.db
       - DEFAULT_OLLAMA_ENDPOINT=http://host.docker.internal:11434
@@ -23,7 +23,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: llm-platform-frontend
+    container_name: dynollm-frontend
     ports:
       - "5173:80"
     depends_on:

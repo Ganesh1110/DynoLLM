@@ -25,9 +25,9 @@ export function Navbar() {
               <Zap className="w-5 h-5" />
             </div>
             <div>
-              <span className="font-bold text-base text-white tracking-tight">LLM Monitor & Bench</span>
+              <span className="font-extrabold text-base text-white tracking-tight">Dyno<span className="text-sky-400">LLM</span></span>
               <span className="ml-2 text-xs font-mono text-sky-400 bg-sky-950/80 px-2 py-0.5 rounded border border-sky-800">
-                MVP v1.0
+                v1.0
               </span>
             </div>
           </div>

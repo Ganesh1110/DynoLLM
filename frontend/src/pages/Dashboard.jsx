@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Cpu, Database, HardDrive, Activity, PlayCircle, Zap, Server, CheckCircle2, XCircle } from 'lucide-react'
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts'
@@ -17,6 +17,8 @@ export function Dashboard() {
   const fetchBenchmarks = useBenchmarkStore((s) => s.fetchRuns)
   const loadTests = useLoadTestStore((s) => s.runs)
   const fetchLoadTests = useLoadTestStore((s) => s.fetchRuns)
+
+  const [activeMetric, setActiveMetric] = useState('all') // 'all' | 'cpu' | 'ram' | 'gpu'
 
   useEffect(() => {
     fetchRuntimes()
@@ -175,52 +177,151 @@ export function Dashboard() {
 
       {/* Live System Performance Chart */}
       <div className="card space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-800 pb-3">
           <div>
-            <h2 className="text-lg font-bold text-white">Real-Time Resource Consumption (60s rolling)</h2>
-            <p className="text-xs text-gray-400">Live hardware telemetry streamed via backend WebSocket</p>
+            <h2 className="text-lg font-bold text-white flex items-center space-x-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+              <span>Real-Time Resource Telemetry (60s Window)</span>
+            </h2>
+            <p className="text-xs text-gray-400 mt-0.5">High-frequency system utilization stream</p>
           </div>
-          <div className="flex items-center space-x-4 text-xs">
-            <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-sky-500 inline-block" /><span>CPU %</span></span>
-            <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" /><span>RAM %</span></span>
+
+          {/* Metric Selector Toggles & Stat Badges */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveMetric('all')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
+                activeMetric === 'all'
+                  ? 'bg-gray-700 text-white border border-gray-500 shadow'
+                  : 'bg-gray-800/80 text-gray-400 hover:text-gray-200 border border-gray-700'
+              }`}
+            >
+              All Metrics
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMetric('cpu')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center space-x-1.5 ${
+                activeMetric === 'cpu'
+                  ? 'bg-sky-600/30 text-sky-300 border border-sky-500'
+                  : 'bg-gray-800/80 text-gray-400 hover:text-sky-400 border border-gray-700'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-sky-400" />
+              <span>CPU ({fmt(current?.cpu_percent)}%)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMetric('ram')}
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center space-x-1.5 ${
+                activeMetric === 'ram'
+                  ? 'bg-emerald-600/30 text-emerald-300 border border-emerald-500'
+                  : 'bg-gray-800/80 text-gray-400 hover:text-emerald-400 border border-gray-700'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              <span>RAM ({fmt(current?.ram_percent)}%)</span>
+            </button>
             {current?.gpu_count > 0 && (
-              <span className="flex items-center space-x-1.5"><span className="w-3 h-3 rounded-full bg-purple-500 inline-block" /><span>GPU %</span></span>
+              <button
+                type="button"
+                onClick={() => setActiveMetric('gpu')}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-all flex items-center space-x-1.5 ${
+                  activeMetric === 'gpu'
+                    ? 'bg-purple-600/30 text-purple-300 border border-purple-500'
+                    : 'bg-gray-800/80 text-gray-400 hover:text-purple-400 border border-gray-700'
+                }`}
+              >
+                <span className="w-2 h-2 rounded-full bg-purple-400" />
+                <span>GPU ({fmt(current?.gpus?.[0]?.utilization_percent)}%)</span>
+              </button>
             )}
           </div>
         </div>
 
-        <div className="h-64 w-full">
+        {/* Live Chart Container */}
+        <div className="h-72 w-full pt-2">
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.0} />
+                  <linearGradient id="cpuGlow" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.0} />
                   </linearGradient>
-                  <linearGradient id="ramGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
+                  <linearGradient id="ramGlow" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#34d399" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#34d399" stopOpacity={0.0} />
                   </linearGradient>
-                  <linearGradient id="gpuGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0.0} />
+                  <linearGradient id="gpuGlow" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#c084fc" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#c084fc" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                <XAxis dataKey="time" stroke="#4b5563" fontSize={11} />
-                <YAxis domain={[0, 100]} stroke="#4b5563" fontSize={11} />
-                <Tooltip contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', borderRadius: '0.5rem' }} />
-                <Area type="monotone" dataKey="cpu" stroke="#0ea5e9" strokeWidth={2} fillOpacity={1} fill="url(#cpuGrad)" name="CPU %" />
-                <Area type="monotone" dataKey="ram" stroke="#10b981" strokeWidth={2} fillOpacity={1} fill="url(#ramGrad)" name="RAM %" />
-                {current?.gpu_count > 0 && (
-                  <Area type="monotone" dataKey="gpu" stroke="#a855f7" strokeWidth={2} fillOpacity={1} fill="url(#gpuGrad)" name="GPU %" />
+                <CartesianGrid strokeDasharray="2 4" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="time" stroke="#64748b" fontSize={11} tickLine={false} axisLine={{ stroke: '#334155' }} />
+                <YAxis domain={[0, 100]} stroke="#64748b" fontSize={11} tickLine={false} axisLine={{ stroke: '#334155' }} tickFormatter={(v) => `${v}%`} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload || !payload.length) return null
+                    return (
+                      <div className="bg-gray-900/95 border border-gray-700 p-3 rounded-xl shadow-2xl backdrop-blur-md text-xs space-y-1.5 min-w-[150px]">
+                        <div className="font-mono text-gray-400 font-semibold border-b border-gray-800 pb-1">{label}</div>
+                        {payload.map((entry, index) => (
+                          <div key={`item-${index}`} className="flex items-center justify-between space-x-3">
+                            <span className="flex items-center space-x-1.5" style={{ color: entry.color }}>
+                              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                              <span>{entry.name}:</span>
+                            </span>
+                            <span className="font-mono font-bold text-white">{Number(entry.value).toFixed(1)}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  }}
+                />
+                {(activeMetric === 'all' || activeMetric === 'cpu') && (
+                  <Area
+                    type="monotone"
+                    dataKey="cpu"
+                    stroke="#38bdf8"
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill="url(#cpuGlow)"
+                    name="CPU Utilization"
+                    isAnimationActive={false}
+                  />
+                )}
+                {(activeMetric === 'all' || activeMetric === 'ram') && (
+                  <Area
+                    type="monotone"
+                    dataKey="ram"
+                    stroke="#34d399"
+                    strokeWidth={2}
+                    fillOpacity={activeMetric === 'ram' ? 1 : 0.6}
+                    fill="url(#ramGlow)"
+                    name="System RAM"
+                    isAnimationActive={false}
+                  />
+                )}
+                {current?.gpu_count > 0 && (activeMetric === 'all' || activeMetric === 'gpu') && (
+                  <Area
+                    type="monotone"
+                    dataKey="gpu"
+                    stroke="#c084fc"
+                    strokeWidth={2.5}
+                    fillOpacity={1}
+                    fill="url(#gpuGlow)"
+                    name="GPU Compute"
+                    isAnimationActive={false}
+                  />
                 )}
               </AreaChart>
             </ResponsiveContainer>
           ) : (
             <div className="h-full flex items-center justify-center text-gray-500 text-sm">
-              Waiting for live metrics from backend WebSocket...
+              <span className="animate-pulse">Streaming real-time telemetry from backend WebSocket...</span>
             </div>
           )}
         </div>

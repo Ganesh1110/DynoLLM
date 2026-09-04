@@ -24,7 +24,7 @@ function AppContent() {
         </Routes>
       </main>
       <footer className="border-t border-gray-900 py-4 text-center text-xs text-gray-600">
-        Local LLM Testing & Monitoring Platform • MVP v1.0 • Built with FastAPI, React & Tailwind CSS
+        ⚡ DynoLLM • Production-Readiness Benchmarking & Load Testing for Local LLMs
       </footer>
     </div>
   )

@@ -4,7 +4,7 @@ from typing import Optional
 
 class Settings(BaseSettings):
     # App
-    APP_NAME: str = "Local LLM Testing & Monitoring Platform"
+    APP_NAME: str = "DynoLLM"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
 
