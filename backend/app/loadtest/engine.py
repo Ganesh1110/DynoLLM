@@ -23,6 +23,7 @@ from app.adapters import get_adapter
 from app.adapters.base import GenerateRequest
 from app.models.load_test import LoadTestRun, LoadTestResult
 from app.core.config import settings
+from app.monitoring.collector import collect_metrics
 
 SHORT_PROMPTS = [
     "What is 2 + 2?",
@@ -134,6 +135,8 @@ async def _single_request(
         success = False
         error = str(e)
 
+    quality_valid = bool(success and not timed_out and (completion_tokens is None or completion_tokens > 0))
+
     result = LoadTestResult(
         id=str(uuid.uuid4()),
         run_id=run_id,
@@ -143,6 +146,7 @@ async def _single_request(
         completion_tokens=completion_tokens,
         generation_tokens_per_second=generation_tokens_per_second,
         success=success,
+        quality_valid=quality_valid,
         error=error,
         timed_out=timed_out,
     )
@@ -207,6 +211,52 @@ async def run_load_test(
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
+    runtime_healthy_holder = [True]
+    abort_reason_holder = [None]
+    power_samples = []
+
+    async def watchdog():
+        while _ACTIVE_RUNS.get(run_id, False):
+            await asyncio.sleep(2.0)
+            if not _ACTIVE_RUNS.get(run_id, False):
+                break
+            # Telemetry sample
+            hw = collect_metrics()
+            if hw.get("gpu_count", 0) > 0 and hw.get("gpus"):
+                p = hw["gpus"][0].get("power_draw_watts")
+                if p:
+                    power_samples.append(p)
+
+            # Runtime health ping
+            try:
+                healthy, msg = await asyncio.wait_for(adapter.health_check(), timeout=4.0)
+                if not healthy:
+                    runtime_healthy_holder[0] = False
+                    abort_reason_holder[0] = f"Runtime health check failed during load: {msg}"
+                    _ACTIVE_RUNS[run_id] = False
+                    if broadcast_fn:
+                        await broadcast_fn({
+                            "type": "runtime_health_alert",
+                            "run_id": run_id,
+                            "status": "unhealthy",
+                            "message": abort_reason_holder[0],
+                        })
+                    break
+            except Exception as ex:
+                runtime_healthy_holder[0] = False
+                abort_reason_holder[0] = f"Runtime process unresponsive or crashed: {ex}"
+                _ACTIVE_RUNS[run_id] = False
+                if broadcast_fn:
+                    await broadcast_fn({
+                        "type": "runtime_health_alert",
+                        "run_id": run_id,
+                        "status": "crashed",
+                        "message": abort_reason_holder[0],
+                    })
+                break
+
+    watchdog_task = asyncio.create_task(watchdog())
+
     try:
         if pattern == "constant":
             await run_with_concurrency(target_users, duration_seconds)
@@ -254,9 +304,15 @@ async def run_load_test(
                 users += rampup_step_users
 
     finally:
+        watchdog_task.cancel()
         _ACTIVE_RUNS.pop(run_id, None)
 
-    return _compute_aggregates(all_results)
+    return _compute_aggregates(
+        all_results,
+        runtime_healthy=runtime_healthy_holder[0],
+        abort_reason=abort_reason_holder[0],
+        power_samples=power_samples,
+    )
 
 
 async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
@@ -282,9 +338,18 @@ async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
     })
 
 
-def _compute_aggregates(all_results: list) -> dict:
+def _compute_aggregates(
+    all_results: list,
+    runtime_healthy: bool = True,
+    abort_reason: Optional[str] = None,
+    power_samples: Optional[list] = None,
+) -> dict:
     if not all_results:
-        return {}
+        return {
+            "runtime_healthy_throughout": runtime_healthy,
+            "abort_reason": abort_reason,
+            "quality_integrity_rate": 0.0,
+        }
 
     latencies = [r.total_latency_ms for r in all_results if r.total_latency_ms]
     ttfts = [r.ttft_ms for r in all_results if r.ttft_ms]
@@ -292,6 +357,7 @@ def _compute_aggregates(all_results: list) -> dict:
     successful = [r for r in all_results if r.success]
     failed = [r for r in all_results if not r.success]
     timed_out = [r for r in all_results if r.timed_out]
+    quality_valid = [r for r in all_results if getattr(r, "quality_valid", True) and r.success]
 
     arr = np.array(latencies) if latencies else np.array([])
 
@@ -302,6 +368,12 @@ def _compute_aggregates(all_results: list) -> dict:
         rps = len(all_results) / max(span, 1)
     else:
         rps = 0
+
+    avg_power = float(np.mean(power_samples)) if power_samples else None
+    avg_gen_tps = float(np.mean(tps_list)) if tps_list else None
+    tokens_per_watt = None
+    if avg_gen_tps and avg_power and avg_power > 0:
+        tokens_per_watt = float(avg_gen_tps / avg_power)
 
     return {
         "total_requests": len(all_results),
@@ -315,7 +387,12 @@ def _compute_aggregates(all_results: list) -> dict:
         "p99_latency_ms": float(np.percentile(arr, 99)) if len(arr) > 0 else None,
         "avg_ttft_ms": float(np.mean(ttfts)) if ttfts else None,
         "p95_ttft_ms": float(np.percentile(ttfts, 95)) if len(ttfts) >= 2 else None,
-        "avg_generation_tokens_per_second": float(np.mean(tps_list)) if tps_list else None,
+        "avg_generation_tokens_per_second": avg_gen_tps,
         "max_concurrent_users_reached": max(r.concurrent_users for r in all_results) if all_results else 0,
         "timeout_count": len(timed_out),
+        "runtime_healthy_throughout": runtime_healthy,
+        "abort_reason": abort_reason,
+        "quality_integrity_rate": float(len(quality_valid) / len(all_results)) if all_results else 1.0,
+        "avg_power_watts": avg_power,
+        "tokens_per_watt": tokens_per_watt,
     }

@@ -25,6 +25,8 @@ class BenchmarkResultOut(BaseModel):
     completion_tokens: Optional[int]
     generation_tokens_per_second: Optional[float]
     e2e_tokens_per_second: Optional[float]
+    power_watts: Optional[float] = None
+    quality_valid: Optional[bool] = True
     error: Optional[str]
     created_at: datetime
 
@@ -55,6 +57,9 @@ class BenchmarkRunOut(BaseModel):
     p50_latency_ms: Optional[float]
     p95_latency_ms: Optional[float]
     p99_latency_ms: Optional[float]
+    avg_power_watts: Optional[float] = None
+    tokens_per_watt: Optional[float] = None
+    quality_integrity_rate: Optional[float] = None
 
     results: Optional[list[BenchmarkResultOut]] = None
 

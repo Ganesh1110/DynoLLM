@@ -61,6 +61,11 @@ class LoadTestRunOut(BaseModel):
     avg_generation_tokens_per_second: Optional[float]
     max_concurrent_users_reached: Optional[int]
     timeout_count: Optional[int]
+    runtime_healthy_throughout: Optional[bool] = True
+    quality_integrity_rate: Optional[float] = None
+    avg_power_watts: Optional[float] = None
+    tokens_per_watt: Optional[float] = None
+    abort_reason: Optional[str] = None
 
     results: Optional[list[LoadTestResultOut]] = None
 

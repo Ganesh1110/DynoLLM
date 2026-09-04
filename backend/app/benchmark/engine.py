@@ -8,6 +8,7 @@ Metrics:
   E2E tok/s    - completion_tokens / total_time
 """
 import asyncio
+import json
 import time
 import uuid
 from datetime import datetime, timezone
@@ -20,6 +21,7 @@ from app.adapters import get_adapter
 from app.adapters.base import GenerateRequest
 from app.models.benchmark import BenchmarkRun, BenchmarkResult
 from app.core.config import settings
+from app.monitoring.collector import collect_metrics
 
 # Predefined prompts for each scenario
 SCENARIO_PROMPTS = {
@@ -129,17 +131,30 @@ async def run_benchmark(
     valid_e2e = [r.e2e_tokens_per_second for r in results if r.e2e_tokens_per_second]
     valid_pt = [r.prompt_tokens for r in results if r.prompt_tokens]
     valid_ct = [r.completion_tokens for r in results if r.completion_tokens]
+    valid_powers = [r.power_watts for r in results if r.power_watts is not None and r.power_watts > 0]
+    avg_power = float(np.mean(valid_powers)) if valid_powers else None
+    avg_gen_tps = float(np.mean(valid_tps)) if valid_tps else None
+
+    tokens_per_watt = None
+    if avg_gen_tps and avg_power and avg_power > 0:
+        tokens_per_watt = float(avg_gen_tps / avg_power)
+
+    quality_passed = sum(1 for r in results if r.quality_valid and not r.error)
+    quality_rate = float(quality_passed / len(results)) if results else 1.0
 
     return {
         "avg_ttft_ms": avg_ttft,
         "avg_total_latency_ms": avg_lat,
-        "avg_generation_tokens_per_second": float(np.mean(valid_tps)) if valid_tps else None,
+        "avg_generation_tokens_per_second": avg_gen_tps,
         "avg_e2e_tokens_per_second": float(np.mean(valid_e2e)) if valid_e2e else None,
         "avg_prompt_tokens": float(np.mean(valid_pt)) if valid_pt else None,
         "avg_completion_tokens": float(np.mean(valid_ct)) if valid_ct else None,
         "p50_latency_ms": p50,
         "p95_latency_ms": p95,
         "p99_latency_ms": p99,
+        "avg_power_watts": avg_power,
+        "tokens_per_watt": tokens_per_watt,
+        "quality_integrity_rate": quality_rate,
     }
 
 
@@ -174,7 +189,18 @@ async def _run_single(
     error = None
     raw = None
 
+    power_watts = None
+    quality_valid = True
+    full_text = ""
+
     try:
+        # Sample hardware before execution
+        hw_before = collect_metrics()
+        if hw_before.get("gpu_count", 0) > 0 and hw_before.get("gpus"):
+            p0 = hw_before["gpus"][0].get("power_draw_watts")
+            if p0:
+                power_watts = float(p0)
+
         t_start = time.perf_counter()
 
         if use_streaming:
@@ -190,6 +216,7 @@ async def _run_single(
 
             t_end = time.perf_counter()
             total_time = t_end - t_start
+            full_text = "".join(content_parts)
 
             if first_token_time:
                 ttft_ms = (first_token_time - t_start) * 1000
@@ -203,16 +230,42 @@ async def _run_single(
             total_time = t_end - t_start
             prompt_tokens = response.prompt_tokens
             completion_tokens = response.completion_tokens
+            full_text = response.content or ""
             raw = response.raw
 
         total_latency_ms = total_time * 1000
         if completion_tokens and total_time > 0:
             e2e_tokens_per_second = completion_tokens / total_time
 
+        # Validate output quality (non-empty & format check)
+        if not full_text.strip():
+            quality_valid = False
+        elif "json" in prompt.lower():
+            try:
+                # Basic json extract check
+                clean = full_text.strip()
+                if clean.startswith("```json"):
+                    clean = clean[7:]
+                if clean.startswith("```"):
+                    clean = clean[3:]
+                if clean.endswith("```"):
+                    clean = clean[:-3]
+                json.loads(clean.strip())
+            except Exception:
+                quality_valid = False
+
+        # Post-sample power to average
+        hw_after = collect_metrics()
+        if hw_after.get("gpu_count", 0) > 0 and hw_after.get("gpus"):
+            p1 = hw_after["gpus"][0].get("power_draw_watts")
+            if p1:
+                power_watts = float((power_watts + p1) / 2) if power_watts else float(p1)
+
     except Exception as e:
         t_end = time.perf_counter()
         total_latency_ms = (t_end - t_start) * 1000
         error = str(e)
+        quality_valid = False
 
     db_result = BenchmarkResult(
         id=result_id,
@@ -224,6 +277,8 @@ async def _run_single(
         completion_tokens=completion_tokens,
         generation_tokens_per_second=generation_tokens_per_second,
         e2e_tokens_per_second=e2e_tokens_per_second,
+        power_watts=power_watts,
+        quality_valid=quality_valid,
         error=error,
         raw_response=raw,
     )

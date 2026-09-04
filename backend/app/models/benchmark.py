@@ -36,6 +36,9 @@ class BenchmarkRun(Base):
     p50_latency_ms = Column(Float, nullable=True)
     p95_latency_ms = Column(Float, nullable=True)
     p99_latency_ms = Column(Float, nullable=True)
+    avg_power_watts = Column(Float, nullable=True)
+    tokens_per_watt = Column(Float, nullable=True)
+    quality_integrity_rate = Column(Float, nullable=True)
 
 
 class BenchmarkResult(Base):
@@ -50,6 +53,8 @@ class BenchmarkResult(Base):
     completion_tokens = Column(Integer, nullable=True)
     generation_tokens_per_second = Column(Float, nullable=True)
     e2e_tokens_per_second = Column(Float, nullable=True)
+    power_watts = Column(Float, nullable=True)
+    quality_valid = Column(Boolean, default=True)
     error = Column(Text, nullable=True)
     raw_response = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)

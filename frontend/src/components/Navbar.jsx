@@ -1,6 +1,6 @@
 import React from 'react'
 import { NavLink } from 'react-router-dom'
-import { Activity, Cpu, PlayCircle, Zap, History, Server, Radio } from 'lucide-react'
+import { Activity, Cpu, PlayCircle, Zap, History, Server, Radio, GitCompare } from 'lucide-react'
 import { useMonitoringStore } from '../stores/monitoringStore'
 
 export function Navbar() {
@@ -12,6 +12,7 @@ export function Navbar() {
     { to: '/runtimes', label: 'Runtimes & Models', icon: Server },
     { to: '/benchmark', label: 'Benchmark', icon: PlayCircle },
     { to: '/load-test', label: 'Load Test', icon: Zap },
+    { to: '/compare', label: 'Compare', icon: GitCompare },
     { to: '/history', label: 'History & Export', icon: History },
   ]
 

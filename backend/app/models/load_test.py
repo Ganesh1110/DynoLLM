@@ -44,6 +44,11 @@ class LoadTestRun(Base):
     avg_generation_tokens_per_second = Column(Float, nullable=True)
     max_concurrent_users_reached = Column(Integer, nullable=True)
     timeout_count = Column(Integer, nullable=True)
+    runtime_healthy_throughout = Column(Boolean, default=True)
+    quality_integrity_rate = Column(Float, nullable=True)
+    avg_power_watts = Column(Float, nullable=True)
+    tokens_per_watt = Column(Float, nullable=True)
+    abort_reason = Column(Text, nullable=True)
 
 
 class LoadTestResult(Base):
@@ -58,5 +63,6 @@ class LoadTestResult(Base):
     completion_tokens = Column(Integer, nullable=True)
     generation_tokens_per_second = Column(Float, nullable=True)
     success = Column(Boolean, default=True)
+    quality_valid = Column(Boolean, default=True)
     error = Column(Text, nullable=True)
     timed_out = Column(Boolean, default=False)

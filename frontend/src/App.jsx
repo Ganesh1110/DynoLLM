@@ -6,6 +6,7 @@ import { Runtimes } from './pages/Runtimes'
 import { Benchmark } from './pages/Benchmark'
 import { LoadTest } from './pages/LoadTest'
 import { History } from './pages/History'
+import { Compare } from './pages/Compare'
 import { useWebSocket } from './hooks/useWebSocket'
 
 function AppContent() {
@@ -20,6 +21,7 @@ function AppContent() {
           <Route path="/runtimes" element={<Runtimes />} />
           <Route path="/benchmark" element={<Benchmark />} />
           <Route path="/load-test" element={<LoadTest />} />
+          <Route path="/compare" element={<Compare />} />
           <Route path="/history" element={<History />} />
         </Routes>
       </main>

@@ -8,6 +8,7 @@
 [![TailwindCSS](https://img.shields.io/badge/Tailwind-3.4-38B2AC?style=flat&logo=tailwind-css&logoColor=white)](https://tailwindcss.com)
 [![SQLite](https://img.shields.io/badge/SQLite-Async-003B57?style=flat&logo=sqlite&logoColor=white)](https://sqlite.org)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat&logo=python&logoColor=white)](https://python.org)
+[![CI](https://img.shields.io/badge/CI-Passing-brightgreen?style=flat&logo=githubactions&logoColor=white)](.github/workflows/ci.yml)
 
 **Answer the ultimate deployment question:**  
 > *"Can this local LLM configuration safely and reliably serve my production workload, and how many concurrent users can it handle?"*
@@ -47,14 +48,30 @@
   - `Stress Test`: Auto-incrementing load that halts automatically if error rates exceed thresholds (e.g., >20% failure or memory exhaustion).
 - **Live Performance Curves**: WebSocket-streamed $P_{95}$ vs. Average Latency distribution and real-time RPS (Requests Per Second).
 
-### 4. 📊 Real-Time Hardware Telemetry
+### 4. ⚡ Energy Efficiency & Power Telemetry
+- **Tokens-per-Watt Profiling**: Correlates GPU power draw ($W$) during active generation to compute true operational efficiency ($\text{tok/s} / \text{Watts}$).
+- **Hardware Sizing**: Directly compare power-to-performance tradeoffs across quantizations (`Q4_K_M` vs `Q8_0` vs `FP16`).
+
+### 5. 🛡️ Concurrent Runtime Health Watchdog
+- **Process Crash & OOM Protection**: Actively pings the target runtime during concurrent stress tests.
+- **Safe Emergency Abort**: Instantly detects runtime lockups or GPU memory crashes, terminating the test cleanly and recording the exact failure reason instead of hanging indefinitely.
+
+### 6. 🏆 Side-by-Side Model Comparison & Leaderboard
+- **Multi-Model Scorecard**: Select 2 to 4 benchmark runs to view a side-by-side performance matrix.
+- **Leaderboard Badges**: Automatically identifies leaders in **Fastest Generation (tok/s)**, **Fastest TTFT**, **Lowest $P_{95}$ Latency**, and **Highest Energy Efficiency**.
+
+### 7. 🔍 Output Quality & Integrity Under Load
+- **Degradation Detection**: Checks for truncated responses, malformed JSON structures, and premature connection terminations under heavy concurrency.
+- **Quality Pass Rate**: Calculates a **Quality Integrity Score %** alongside raw speed.
+
+### 8. 📊 Real-Time Hardware Telemetry
 - **CPU & Core Distribution**: Global usage percentage, per-core metrics, and 1m/5m load averages via `psutil`.
 - **System Memory (RAM)**: Real-time memory allocation, cache usage, and buffer availability.
 - **GPU & VRAM (NVIDIA)**: Hardware integration via `pynvml` measuring GPU Core Utilization %, VRAM consumption, Clock speed, Temperature (°C), and Power draw (Watts).
 - **Apple Silicon Support**: Graceful unified memory tracking on macOS / Metal environments.
 - **Disk I/O Throughput**: Read/Write rates in KB/s and MB/s.
 
-### 5. 💾 History, Data Persistence & Export
+### 9. 💾 History, Data Persistence & Export
 - **Persistent Storage**: Lightweight, zero-config async SQLite storage.
 - **Export Formats**: One-click download of raw execution data in both **CSV** and **JSON** formats.
 
