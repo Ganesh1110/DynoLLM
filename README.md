@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ DynoLLM (or LocalLLM Probe)
+# ⚡ DynoLLM
 ### Production-Readiness Benchmarking, Load Testing & Telemetry Platform for Local AI Models
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
