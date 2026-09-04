@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey
+from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey, Boolean
 from app.core.database import Base
 
 
@@ -36,9 +36,6 @@ class BenchmarkRun(Base):
     p50_latency_ms = Column(Float, nullable=True)
     p95_latency_ms = Column(Float, nullable=True)
     p99_latency_ms = Column(Float, nullable=True)
-
-
-from sqlalchemy import Boolean
 
 
 class BenchmarkResult(Base):

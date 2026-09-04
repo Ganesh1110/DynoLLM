@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: llm-platform-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=Local LLM Testing & Monitoring Platform
+      - DEBUG=True
+      - DATABASE_URL=sqlite+aiosqlite:///./llm_platform.db
+      - DEFAULT_OLLAMA_ENDPOINT=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backend/data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: llm-platform-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
