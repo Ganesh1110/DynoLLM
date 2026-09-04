@@ -1,0 +1,321 @@
+"""
+Async load testing engine.
+
+Patterns:
+  - constant  : N concurrent users for duration
+  - rampup    : gradually increase from 1 to target_users
+  - spike     : instant jump to target_users
+  - stress    : keep increasing until error rate or latency thresholds are exceeded
+
+Uses asyncio + httpx for high-concurrency HTTP generation.
+"""
+import asyncio
+import time
+import uuid
+import random
+from datetime import datetime, timezone
+from typing import Optional, Callable, Awaitable
+import numpy as np
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.adapters import get_adapter
+from app.adapters.base import GenerateRequest
+from app.models.load_test import LoadTestRun, LoadTestResult
+from app.core.config import settings
+
+SHORT_PROMPTS = [
+    "What is 2 + 2?",
+    "Name the capital of Japan.",
+    "What color is the sky?",
+    "How many days are in a week?",
+    "What is the speed of light?",
+]
+
+NORMAL_PROMPTS = [
+    "Explain the difference between supervised and unsupervised machine learning.",
+    "What are the benefits of using Docker for software development?",
+    "Describe the water cycle in nature.",
+    "How does HTTPS encryption work?",
+    "What is the difference between RAM and ROM?",
+]
+
+LONG_PROMPTS = [
+    (
+        "Write a detailed technical guide on designing a scalable microservices architecture. "
+        "Cover service discovery, load balancing, circuit breakers, distributed tracing, "
+        "event-driven communication, database per service pattern, and observability."
+    ),
+    (
+        "Explain in depth how transformer neural networks work. Include attention mechanisms, "
+        "multi-head attention, positional encoding, encoder-decoder architecture, "
+        "and how BERT and GPT differ in their design objectives."
+    ),
+]
+
+_ACTIVE_RUNS: dict[str, bool] = {}  # run_id -> should_continue
+
+
+def stop_run(run_id: str):
+    _ACTIVE_RUNS[run_id] = False
+
+
+def _pick_prompt(prompt_mix: Optional[dict]) -> str:
+    mix = prompt_mix or {"short": 0.3, "normal": 0.5, "long": 0.2}
+    r = random.random()
+    if r < mix.get("short", 0.3):
+        return random.choice(SHORT_PROMPTS)
+    elif r < mix.get("short", 0.3) + mix.get("normal", 0.5):
+        return random.choice(NORMAL_PROMPTS)
+    else:
+        return random.choice(LONG_PROMPTS)
+
+
+async def _single_request(
+    adapter,
+    model: str,
+    prompt: str,
+    system_prompt: Optional[str],
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    concurrent_users: int,
+    run_id: str,
+    db: AsyncSession,
+) -> LoadTestResult:
+    request = GenerateRequest(
+        model=model,
+        prompt=prompt,
+        system_prompt=system_prompt,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+
+    ttft_ms = None
+    total_latency_ms = 0.0
+    completion_tokens = None
+    generation_tokens_per_second = None
+    success = True
+    error = None
+    timed_out = False
+
+    try:
+        t_start = time.perf_counter()
+        first_token_time = None
+        async with asyncio.timeout(timeout):
+            async for chunk in adapter.generate_stream(request):
+                if chunk.delta and first_token_time is None:
+                    first_token_time = time.perf_counter()
+                if chunk.is_last:
+                    completion_tokens = chunk.completion_tokens
+
+        t_end = time.perf_counter()
+        total_time = t_end - t_start
+        total_latency_ms = total_time * 1000
+
+        if first_token_time:
+            ttft_ms = (first_token_time - t_start) * 1000
+            gen_time = t_end - first_token_time
+            if completion_tokens and gen_time > 0:
+                generation_tokens_per_second = completion_tokens / gen_time
+        elif completion_tokens and total_time > 0:
+            generation_tokens_per_second = completion_tokens / total_time
+
+    except asyncio.TimeoutError:
+        t_end = time.perf_counter()
+        total_latency_ms = (t_end - t_start) * 1000
+        success = False
+        timed_out = True
+        error = f"Request timed out after {timeout}s"
+    except Exception as e:
+        t_end = time.perf_counter()
+        total_latency_ms = (t_end - t_start) * 1000
+        success = False
+        error = str(e)
+
+    result = LoadTestResult(
+        id=str(uuid.uuid4()),
+        run_id=run_id,
+        concurrent_users=concurrent_users,
+        ttft_ms=ttft_ms,
+        total_latency_ms=total_latency_ms,
+        completion_tokens=completion_tokens,
+        generation_tokens_per_second=generation_tokens_per_second,
+        success=success,
+        error=error,
+        timed_out=timed_out,
+    )
+    db.add(result)
+    await db.flush()
+    return result
+
+
+async def run_load_test(
+    run_id: str,
+    runtime_type: str,
+    endpoint: str,
+    api_key: Optional[str],
+    model: str,
+    pattern: str,
+    target_users: int,
+    duration_seconds: int,
+    rampup_step_users: int,
+    rampup_step_seconds: int,
+    system_prompt: Optional[str],
+    prompt_mix: Optional[dict],
+    temperature: float,
+    max_tokens: int,
+    request_timeout: float,
+    db: AsyncSession,
+    broadcast_fn: Optional[Callable[[dict], Awaitable[None]]] = None,
+) -> dict:
+    _ACTIVE_RUNS[run_id] = True
+    adapter = get_adapter(runtime_type, endpoint, api_key)
+
+    all_results: list[LoadTestResult] = []
+    semaphore_holder = [asyncio.Semaphore(1)]
+    current_users_holder = [0]
+    t_run_start = time.perf_counter()
+
+    async def worker():
+        while _ACTIVE_RUNS.get(run_id, False):
+            async with semaphore_holder[0]:
+                pass  # acquire the semaphore slot
+            prompt = _pick_prompt(prompt_mix)
+            result = await _single_request(
+                adapter=adapter,
+                model=model,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=request_timeout,
+                concurrent_users=current_users_holder[0],
+                run_id=run_id,
+                db=db,
+            )
+            all_results.append(result)
+            await _broadcast_progress(run_id, all_results, current_users_holder[0], broadcast_fn)
+
+    async def run_with_concurrency(n_users: int, duration: float):
+        current_users_holder[0] = n_users
+        semaphore_holder[0] = asyncio.Semaphore(n_users)
+        tasks = [asyncio.create_task(worker()) for _ in range(n_users)]
+        await asyncio.sleep(duration)
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    try:
+        if pattern == "constant":
+            await run_with_concurrency(target_users, duration_seconds)
+
+        elif pattern == "rampup":
+            users = rampup_step_users
+            while users <= target_users and _ACTIVE_RUNS.get(run_id, False):
+                elapsed = time.perf_counter() - t_run_start
+                if elapsed > duration_seconds:
+                    break
+                remaining = duration_seconds - elapsed
+                step_dur = min(rampup_step_seconds, remaining)
+                await run_with_concurrency(users, step_dur)
+                users += rampup_step_users
+            # Hold at max if time remains
+            elapsed = time.perf_counter() - t_run_start
+            if elapsed < duration_seconds and _ACTIVE_RUNS.get(run_id, False):
+                await run_with_concurrency(target_users, duration_seconds - elapsed)
+
+        elif pattern == "spike":
+            # Warm-up at 5 users for 10s, then spike
+            warm_dur = min(10, duration_seconds * 0.2)
+            await run_with_concurrency(min(5, target_users), warm_dur)
+            remaining = duration_seconds - warm_dur
+            if remaining > 0 and _ACTIVE_RUNS.get(run_id, False):
+                await run_with_concurrency(target_users, remaining)
+
+        elif pattern == "stress":
+            # Gradually increase; stop if error_rate > 20% or no successful results
+            users = rampup_step_users
+            while users <= min(target_users, settings.MAX_CONCURRENT_USERS):
+                if not _ACTIVE_RUNS.get(run_id, False):
+                    break
+                elapsed = time.perf_counter() - t_run_start
+                if elapsed > duration_seconds:
+                    break
+                step_dur = min(rampup_step_seconds, duration_seconds - elapsed)
+                prev_count = len(all_results)
+                await run_with_concurrency(users, step_dur)
+                new_results = all_results[prev_count:]
+                if new_results:
+                    fail_rate = sum(1 for r in new_results if not r.success) / len(new_results)
+                    if fail_rate > 0.2:  # 20% error rate = stop
+                        break
+                users += rampup_step_users
+
+    finally:
+        _ACTIVE_RUNS.pop(run_id, None)
+
+    return _compute_aggregates(all_results)
+
+
+async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
+    if not broadcast_fn or not all_results:
+        return
+    recent = all_results[-50:]  # last 50 for live stats
+    latencies = [r.total_latency_ms for r in recent if r.total_latency_ms]
+    ttfts = [r.ttft_ms for r in recent if r.ttft_ms]
+    successful = [r for r in recent if r.success]
+    failed = len(recent) - len(successful)
+
+    await broadcast_fn({
+        "type": "load_test_progress",
+        "run_id": run_id,
+        "concurrent_users": current_users,
+        "total_requests": len(all_results),
+        "successful_requests": sum(1 for r in all_results if r.success),
+        "failed_requests": sum(1 for r in all_results if not r.success),
+        "avg_latency_ms": float(np.mean(latencies)) if latencies else 0,
+        "p95_latency_ms": float(np.percentile(latencies, 95)) if len(latencies) >= 2 else None,
+        "avg_ttft_ms": float(np.mean(ttfts)) if ttfts else None,
+        "error_rate": failed / len(recent) if recent else 0,
+    })
+
+
+def _compute_aggregates(all_results: list) -> dict:
+    if not all_results:
+        return {}
+
+    latencies = [r.total_latency_ms for r in all_results if r.total_latency_ms]
+    ttfts = [r.ttft_ms for r in all_results if r.ttft_ms]
+    tps_list = [r.generation_tokens_per_second for r in all_results if r.generation_tokens_per_second]
+    successful = [r for r in all_results if r.success]
+    failed = [r for r in all_results if not r.success]
+    timed_out = [r for r in all_results if r.timed_out]
+
+    arr = np.array(latencies) if latencies else np.array([])
+
+    # Calculate RPS
+    if all_results:
+        timestamps = [r.timestamp for r in all_results]
+        span = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) > 1 else 1
+        rps = len(all_results) / max(span, 1)
+    else:
+        rps = 0
+
+    return {
+        "total_requests": len(all_results),
+        "successful_requests": len(successful),
+        "failed_requests": len(failed),
+        "requests_per_second": rps,
+        "error_rate": len(failed) / len(all_results) if all_results else 0,
+        "p50_latency_ms": float(np.percentile(arr, 50)) if len(arr) > 0 else None,
+        "p90_latency_ms": float(np.percentile(arr, 90)) if len(arr) > 0 else None,
+        "p95_latency_ms": float(np.percentile(arr, 95)) if len(arr) > 0 else None,
+        "p99_latency_ms": float(np.percentile(arr, 99)) if len(arr) > 0 else None,
+        "avg_ttft_ms": float(np.mean(ttfts)) if ttfts else None,
+        "p95_ttft_ms": float(np.percentile(ttfts, 95)) if len(ttfts) >= 2 else None,
+        "avg_generation_tokens_per_second": float(np.mean(tps_list)) if tps_list else None,
+        "max_concurrent_users_reached": max(r.concurrent_users for r in all_results) if all_results else 0,
+        "timeout_count": len(timed_out),
+    }
