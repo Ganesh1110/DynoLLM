@@ -93,6 +93,21 @@ def collect_metrics() -> dict:
             except Exception:
                 pass
 
+    # Multi-GPU aggregates
+    total_gpu_power_watts = None
+    total_vram_used_bytes = 0
+    total_vram_total_bytes = 0
+    avg_gpu_utilization = None
+    if gpus:
+        powers = [g["power_draw_watts"] for g in gpus if g.get("power_draw_watts") is not None]
+        if powers:
+            total_gpu_power_watts = sum(powers)
+        total_vram_used_bytes = sum(g.get("vram_used_bytes", 0) for g in gpus)
+        total_vram_total_bytes = sum(g.get("vram_total_bytes", 0) for g in gpus)
+        utils = [g["utilization_percent"] for g in gpus if g.get("utilization_percent") is not None]
+        if utils:
+            avg_gpu_utilization = sum(utils) / len(utils)
+
     return {
         "timestamp": now,
         "cpu_percent": cpu_percent,
@@ -105,8 +120,12 @@ def collect_metrics() -> dict:
         "ram_percent": ram_percent,
         "disk_read_bytes_per_sec": disk_read_per_sec,
         "disk_write_bytes_per_sec": disk_write_per_sec,
-        "gpu_count": _GPU_COUNT,
+        "gpu_count": len(gpus),
         "gpus": gpus,
+        "total_gpu_power_watts": total_gpu_power_watts,
+        "total_vram_used_bytes": total_vram_used_bytes,
+        "total_vram_total_bytes": total_vram_total_bytes,
+        "avg_gpu_utilization_percent": avg_gpu_utilization,
     }
 
 

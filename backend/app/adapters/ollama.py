@@ -12,11 +12,11 @@ from app.adapters.base import RuntimeAdapter, GenerateRequest, GenerateResponse,
 
 class OllamaAdapter(RuntimeAdapter):
 
-    async def health_check(self) -> tuple[bool, str]:
+    async def health_check(self, client: Optional[httpx.AsyncClient] = None) -> tuple[bool, str]:
         try:
             t0 = time.perf_counter()
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.endpoint}/api/tags")
+            async with self.get_client(client, default_timeout=10.0) as http_client:
+                resp = await http_client.get(f"{self.endpoint}/api/tags")
             latency_ms = (time.perf_counter() - t0) * 1000
             if resp.status_code == 200:
                 return True, f"Healthy — {latency_ms:.0f}ms"
@@ -24,9 +24,9 @@ class OllamaAdapter(RuntimeAdapter):
         except Exception as e:
             return False, str(e)
 
-    async def list_models(self) -> list[dict]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(f"{self.endpoint}/api/tags")
+    async def list_models(self, client: Optional[httpx.AsyncClient] = None) -> list[dict]:
+        async with self.get_client(client, default_timeout=30.0) as http_client:
+            resp = await http_client.get(f"{self.endpoint}/api/tags")
             resp.raise_for_status()
             data = resp.json()
             models = []
@@ -44,10 +44,14 @@ class OllamaAdapter(RuntimeAdapter):
                 })
             return models
 
-    async def generate(self, request: GenerateRequest) -> GenerateResponse:
+    async def generate(
+        self,
+        request: GenerateRequest,
+        client: Optional[httpx.AsyncClient] = None,
+    ) -> GenerateResponse:
         payload = self._build_payload(request, stream=False)
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(f"{self.endpoint}/api/generate", json=payload)
+        async with self.get_client(client, default_timeout=300.0) as http_client:
+            resp = await http_client.post(f"{self.endpoint}/api/generate", json=payload)
             resp.raise_for_status()
             data = resp.json()
             return GenerateResponse(
@@ -58,11 +62,15 @@ class OllamaAdapter(RuntimeAdapter):
                 raw=data,
             )
 
-    async def generate_stream(self, request: GenerateRequest) -> AsyncIterator[StreamChunk]:
+    async def generate_stream(
+        self,
+        request: GenerateRequest,
+        client: Optional[httpx.AsyncClient] = None,
+    ) -> AsyncIterator[StreamChunk]:
         payload = self._build_payload(request, stream=True)
         is_first = True
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream("POST", f"{self.endpoint}/api/generate", json=payload) as resp:
+        async with self.get_client(client, default_timeout=300.0) as http_client:
+            async with http_client.stream("POST", f"{self.endpoint}/api/generate", json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line:

@@ -49,6 +49,7 @@ class LoadTestRun(Base):
     avg_power_watts = Column(Float, nullable=True)
     tokens_per_watt = Column(Float, nullable=True)
     abort_reason = Column(Text, nullable=True)
+    safe_max_concurrency = Column(Integer, nullable=True)
 
 
 class LoadTestResult(Base):
@@ -66,3 +67,4 @@ class LoadTestResult(Base):
     quality_valid = Column(Boolean, default=True)
     error = Column(Text, nullable=True)
     timed_out = Column(Boolean, default=False)
+    is_transient_error = Column(Boolean, default=False)

@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 import numpy as np
+import httpx
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -79,30 +80,34 @@ async def run_benchmark(
 ):
     """Execute benchmark runs and persist results to DB."""
     actual_prompt = prompt or SCENARIO_PROMPTS.get(scenario, SCENARIO_PROMPTS["medium"])
-    adapter = get_adapter(runtime_type, endpoint, api_key)
+    limits = httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=30.0)
+    timeout_cfg = httpx.Timeout(timeout=300.0, connect=10.0)
 
-    results = []
-    latencies = []
-    ttfts = []
+    async with httpx.AsyncClient(limits=limits, timeout=timeout_cfg) as client:
+        adapter = get_adapter(runtime_type, endpoint, api_key, client=client)
 
-    for i in range(num_runs):
-        result = await _run_single(
-            run_id=run_id,
-            run_index=i,
-            adapter=adapter,
-            model=model,
-            prompt=actual_prompt,
-            system_prompt=system_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            use_streaming=use_streaming,
-            db=db,
-        )
-        results.append(result)
-        if result.total_latency_ms:
-            latencies.append(result.total_latency_ms)
-        if result.ttft_ms:
-            ttfts.append(result.ttft_ms)
+        results = []
+        latencies = []
+        ttfts = []
+
+        for i in range(num_runs):
+            result = await _run_single(
+                run_id=run_id,
+                run_index=i,
+                adapter=adapter,
+                model=model,
+                prompt=actual_prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                use_streaming=use_streaming,
+                db=db,
+            )
+            results.append(result)
+            if result.total_latency_ms:
+                latencies.append(result.total_latency_ms)
+            if result.ttft_ms:
+                ttfts.append(result.ttft_ms)
 
         # Broadcast progress
         if broadcast_fn:
@@ -194,12 +199,14 @@ async def _run_single(
     full_text = ""
 
     try:
-        # Sample hardware before execution
+        # Sample hardware before execution (aggregated across all GPUs)
         hw_before = collect_metrics()
-        if hw_before.get("gpu_count", 0) > 0 and hw_before.get("gpus"):
-            p0 = hw_before["gpus"][0].get("power_draw_watts")
-            if p0:
-                power_watts = float(p0)
+        p0 = hw_before.get("total_gpu_power_watts")
+        if p0 is None and hw_before.get("gpus"):
+            powers = [g.get("power_draw_watts") for g in hw_before["gpus"] if g.get("power_draw_watts") is not None]
+            p0 = sum(powers) if powers else None
+        if p0 is not None:
+            power_watts = float(p0)
 
         t_start = time.perf_counter()
 
@@ -254,12 +261,14 @@ async def _run_single(
             except Exception:
                 quality_valid = False
 
-        # Post-sample power to average
+        # Post-sample power to average across all GPUs
         hw_after = collect_metrics()
-        if hw_after.get("gpu_count", 0) > 0 and hw_after.get("gpus"):
-            p1 = hw_after["gpus"][0].get("power_draw_watts")
-            if p1:
-                power_watts = float((power_watts + p1) / 2) if power_watts else float(p1)
+        p1 = hw_after.get("total_gpu_power_watts")
+        if p1 is None and hw_after.get("gpus"):
+            powers = [g.get("power_draw_watts") for g in hw_after["gpus"] if g.get("power_draw_watts") is not None]
+            p1 = sum(powers) if powers else None
+        if p1 is not None:
+            power_watts = float((power_watts + p1) / 2) if power_watts else float(p1)
 
     except Exception as e:
         t_end = time.perf_counter()

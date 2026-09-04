@@ -1,11 +1,20 @@
-// API service layer — all HTTP calls to FastAPI backend
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 const WS_BASE = BASE_URL.replace(/^http/, 'ws')
 
+function getApiKey() {
+  return import.meta.env.VITE_API_KEY || localStorage.getItem('dynollm_api_key') || ''
+}
+
 async function request(path, options = {}) {
+  const apiKey = getApiKey()
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+    ...options.headers,
+  }
   const resp = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
     ...options,
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
   if (!resp.ok) {

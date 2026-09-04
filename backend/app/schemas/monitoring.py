@@ -28,3 +28,7 @@ class HardwareMetrics(BaseModel):
     disk_write_bytes_per_sec: float
     gpu_count: int
     gpus: list[GPUMetrics]
+    total_gpu_power_watts: Optional[float] = None
+    total_vram_used_bytes: Optional[int] = None
+    total_vram_total_bytes: Optional[int] = None
+    avg_gpu_utilization_percent: Optional[float] = None

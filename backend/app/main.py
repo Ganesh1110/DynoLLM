@@ -1,11 +1,12 @@
 """FastAPI application entry point."""
 from contextlib import asynccontextmanager
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import create_tables
+from app.core.auth import verify_api_key
 import app.models  # noqa: F401 — ensure all models are registered
 
 from app.api.runtimes import router as runtimes_router
@@ -40,11 +41,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(runtimes_router)
-app.include_router(benchmarks_router)
-app.include_router(load_tests_router)
-app.include_router(monitoring_router)
-app.include_router(export_router)
+app.include_router(runtimes_router, dependencies=[Depends(verify_api_key)])
+app.include_router(benchmarks_router, dependencies=[Depends(verify_api_key)])
+app.include_router(load_tests_router, dependencies=[Depends(verify_api_key)])
+app.include_router(monitoring_router, dependencies=[Depends(verify_api_key)])
+app.include_router(export_router, dependencies=[Depends(verify_api_key)])
 
 
 @app.get("/api/health")

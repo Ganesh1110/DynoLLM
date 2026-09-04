@@ -30,6 +30,7 @@ class LoadTestResultOut(BaseModel):
     success: bool
     error: Optional[str]
     timed_out: bool
+    is_transient_error: Optional[bool] = False
 
     model_config = {"from_attributes": True}
 
@@ -66,6 +67,7 @@ class LoadTestRunOut(BaseModel):
     avg_power_watts: Optional[float] = None
     tokens_per_watt: Optional[float] = None
     abort_reason: Optional[str] = None
+    safe_max_concurrency: Optional[int] = None
 
     results: Optional[list[LoadTestResultOut]] = None
 

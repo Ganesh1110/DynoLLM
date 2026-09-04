@@ -293,7 +293,7 @@ export function LoadTest() {
                 </div>
 
                 {/* Scorecard Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
                     <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Concurrent Users</span>
                     <div className="text-2xl font-black text-sky-400 mt-1">
@@ -326,6 +326,14 @@ export function LoadTest() {
                       {fmt(activeRun.requests_per_second ?? latestLivePoint?.requests_per_second, 2)}
                     </div>
                     <span className="text-[10px] text-gray-500">Req / Second</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-emerald-500/30 text-center col-span-2 sm:col-span-1">
+                    <span className="text-[11px] uppercase tracking-wider text-emerald-400 font-semibold">Safe Concurrency</span>
+                    <div className="text-2xl font-black text-emerald-400 mt-1">
+                      {activeRun.safe_max_concurrency != null ? `${activeRun.safe_max_concurrency} VU` : 'Measuring...'}
+                    </div>
+                    <span className="text-[10px] text-gray-500">SLA &le;5% Err</span>
                   </div>
                 </div>
               </div>
