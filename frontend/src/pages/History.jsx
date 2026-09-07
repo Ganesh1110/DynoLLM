@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { History as HistoryIcon, Download, Search, PlayCircle, Zap, RefreshCw, Eye } from 'lucide-react'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
+import { benchmarksApi, loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 
 export function History() {
@@ -112,8 +113,9 @@ export function History() {
                       <td className="p-3 text-amber-400">{fmtMs(run.p95_latency_ms)}</td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end space-x-1.5 font-sans">
+                          {/* Fix 6b: dynamic export URLs */}
                           <a
-                            href={`http://localhost:8000/api/export/benchmarks/${run.id}/csv`}
+                            href={benchmarksApi.exportCsv(run.id)}
                             download
                             className="btn-secondary text-[11px] py-1 px-2 flex items-center space-x-1"
                             title="Download CSV"
@@ -122,7 +124,7 @@ export function History() {
                             <span>CSV</span>
                           </a>
                           <a
-                            href={`http://localhost:8000/api/export/benchmarks/${run.id}/json`}
+                            href={benchmarksApi.exportJson(run.id)}
                             download
                             className="btn-secondary text-[11px] py-1 px-2 flex items-center space-x-1"
                             title="Download JSON"
@@ -130,6 +132,7 @@ export function History() {
                             <Download className="w-3 h-3" />
                             <span>JSON</span>
                           </a>
+
                         </div>
                       </td>
                     </tr>
@@ -183,8 +186,9 @@ export function History() {
                       <td className="p-3 text-amber-400">{fmtMs(run.p95_latency_ms)}</td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end space-x-1.5 font-sans">
+                          {/* Fix 6b: dynamic load-test export URL */}
                           <a
-                            href={`http://localhost:8000/api/export/load-tests/${run.id}/csv`}
+                            href={loadTestsApi.exportCsv(run.id)}
                             download
                             className="btn-secondary text-[11px] py-1 px-2 flex items-center space-x-1"
                             title="Download CSV"
@@ -192,6 +196,7 @@ export function History() {
                             <Download className="w-3 h-3" />
                             <span>CSV</span>
                           </a>
+
                         </div>
                       </td>
                     </tr>

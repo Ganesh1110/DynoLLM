@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { PlayCircle, StopCircle, RefreshCw, BarChart2, Download, CheckCircle2, AlertTriangle, ArrowRight } from 'lucide-react'
+import { PlayCircle, StopCircle, RefreshCw, BarChart2, Download, CheckCircle2, AlertTriangle, ArrowRight, Zap, ShieldCheck } from 'lucide-react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
+import { benchmarksApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 
 export function Benchmark() {
@@ -10,11 +11,13 @@ export function Benchmark() {
   const fetchRuntimes = useRuntimeStore((s) => s.fetchRuntimes)
   const fetchModels = useRuntimeStore((s) => s.fetchModels)
   const createRun = useBenchmarkStore((s) => s.createRun)
+  const fetchRuns = useBenchmarkStore((s) => s.fetchRuns)  // Fix 8
   const activeRun = useBenchmarkStore((s) => s.activeRun)
   const liveProgress = useBenchmarkStore((s) => s.liveProgress)
   const stopRun = useBenchmarkStore((s) => s.stopRun)
   const loading = useBenchmarkStore((s) => s.loading)
   const error = useBenchmarkStore((s) => s.error)
+
 
   const [availableModels, setAvailableModels] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
@@ -33,12 +36,15 @@ export function Benchmark() {
   })
 
   useEffect(() => {
+    // Fix 8: Load benchmark history on mount so runs are available without visiting History tab
+    fetchRuns()
     fetchRuntimes().then(() => {
       if (runtimes.length > 0 && !config.runtime_id) {
         handleRuntimeChange(runtimes[0].id)
       }
     })
   }, [runtimes.length])
+
 
   const handleRuntimeChange = async (rtId) => {
     setConfig((prev) => ({ ...prev, runtime_id: rtId, model: '' }))
@@ -299,7 +305,45 @@ export function Benchmark() {
                     <div className="text-xl font-black text-amber-400 mt-1">{fmtMs(activeRun.p95_latency_ms)}</div>
                     <span className="text-[10px] text-gray-500">95th Percentile</span>
                   </div>
+
+                  {/* Fix 5: Additional metrics — P50, P99, Energy Efficiency, Quality Integrity */}
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">P50 Latency</span>
+                    <div className="text-xl font-black text-indigo-400 mt-1">{fmtMs(activeRun.p50_latency_ms)}</div>
+                    <span className="text-[10px] text-gray-500">Median</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">P99 Latency</span>
+                    <div className="text-xl font-black text-red-400 mt-1">{fmtMs(activeRun.p99_latency_ms)}</div>
+                    <span className="text-[10px] text-gray-500">99th Percentile</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <div className="flex items-center justify-center space-x-1 mb-0.5">
+                      <Zap className="w-3 h-3 text-yellow-400" />
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Energy Eff.</span>
+                    </div>
+                    <div className="text-xl font-black text-yellow-400 mt-1">
+                      {activeRun.tokens_per_watt != null ? `${activeRun.tokens_per_watt.toFixed(2)}` : '—'}
+                    </div>
+                    <span className="text-[10px] text-gray-500">tok/s · W⁻¹</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <div className="flex items-center justify-center space-x-1 mb-0.5">
+                      <ShieldCheck className="w-3 h-3 text-teal-400" />
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Quality</span>
+                    </div>
+                    <div className="text-xl font-black text-teal-400 mt-1">
+                      {activeRun.quality_integrity_rate != null
+                        ? `${(activeRun.quality_integrity_rate * 100).toFixed(0)}%`
+                        : '—'}
+                    </div>
+                    <span className="text-[10px] text-gray-500">Integrity Rate</span>
+                  </div>
                 </div>
+
               </div>
 
               {/* Per-Run Chart */}
@@ -329,8 +373,9 @@ export function Benchmark() {
                   <div className="flex justify-between items-center">
                     <h3 className="font-bold text-sm text-white">Execution Breakdown</h3>
                     <div className="flex space-x-2">
+                      {/* Fix 6a: Use dynamic export URL helper instead of hardcoded localhost:8000 */}
                       <a
-                        href={`http://localhost:8000/api/export/benchmarks/${activeRun.id}/csv`}
+                        href={benchmarksApi.exportCsv(activeRun.id)}
                         download
                         className="btn-secondary text-xs flex items-center space-x-1 py-1 px-2.5"
                       >
@@ -338,7 +383,7 @@ export function Benchmark() {
                         <span>CSV</span>
                       </a>
                       <a
-                        href={`http://localhost:8000/api/export/benchmarks/${activeRun.id}/json`}
+                        href={benchmarksApi.exportJson(activeRun.id)}
                         download
                         className="btn-secondary text-xs flex items-center space-x-1 py-1 px-2.5"
                       >
@@ -346,6 +391,7 @@ export function Benchmark() {
                         <span>JSON</span>
                       </a>
                     </div>
+
                   </div>
 
                   <div className="overflow-x-auto">

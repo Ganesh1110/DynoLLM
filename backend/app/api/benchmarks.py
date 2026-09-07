@@ -9,7 +9,7 @@ from app.core.database import get_db, AsyncSessionLocal
 from app.models.runtime import Runtime
 from app.models.benchmark import BenchmarkRun, BenchmarkResult
 from app.schemas.benchmark import BenchmarkCreate, BenchmarkRunOut
-from app.benchmark.engine import run_benchmark
+from app.benchmark.engine import run_benchmark, stop_benchmark_run
 from app.api.websocket_manager import manager
 
 router = APIRouter(prefix="/api/benchmarks", tags=["benchmarks"])
@@ -139,5 +139,11 @@ async def stop_benchmark(run_id: str, db: AsyncSession = Depends(get_db)):
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
+    # Fix 3b: Signal cooperative cancellation
+    stop_benchmark_run(run_id)
     run.status = "stopped"
+    run.completed_at = datetime.now(timezone.utc)
+    await db.commit()  # Fix 3b: was missing — status was never persisted
+    # Fix 3b: Notify frontend via WebSocket
+    await manager.broadcast({"type": "benchmark_stopped", "run_id": run_id})
     return {"stopped": True}

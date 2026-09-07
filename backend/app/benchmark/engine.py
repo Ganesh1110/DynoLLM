@@ -61,6 +61,14 @@ SCENARIO_PROMPTS = {
     ),
 }
 
+# Fix 3a: Cooperative cancellation registry for benchmark runs (mirrors load test engine)
+_ACTIVE_BENCH_RUNS: dict[str, bool] = {}  # run_id -> should_continue
+
+
+def stop_benchmark_run(run_id: str) -> None:
+    """Signal a running benchmark to stop after its current iteration completes."""
+    _ACTIVE_BENCH_RUNS[run_id] = False
+
 
 async def run_benchmark(
     run_id: str,
@@ -83,48 +91,59 @@ async def run_benchmark(
     limits = httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=30.0)
     timeout_cfg = httpx.Timeout(timeout=300.0, connect=10.0)
 
-    async with httpx.AsyncClient(limits=limits, timeout=timeout_cfg) as client:
-        adapter = get_adapter(runtime_type, endpoint, api_key, client=client)
+    # Fix 3a: Register run as active for cooperative cancellation
+    _ACTIVE_BENCH_RUNS[run_id] = True
 
-        results = []
-        latencies = []
-        ttfts = []
+    results = []
+    latencies = []
+    ttfts = []
 
-        for i in range(num_runs):
-            result = await _run_single(
-                run_id=run_id,
-                run_index=i,
-                adapter=adapter,
-                model=model,
-                prompt=actual_prompt,
-                system_prompt=system_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                use_streaming=use_streaming,
-                db=db,
-            )
-            results.append(result)
-            if result.total_latency_ms:
-                latencies.append(result.total_latency_ms)
-            if result.ttft_ms:
-                ttfts.append(result.ttft_ms)
+    try:
+        async with httpx.AsyncClient(limits=limits, timeout=timeout_cfg) as client:
+            adapter = get_adapter(runtime_type, endpoint, api_key, client=client)
 
-        # Broadcast progress
-        if broadcast_fn:
-            await broadcast_fn({
-                "type": "benchmark_progress",
-                "run_id": run_id,
-                "completed": i + 1,
-                "total": num_runs,
-                "result": {
-                    "ttft_ms": result.ttft_ms,
-                    "total_latency_ms": result.total_latency_ms,
-                    "generation_tokens_per_second": result.generation_tokens_per_second,
-                    "error": result.error,
-                },
-            })
+            for i in range(num_runs):
+                # Fix 3a: Check cancellation flag before each iteration
+                if not _ACTIVE_BENCH_RUNS.get(run_id, True):
+                    break
 
-    # Compute aggregates
+                result = await _run_single(
+                    run_id=run_id,
+                    run_index=i,
+                    adapter=adapter,
+                    model=model,
+                    prompt=actual_prompt,
+                    system_prompt=system_prompt,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    use_streaming=use_streaming,
+                    db=db,
+                )
+                results.append(result)
+                if result.total_latency_ms:
+                    latencies.append(result.total_latency_ms)
+                if result.ttft_ms:
+                    ttfts.append(result.ttft_ms)
+
+                # Fix 2: Broadcast live progress INSIDE the loop (was previously outside)
+                if broadcast_fn:
+                    await broadcast_fn({
+                        "type": "benchmark_progress",
+                        "run_id": run_id,
+                        "completed": i + 1,
+                        "total": num_runs,
+                        "result": {
+                            "ttft_ms": result.ttft_ms,
+                            "total_latency_ms": result.total_latency_ms,
+                            "generation_tokens_per_second": result.generation_tokens_per_second,
+                            "error": result.error,
+                        },
+                    })
+    finally:
+        # Fix 3a: Always clean up the registry entry
+        _ACTIVE_BENCH_RUNS.pop(run_id, None)
+
+    # Compute aggregates over results actually collected (may be < num_runs if stopped)
     arr = np.array(latencies) if latencies else np.array([])
     avg_ttft = float(np.mean(ttfts)) if ttfts else None
     avg_lat = float(np.mean(arr)) if len(arr) > 0 else None
@@ -163,6 +182,7 @@ async def run_benchmark(
     }
 
 
+
 async def _run_single(
     run_id: str,
     run_index: int,
@@ -198,18 +218,21 @@ async def _run_single(
     quality_valid = True
     full_text = ""
 
+    # --- Fix 1: Sample hardware BEFORE the try block so t_start is always defined ---
+    # Previously, if collect_metrics() raised an exception, t_start would be undefined
+    # and the except clause would itself raise UnboundLocalError, hiding the real error.
+    hw_before = collect_metrics()
+    p0 = hw_before.get("total_gpu_power_watts")
+    if p0 is None and hw_before.get("gpus"):
+        powers = [g.get("power_draw_watts") for g in hw_before["gpus"] if g.get("power_draw_watts") is not None]
+        p0 = sum(powers) if powers else None
+    if p0 is not None:
+        power_watts = float(p0)
+
+    # t_start is now always set before try so the except block can always compute latency
+    t_start = time.perf_counter()
+
     try:
-        # Sample hardware before execution (aggregated across all GPUs)
-        hw_before = collect_metrics()
-        p0 = hw_before.get("total_gpu_power_watts")
-        if p0 is None and hw_before.get("gpus"):
-            powers = [g.get("power_draw_watts") for g in hw_before["gpus"] if g.get("power_draw_watts") is not None]
-            p0 = sum(powers) if powers else None
-        if p0 is not None:
-            power_watts = float(p0)
-
-        t_start = time.perf_counter()
-
         if use_streaming:
             first_token_time = None
             content_parts = []
@@ -239,6 +262,7 @@ async def _run_single(
             completion_tokens = response.completion_tokens
             full_text = response.content or ""
             raw = response.raw
+
 
         total_latency_ms = total_time * 1000
         if completion_tokens and total_time > 0:

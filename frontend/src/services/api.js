@@ -38,8 +38,15 @@ export const benchmarksApi = {
   create: (data) => request('/api/benchmarks', { method: 'POST', body: data }),
   get: (id) => request(`/api/benchmarks/${id}`),
   stop: (id) => request(`/api/benchmarks/${id}/stop`, { method: 'POST' }),
-  exportCsv: (id) => `${BASE_URL}/api/export/benchmarks/${id}/csv`,
-  exportJson: (id) => `${BASE_URL}/api/export/benchmarks/${id}/json`,
+  // Fix 6 + 7a: Use dynamic BASE_URL (not hardcoded localhost) + append ?token= when key is set
+  exportCsv: (id) => {
+    const key = getApiKey()
+    return `${BASE_URL}/api/export/benchmarks/${id}/csv${key ? `?token=${encodeURIComponent(key)}` : ''}`
+  },
+  exportJson: (id) => {
+    const key = getApiKey()
+    return `${BASE_URL}/api/export/benchmarks/${id}/json${key ? `?token=${encodeURIComponent(key)}` : ''}`
+  },
 }
 
 export const loadTestsApi = {
@@ -48,7 +55,11 @@ export const loadTestsApi = {
   get: (id) => request(`/api/load-tests/${id}`),
   stop: (id) => request(`/api/load-tests/${id}/stop`, { method: 'POST' }),
   getResults: (id) => request(`/api/load-tests/${id}/results`),
-  exportCsv: (id) => `${BASE_URL}/api/export/load-tests/${id}/csv`,
+  // Fix 6 + 7a: Use dynamic BASE_URL + append ?token= when key is set
+  exportCsv: (id) => {
+    const key = getApiKey()
+    return `${BASE_URL}/api/export/load-tests/${id}/csv${key ? `?token=${encodeURIComponent(key)}` : ''}`
+  },
 }
 
 export const monitoringApi = {
@@ -56,7 +67,9 @@ export const monitoringApi = {
 }
 
 export function createMonitoringWS(onMessage, onClose) {
-  const ws = new WebSocket(`${WS_BASE}/api/monitoring/stream`)
+  const apiKey = getApiKey()
+  const query = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''
+  const ws = new WebSocket(`${WS_BASE}/api/monitoring/stream${query}`)
   ws.onmessage = (e) => {
     try { onMessage(JSON.parse(e.data)) } catch {}
   }
@@ -66,7 +79,9 @@ export function createMonitoringWS(onMessage, onClose) {
 }
 
 export function createEventsWS(onMessage, onClose) {
-  const ws = new WebSocket(`${WS_BASE}/api/monitoring/events`)
+  const apiKey = getApiKey()
+  const query = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''
+  const ws = new WebSocket(`${WS_BASE}/api/monitoring/events${query}`)
   ws.onmessage = (e) => {
     try { onMessage(JSON.parse(e.data)) } catch {}
   }

@@ -44,7 +44,7 @@ app.add_middleware(
 app.include_router(runtimes_router, dependencies=[Depends(verify_api_key)])
 app.include_router(benchmarks_router, dependencies=[Depends(verify_api_key)])
 app.include_router(load_tests_router, dependencies=[Depends(verify_api_key)])
-app.include_router(monitoring_router, dependencies=[Depends(verify_api_key)])
+app.include_router(monitoring_router)
 app.include_router(export_router, dependencies=[Depends(verify_api_key)])
 
 

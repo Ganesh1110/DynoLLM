@@ -128,3 +128,33 @@ async def test_api_key_auth():
         with pytest.raises(HTTPException) as exc_info:
             await verify_api_key(header_key="wrong-token", bearer_creds=None)
         assert exc_info.value.status_code == 401
+
+
+def test_monitoring_websocket_connections():
+    """Verify WebSocket connections succeed without APIKeyHeader error."""
+    from starlette.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+
+    # When API_KEY is unset (default local dev), WebSocket connects cleanly
+    with patch.object(settings, "API_KEY", None):
+        with client.websocket_connect("/api/monitoring/stream") as ws:
+            data = ws.receive_json()
+            assert data["type"] == "hardware"
+
+        with client.websocket_connect("/api/monitoring/events") as ws:
+            pass
+
+    # When API_KEY is set, connects with valid token param and rejects invalid
+    with patch.object(settings, "API_KEY", "secret-token"):
+        # Valid token via query param
+        with client.websocket_connect("/api/monitoring/stream?token=secret-token") as ws:
+            data = ws.receive_json()
+            assert data["type"] == "hardware"
+
+        # Invalid token rejected
+        with pytest.raises(Exception):
+            with client.websocket_connect("/api/monitoring/stream?token=wrong"):
+                pass
+

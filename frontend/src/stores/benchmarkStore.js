@@ -66,6 +66,17 @@ export const useBenchmarkStore = create((set, get) => ({
         ),
         liveProgress: null,
       }))
+    } else if (event.type === 'benchmark_stopped') {
+      // Fix 3c: Update run status immediately when stop is confirmed by the server
+      set((s) => ({
+        runs: s.runs.map((r) =>
+          r.id === event.run_id ? { ...r, status: 'stopped' } : r
+        ),
+        activeRun: s.activeRun?.id === event.run_id
+          ? { ...s.activeRun, status: 'stopped' }
+          : s.activeRun,
+        liveProgress: null,
+      }))
     }
   },
 }))

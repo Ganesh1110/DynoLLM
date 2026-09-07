@@ -3,6 +3,7 @@ import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, Che
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
+import { loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 
 export function LoadTest() {
@@ -281,7 +282,7 @@ export function LoadTest() {
                     )}
                     {activeRun.status === 'completed' && (
                       <a
-                        href={`http://localhost:8000/api/export/load-tests/${activeRun.id}/csv`}
+                        href={loadTestsApi.exportCsv(activeRun.id)}
                         download
                         className="btn-secondary text-xs flex items-center space-x-1"
                       >
@@ -289,6 +290,7 @@ export function LoadTest() {
                         <span>Export CSV</span>
                       </a>
                     )}
+
                   </div>
                 </div>
 

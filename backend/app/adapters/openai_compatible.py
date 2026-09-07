@@ -76,6 +76,7 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
     ) -> AsyncIterator[StreamChunk]:
         payload = self._build_payload(request, stream=True)
         is_first = True
+        chunk_count = 0  # Fix 4: fallback token count when runtime omits usage
         async with self.get_client(client, default_timeout=300.0) as http_client:
             async with http_client.stream(
                 "POST",
@@ -87,7 +88,8 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                 async for line in resp.aiter_lines():
                     if not line or line == "data: [DONE]":
                         if line == "data: [DONE]":
-                            yield StreamChunk(delta="", is_last=True)
+                            # Fix 4: If runtime never sent usage, use chunk count as fallback
+                            yield StreamChunk(delta="", is_last=True, completion_tokens=chunk_count or None)
                         continue
                     if line.startswith("data: "):
                         line = line[6:]
@@ -100,14 +102,18 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                         continue
                     delta_obj = choices[0].get("delta", {})
                     delta = delta_obj.get("content", "")
+                    if delta:
+                        chunk_count += 1  # Fix 4: count non-empty content chunks
                     finish = choices[0].get("finish_reason")
                     usage = chunk.get("usage", {})
+                    # Fix 4: prefer reported completion_tokens; fall back to chunk_count
+                    ct = usage.get("completion_tokens") or (chunk_count if finish else None)
                     yield StreamChunk(
                         delta=delta,
                         is_first=is_first,
                         is_last=(finish is not None),
                         prompt_tokens=usage.get("prompt_tokens") if finish else None,
-                        completion_tokens=usage.get("completion_tokens") if finish else None,
+                        completion_tokens=ct,
                     )
                     is_first = False
 
@@ -124,6 +130,11 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
             "max_tokens": request.max_tokens,
             "top_p": request.top_p,
         }
+        if stream:
+            # Fix 4: Request inline usage from OpenAI-compatible runtimes (vLLM, LM Studio, etc.)
+            # Without this, many runtimes omit the 'usage' field in stream chunks entirely.
+            payload["stream_options"] = {"include_usage": True}
         if request.seed is not None:
             payload["seed"] = request.seed
         return payload
+
