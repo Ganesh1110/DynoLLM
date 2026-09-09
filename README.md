@@ -58,6 +58,13 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 
 ## 🖥️ Dashboard Preview
 
+<div align="center">
+  <img src="docs/images/dashboard-preview.png" alt="DynoLLM Real-Time Dashboard Preview" width="100%" style="border-radius: 12px; border: 1px solid #374151; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);" />
+</div>
+
+<details>
+<summary><b>View ASCII Terminal Wireframe</b></summary>
+
 ```text
  ┌──────────────────────────────────────────────────────────────────────────────────┐
  │  ⚡ DynoLLM Dashboard   [Active Runtime: Ollama / vLLM]   [Hardware: NVIDIA RTX]  │
@@ -74,6 +81,8 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
  │  [ 📈 Concurrency vs P95 Latency Curve ]       [ 📊 Real-Time VRAM & Power Stream ]│
  └──────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ---
 
