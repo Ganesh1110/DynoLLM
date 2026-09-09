@@ -186,36 +186,42 @@ export function GpuSizer() {
           )}
         </div>
 
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="flex-1 relative">
+        <div className="space-y-3">
+          <div className="relative">
             <input
               type="text"
               value={modelInput}
               onChange={(e) => handleModelInputChange(e.target.value)}
               placeholder="e.g. llama3.1:8b-instruct-q4_K_M, qwen2.5:72b, deepseek-r1:14b..."
-              className="input font-mono text-sm py-2.5 pl-3 pr-24 w-full"
+              className="input font-mono text-sm py-2.5 pl-3 pr-28 w-full"
             />
             <div className="absolute right-3 top-2.5 text-xs text-sky-400 font-mono font-medium">
               {params}B • {precision * 8}-bit
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-1.5 items-center">
-            <span className="text-xs text-gray-500 mr-1">Presets:</span>
-            {MODEL_PRESETS.slice(0, 6).map((p) => (
-              <button
-                key={p.name}
-                type="button"
-                onClick={() => handleSelectPreset(p)}
-                className={`text-[11px] px-2.5 py-1 rounded-md border font-mono transition-colors ${
-                  modelInput === p.name
-                    ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-semibold'
-                    : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
-                }`}
-              >
-                {p.label.split(' ')[0]} {p.params}B
-              </button>
-            ))}
+          <div className="flex flex-wrap gap-1.5 items-center pt-0.5">
+            <span className="text-xs text-gray-500 mr-1 font-medium">Presets ({MODEL_PRESETS.length}):</span>
+            {MODEL_PRESETS.map((p) => {
+              const isFP16 = p.precision >= 2.0
+              const family = p.label.split(' ')[0]
+              const tag = `${family} ${p.params}B${isFP16 ? ' (FP16)' : ''}`
+              return (
+                <button
+                  key={p.name}
+                  type="button"
+                  onClick={() => handleSelectPreset(p)}
+                  className={`text-[11px] px-2.5 py-1 rounded-md border font-mono transition-colors ${
+                    modelInput === p.name
+                      ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 font-semibold shadow-sm'
+                      : 'bg-gray-800/80 text-gray-400 border-gray-700 hover:text-white hover:bg-gray-700'
+                  }`}
+                  title={p.label}
+                >
+                  {tag}
+                </button>
+              )
+            })}
           </div>
         </div>
 

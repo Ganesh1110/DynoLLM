@@ -91,6 +91,8 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 - **Time-To-First-Token (TTFT)**: High-resolution measurement of prompt evaluation and initial streaming response time.
 - **Generation Speed**: Accurate completion throughput calculation in **tokens / second**.
 - **End-to-End Latency**: Total wall-clock time from request dispatch to final chunk.
+- **Comprehensive 8-Card Scorecard**: Displays **$P_{50}$ (Median)**, **$P_{95}$**, **$P_{99}$**, TTFT, Generation tok/s, End-to-End Latency, **Energy Efficiency** ($\text{tok/s} \cdot \text{W}^{-1}$), and **Quality Integrity Rate %**.
+- **Inline VRAM Estimation**: Smart helper badge directly under the Target Model selector estimating model weights + KV cache footprint with real-time host compatibility checks (`Fits Natively in VRAM`, `Tight Headroom`, or `Exceeds Host VRAM`).
 - **Predefined Scenarios**:
   - `Short Prompt`: Quick facts & basic retrieval (~10 tokens)
   - `Medium Prompt`: Concept explanations & summarization (~50 tokens)
@@ -99,7 +101,7 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
   - `Conversation`: Multi-turn dialogue simulation
   - `Structured JSON`: JSON schema compliance & validation
   - `Streaming`: Sustained token stream generation
-- **Statistical Aggregations**: Computes **$P_{50}$ (Median)**, **$P_{95}$**, and **$P_{99}$** across $N$ iterations.
+- **Statistical Aggregations**: Computes **$P_{50}$ (Median)**, **$P_{90}$**, **$P_{95}$**, and **$P_{99}$** across $N$ iterations.
 
 ### 3. 🚀 Concurrent Load & Stress Generator
 
@@ -109,7 +111,9 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
   - `Ramp-Up`: Staged user increments (e.g., +5 users every 15s) to find concurrency saturation limits.
   - `Spike Test`: Sudden instantaneous traffic bursts to measure queue depth & recovery.
   - `Stress Test`: Auto-incrementing load that halts automatically if error rates or latency cross safe thresholds.
+- **Latency Percentile Breakdown**: Detailed $P_{50}$, **$P_{90}$**, $P_{95}$, and $P_{99}$ latency distributions for all completed and stopped test runs.
 - **Live Performance Curves**: WebSocket-streamed $P_{95}$ vs. Average Latency distribution and real-time RPS (Requests Per Second).
+- **Inline VRAM & Concurrency Sizer**: Real-time memory footprint estimation before launching multi-user load tests.
 
 ### 4. ⚡ Energy Efficiency & Power Telemetry
 
@@ -133,6 +137,8 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 
 ### 8. 📊 Real-Time Hardware Telemetry
 
+- **Interactive Metric Filter Toggles**: Dashboard telemetry chart includes 1-click toggles (`All Metrics`, `CPU`, `RAM`, `GPU`) to isolate and analyze specific hardware bottlenecks.
+- **Global Navbar Hardware Pill**: Persistent, real-time CPU, RAM, and GPU utilization % chip visible on every page with active WebSocket connection status.
 - **CPU & Core Distribution**: Global usage percentage, per-core metrics, and load averages via `psutil`.
 - **System Memory (RAM)**: Real-time memory allocation, cache usage, and buffer availability.
 - **GPU & VRAM (NVIDIA)**: Hardware integration via `pynvml` measuring GPU Core Utilization %, VRAM consumption, Clock speed, Temperature (°C), and Power draw (Watts).
@@ -141,15 +147,17 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 
 ### 9. 💾 History, Data Persistence & Export
 
+- **Instant Search & Filter**: Real-time search bar in the History view allowing instant filtering of benchmark and load test runs by model name, scenario, or traffic pattern.
 - **Persistent Storage**: Lightweight, zero-config async SQLite storage.
 - **Export Formats**: One-click download of raw execution data in both **CSV** and **JSON** formats.
 
-### 10. 🖥️ GPU VRAM Sizer & Capacity Planner
+### 10. 🖥️ GPU Sizer & Concurrency Capacity Planner
 
-- **Interactive VRAM Estimation**: Input a model name, quantization, and context length to estimate total VRAM requirements in GB.
-- **Concurrency Evaluation**: Calculates the safe number of concurrent instances that fit in available GPU VRAM.
-- **Load Test Integration**: VRAM estimation card on the Load Test page shows real-time sizing feedback before launching tests.
-- **Cross-Hardware Support**: Covers NVIDIA consumer and data-center GPUs, plus Apple Silicon unified memory estimates.
+- **Interactive VRAM Estimation**: Freeform model name input with intelligent auto-parsing of parameter size (`8B`, `14B`, `70B`) and quantization formats (`FP16`, `INT8`, `Q5`, `INT4/Q4`).
+- **14 Built-In Model Presets**: Instant 1-click sizing presets spanning popular open architectures (Llama 3.1 8B/70B, Qwen 2.5 7B/14B/32B/72B, DeepSeek R1 14B/32B/70B, Mistral 7B, Gemma 2 9B/27B, and Phi 3.5 3.8B).
+- **Connected Runtime Auto-Discovery**: Dropdown auto-populates models currently installed and running in your registered Ollama, vLLM, or LM Studio instances.
+- **GPU Concurrency Capacity Matrix**: Analyzes GPU memory bandwidth and KV cache requirements across Consumer, Apple Silicon Unified, and Cloud Datacenter tiers to show exact simultaneous stream limits and speed per user.
+- **Live Host Telemetry Verification**: Automatically compares model requirements against your active GPU VRAM or Apple Silicon unified memory to flag memory spillovers.
 
 ---
 
@@ -288,6 +296,7 @@ DynoLLM/
 │   │   ├── pages/                  # Dashboard, Runtimes, Benchmark, GPU Sizer, etc.
 │   │   ├── components/             # Navbar, UI components
 │   │   ├── stores/                 # Zustand state stores
+│   │   ├── hooks/useWebSocket.js   # Resilient WebSocket hook with auto-reconnect
 │   │   ├── utils/gpuSizer.js       # GPU VRAM sizing & concurrency utilities
 │   │   └── services/api.js         # API client (REST + WebSocket)
 │   ├── package.json
@@ -301,30 +310,30 @@ DynoLLM/
 
 ## 📡 API Reference Summary
 
-| Method   | Endpoint                           | Description                                        |
-| -------- | ---------------------------------- | -------------------------------------------------- |
-| `GET`    | `/api/runtimes`                    | List all configured LLM runtime endpoints          |
-| `POST`   | `/api/runtimes`                    | Register a new LLM runtime                         |
-| `GET`    | `/api/runtimes/{id}`               | Get a single runtime configuration                 |
-| `PUT`    | `/api/runtimes/{id}`               | Update a runtime configuration                     |
-| `DELETE` | `/api/runtimes/{id}`               | Delete a runtime configuration                     |
-| `POST`   | `/api/runtimes/{id}/health`        | Ping runtime and return latency / status           |
-| `GET`    | `/api/runtimes/{id}/models`        | Discover models and metadata from runtime          |
-| `POST`   | `/api/benchmarks`                  | Trigger a single-request benchmark run             |
-| `GET`    | `/api/benchmarks`                  | List recent benchmark runs                         |
-| `GET`    | `/api/benchmarks/{id}`             | Get benchmark results and aggregate percentiles    |
-| `POST`   | `/api/benchmarks/{id}/stop`        | Cooperatively cancel an active benchmark run       |
-| `GET`    | `/api/load-tests`                  | List recent load test runs                         |
-| `POST`   | `/api/load-tests`                  | Launch an async multi-user load test               |
-| `GET`    | `/api/load-tests/{id}`             | Get load test status and aggregate results         |
-| `POST`   | `/api/load-tests/{id}/stop`        | Immediately halt an active load test               |
-| `GET`    | `/api/load-tests/{id}/results`     | Fetch raw per-request load test results            |
-| `GET`    | `/api/monitoring/current`          | Snapshot of current CPU/RAM/GPU/Disk telemetry     |
-| `WS`     | `/api/monitoring/stream`           | 1Hz real-time hardware telemetry WebSocket stream  |
-| `WS`     | `/api/monitoring/events`           | Live benchmark & load test event broadcast channel |
-| `GET`    | `/api/export/benchmarks/{id}/csv`  | Export benchmark data to CSV                       |
-| `GET`    | `/api/export/benchmarks/{id}/json` | Export benchmark data to JSON                      |
-| `GET`    | `/api/export/load-tests/{id}/csv`  | Export load test data to CSV                       |
+| Method   | Endpoint                              | Description                                                                       |
+| -------- | ------------------------------------- | --------------------------------------------------------------------------------- |
+| `GET`    | `/api/runtimes`                       | List all configured LLM runtime endpoints                                         |
+| `POST`   | `/api/runtimes`                       | Register a new LLM runtime                                                        |
+| `GET`    | `/api/runtimes/{id}`                  | Get a single runtime configuration                                                |
+| `PUT`    | `/api/runtimes/{id}`                  | Update a runtime configuration                                                    |
+| `DELETE` | `/api/runtimes/{id}`                  | Delete a runtime configuration                                                    |
+| `POST`   | `/api/runtimes/{id}/health`           | Ping runtime and return latency / status                                          |
+| `GET`    | `/api/runtimes/{id}/models`           | Discover models and metadata from runtime                                         |
+| `POST`   | `/api/benchmarks`                     | Trigger a single-request benchmark run                                            |
+| `GET`    | `/api/benchmarks?limit=50`            | List recent benchmark runs (supports `?limit=` pagination, default 50)           |
+| `GET`    | `/api/benchmarks/{id}`                | Get benchmark results and aggregate percentiles                                   |
+| `POST`   | `/api/benchmarks/{id}/stop`           | Cooperatively cancel an active benchmark run                                      |
+| `GET`    | `/api/load-tests?limit=50`            | List recent load test runs (supports `?limit=` pagination, default 50)            |
+| `POST`   | `/api/load-tests`                     | Launch an async multi-user load test                                              |
+| `GET`    | `/api/load-tests/{id}`                | Get load test status and aggregate results                                        |
+| `POST`   | `/api/load-tests/{id}/stop`           | Immediately halt an active load test                                              |
+| `GET`    | `/api/load-tests/{id}/results?limit=` | Fetch raw per-request load test results (supports `?limit=` pagination, default 1000) |
+| `GET`    | `/api/monitoring/current`             | Snapshot of current CPU/RAM/GPU/Disk telemetry                                    |
+| `WS`     | `/api/monitoring/stream`              | 1Hz real-time hardware telemetry WebSocket stream                                 |
+| `WS`     | `/api/monitoring/events`              | Live benchmark & load test event broadcast channel                                |
+| `GET`    | `/api/export/benchmarks/{id}/csv`     | Export benchmark data to CSV                                                      |
+| `GET`    | `/api/export/benchmarks/{id}/json`    | Export benchmark data to JSON                                                     |
+| `GET`    | `/api/export/load-tests/{id}/csv`     | Export load test data to CSV                                                      |
 
 ---
 
@@ -341,7 +350,7 @@ The benchmark profiler measures single-request LLM performance. Post a request t
 | `system_prompt` | `Optional[str]` | `None`           | any string                                                            | System prompt prepended to the request (e.g. instruction-following guidance).                                              |
 | `temperature`   | `float`         | `0.7`            | 0.0 – 2.0                                                             | Sampling temperature. Lower = more deterministic; higher = more creative.                                                  |
 | `max_tokens`    | `int`           | `512`            | 32 – 4096 (UI)                                                        | Maximum number of tokens to generate per response.                                                                         |
-| `num_runs`      | `int`           | `3`              | 1 – 20 (UI)                                                           | Number of iterations to run. Aggregates (`P50`, `P95`, `P99`) are computed across all runs.                                |
+| `num_runs`      | `int`           | `3`              | 1 – 20 (UI)                                                           | Number of iterations to run. Aggregates (`P50`, `P90`, `P95`, `P99`) are computed across all runs.                          |
 | `use_streaming` | `bool`          | `True`           | `true` / `false`                                                      | When `True`, streams the response and measures **Time-To-First-Token (TTFT)**. Disable to measure end-to-end latency only. |
 
 ### Predefined Scenarios
@@ -362,17 +371,17 @@ Each scenario maps to a built-in prompt (see `backend/app/benchmark/engine.py`):
 
 The benchmark engine aggregates the following per-iteration results into the run's aggregate object:
 
-| Metric                                               | Description                                                                |
-| ---------------------------------------------------- | -------------------------------------------------------------------------- |
-| `avg_ttft_ms`                                        | Average Time-To-First-Token in milliseconds (streaming only)               |
-| `avg_total_latency_ms`                               | Average total request wall-clock time in ms                                |
-| `avg_generation_tokens_per_second`                   | Average tokens/s during the generation phase                               |
-| `avg_e2e_tokens_per_second`                          | Average end-to-end tokens/s including request overhead                     |
-| `avg_prompt_tokens` / `avg_completion_tokens`        | Average input / output token counts                                        |
-| `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms` | Median / 95th / 99th percentile total latency                              |
-| `avg_power_watts`                                    | Average GPU power draw during generation (when GPU telemetry is available) |
-| `tokens_per_watt`                                    | Tokens generated per watt of GPU power (`tok/s ÷ W`)                       |
-| `quality_integrity_rate`                             | Fraction of runs whose output passed quality validation (0.0 – 1.0)        |
+| Metric                                                                 | Description                                                                |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `avg_ttft_ms`                                                          | Average Time-To-First-Token in milliseconds (streaming only)               |
+| `avg_total_latency_ms`                                                 | Average total request wall-clock time in ms                                |
+| `avg_generation_tokens_per_second`                                     | Average tokens/s during the generation phase                               |
+| `avg_e2e_tokens_per_second`                                            | Average end-to-end tokens/s including request overhead                     |
+| `avg_prompt_tokens` / `avg_completion_tokens`                          | Average input / output token counts                                        |
+| `p50_latency_ms`, `p90_latency_ms`, `p95_latency_ms`, `p99_latency_ms` | Median / 90th / 95th / 99th percentile total latency                       |
+| `avg_power_watts`                                                      | Average GPU power draw during generation (when GPU telemetry is available) |
+| `tokens_per_watt`                                                      | Tokens generated per watt of GPU power (`tok/s ÷ W`)                       |
+| `quality_integrity_rate`                                               | Fraction of runs whose output passed quality validation (0.0 – 1.0)        |
 
 ---
 
@@ -426,7 +435,7 @@ The load test engine aggregates the following per-request results:
 
 > **Retry behavior:** Transient errors (connection resets, network timeouts) are automatically retried once after a short jitter delay. The watchdog pings the runtime health endpoint every 2 seconds and aborts with a `runtime_health_alert` if the runtime becomes unreachable or crashes (e.g. OOM).
 
-> **VRAM Estimation:** The Load Test page now includes a real-time VRAM estimation card that calculates memory requirements based on the selected model, quantization, and context length. The standalone **GPU Sizer** page (`/gpu-sizer`) provides deeper capacity planning with safe concurrency calculations.
+> **VRAM Estimation & Host Sizing:** Both the **Benchmark** and **Load Test** pages feature real-time VRAM estimation cards that calculate memory requirements based on the selected model, quantization, and context length, displaying instant host compatibility feedback (`Fits Natively in VRAM`, `Tight Headroom`, or `Exceeds Host VRAM`). The standalone **GPU Sizer** page (`/gpu-sizer`) provides complete multi-GPU capacity planning with exact concurrent stream limits across Consumer, Apple Silicon Unified, and Datacenter hardware tiers.
 
 ---
 
@@ -450,7 +459,10 @@ Connect to `/api/monitoring/events` (benchmark/load-test events) or `/api/monito
 
 The `events` channel does **not** poll hardware — connect to `stream` for hardware telemetry plus events in one stream.
 
+> **Resilient Auto-Reconnection:** The React frontend (`hooks/useWebSocket.js`) incorporates an automatic 3-second backoff loop for both `/stream` and `/events` channels. If the backend server restarts, reloads, or experiences a temporary network hiccup, client connections automatically reconnect and restore live telemetry without requiring a page refresh.
+
 **Auth:** when `API_KEY` is set, pass `?token=<key>` or `?api_key=<key>` as a query parameter when connecting.
+
 
 ---
 
