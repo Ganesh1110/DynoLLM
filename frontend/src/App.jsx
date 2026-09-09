@@ -7,6 +7,7 @@ import { Benchmark } from './pages/Benchmark'
 import { LoadTest } from './pages/LoadTest'
 import { History } from './pages/History'
 import { Compare } from './pages/Compare'
+import { GpuSizer } from './pages/GpuSizer'
 import { useWebSocket } from './hooks/useWebSocket'
 
 function AppContent() {
@@ -15,16 +16,18 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col font-sans">
       <Navbar />
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/runtimes" element={<Runtimes />} />
           <Route path="/benchmark" element={<Benchmark />} />
           <Route path="/load-test" element={<LoadTest />} />
+          <Route path="/gpu-sizer" element={<GpuSizer />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/history" element={<History />} />
         </Routes>
       </main>
+
       <footer className="border-t border-gray-900 py-4 text-center text-xs text-gray-600">
         ⚡ DynoLLM • Production-Readiness Benchmarking & Load Testing for Local LLMs
       </footer>

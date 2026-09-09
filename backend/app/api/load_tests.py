@@ -135,7 +135,11 @@ async def stop_load_test(run_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Load test run not found")
     stop_run(run_id)
     run.status = "stopped"
+    run.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+    await manager.broadcast({"type": "load_test_stopped", "run_id": run_id})
     return {"stopped": True}
+
 
 
 @router.get("/{run_id}/results", response_model=list)

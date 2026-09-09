@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react'
-import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp } from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
+import { useMonitoringStore } from '../stores/monitoringStore'
 import { loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
+import { parseModelName, calcVRAM, evaluateHostFit } from '../utils/gpuSizer'
+
 
 export function LoadTest() {
   const runtimes = useRuntimeStore((s) => s.runtimes)
@@ -12,12 +16,15 @@ export function LoadTest() {
   const fetchModels = useRuntimeStore((s) => s.fetchModels)
   const createRun = useLoadTestStore((s) => s.createRun)
   const activeRun = useLoadTestStore((s) => s.activeRun)
+  const fetchRuns = useLoadTestStore((s) => s.fetchRuns)
   const liveData = useLoadTestStore((s) => s.liveData)
   const stopRun = useLoadTestStore((s) => s.stopRun)
   const loading = useLoadTestStore((s) => s.loading)
   const error = useLoadTestStore((s) => s.error)
+  const currentTelemetry = useMonitoringStore((s) => s.current)
 
   const [availableModels, setAvailableModels] = useState([])
+
   const [loadingModels, setLoadingModels] = useState(false)
 
   // Load Test Config
@@ -35,6 +42,7 @@ export function LoadTest() {
   })
 
   useEffect(() => {
+    fetchRuns()
     fetchRuntimes().then(() => {
       if (runtimes.length > 0 && !config.runtime_id) {
         handleRuntimeChange(runtimes[0].id)
@@ -71,7 +79,17 @@ export function LoadTest() {
     }
   }
 
+  const modelSizing = useMemo(() => {
+    if (!config.model) return null
+    const parsed = parseModelName(config.model)
+    const vram = calcVRAM(parsed.params, parsed.precision, parsed.overhead)
+    const fit = evaluateHostFit(vram.weightsGb, vram.totalVramGb, currentTelemetry)
+    return { parsed, vram, fit }
+  }, [config.model, currentTelemetry])
+
+
   const latestLivePoint = liveData[liveData.length - 1]
+
 
   return (
     <div className="space-y-6">
@@ -132,10 +150,42 @@ export function LoadTest() {
                   required
                 />
               )}
+
+              {/* Inline Smart VRAM Estimation Card */}
+              {modelSizing && (
+                <div className="mt-2 p-2 rounded-lg bg-gray-800/80 border border-gray-700/60 flex items-center justify-between text-[11px] font-mono">
+                  <div className="flex items-center space-x-1.5 truncate">
+                    <span className="text-gray-400">Est. VRAM:</span>
+                    <span className="text-emerald-400 font-bold">
+                      {modelSizing.vram.totalVramGb.toFixed(1)} GB
+                    </span>
+                    <span className="text-gray-600">•</span>
+                    <span
+                      className={
+                        modelSizing.fit.color === 'emerald'
+                          ? 'text-emerald-400'
+                          : modelSizing.fit.color === 'amber'
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                      }
+                    >
+                      {modelSizing.fit.badge}
+                    </span>
+                  </div>
+                  <Link
+                    to="/gpu-sizer"
+                    className="text-sky-400 hover:text-sky-300 ml-2 whitespace-nowrap underline underline-offset-2 flex items-center font-sans text-[11px]"
+                  >
+                    <span>Sizer</span>
+                    <ArrowRight className="w-3 h-3 ml-0.5" />
+                  </Link>
+                </div>
+              )}
             </div>
 
             <div>
               <label className="label">Traffic Pattern</label>
+
               <select
                 className="select"
                 value={config.pattern}
@@ -280,7 +330,7 @@ export function LoadTest() {
                         <span>Stop Test</span>
                       </button>
                     )}
-                    {activeRun.status === 'completed' && (
+                    {(activeRun.status === 'completed' || activeRun.status === 'stopped') && (
                       <a
                         href={loadTestsApi.exportCsv(activeRun.id)}
                         download
@@ -290,12 +340,22 @@ export function LoadTest() {
                         <span>Export CSV</span>
                       </a>
                     )}
-
                   </div>
                 </div>
 
+                {/* Abort Reason / Failure Alert Banner */}
+                {(activeRun.abort_reason || (activeRun.status === 'failed' && activeRun.error)) && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-xs text-red-200 flex items-start space-x-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-red-300 font-semibold block">Execution Alert:</strong>
+                      <span>{activeRun.abort_reason || activeRun.error}</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Scorecard Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
                     <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Concurrent Users</span>
                     <div className="text-2xl font-black text-sky-400 mt-1">
@@ -330,7 +390,31 @@ export function LoadTest() {
                     <span className="text-[10px] text-gray-500">Req / Second</span>
                   </div>
 
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-emerald-500/30 text-center col-span-2 sm:col-span-1">
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Generation Speed</span>
+                    <div className="text-2xl font-black text-emerald-400 mt-1">
+                      {fmt(activeRun.avg_generation_tokens_per_second)}
+                    </div>
+                    <span className="text-[10px] text-gray-500">Tokens / Second</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Energy Eff.</span>
+                    <div className="text-2xl font-black text-yellow-400 mt-1">
+                      {activeRun.tokens_per_watt != null ? `${activeRun.tokens_per_watt.toFixed(2)}` : '—'}
+                    </div>
+                    <span className="text-[10px] text-gray-500">tok/s · W⁻¹</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
+                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Quality Rate</span>
+                    <div className="text-2xl font-black text-teal-400 mt-1">
+                      {activeRun.quality_integrity_rate != null ? `${(activeRun.quality_integrity_rate * 100).toFixed(0)}%` : '—'}
+                    </div>
+                    <span className="text-[10px] text-gray-500">Passing Responses</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-emerald-500/30 text-center">
                     <span className="text-[11px] uppercase tracking-wider text-emerald-400 font-semibold">Safe Concurrency</span>
                     <div className="text-2xl font-black text-emerald-400 mt-1">
                       {activeRun.safe_max_concurrency != null ? `${activeRun.safe_max_concurrency} VU` : 'Measuring...'}
@@ -371,7 +455,7 @@ export function LoadTest() {
               </div>
 
               {/* Latency Percentiles Breakdown */}
-              {activeRun.status === 'completed' && (
+              {(activeRun.status === 'completed' || activeRun.status === 'stopped') && (
                 <div className="card space-y-3">
                   <h3 className="font-bold text-sm text-white">Latency Percentile Distribution</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-center">
@@ -394,6 +478,7 @@ export function LoadTest() {
                   </div>
                 </div>
               )}
+
             </div>
           )}
         </div>

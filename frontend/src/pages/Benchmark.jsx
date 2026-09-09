@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react'
-import { PlayCircle, StopCircle, RefreshCw, BarChart2, Download, CheckCircle2, AlertTriangle, ArrowRight, Zap, ShieldCheck } from 'lucide-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { PlayCircle, StopCircle, RefreshCw, BarChart2, Download, CheckCircle2, AlertTriangle, ArrowRight, Zap, ShieldCheck, Cpu } from 'lucide-react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
+import { useMonitoringStore } from '../stores/monitoringStore'
 import { benchmarksApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
+import { parseModelName, calcVRAM, evaluateHostFit } from '../utils/gpuSizer'
+
 
 export function Benchmark() {
   const runtimes = useRuntimeStore((s) => s.runtimes)
@@ -17,10 +21,11 @@ export function Benchmark() {
   const stopRun = useBenchmarkStore((s) => s.stopRun)
   const loading = useBenchmarkStore((s) => s.loading)
   const error = useBenchmarkStore((s) => s.error)
-
+  const currentTelemetry = useMonitoringStore((s) => s.current)
 
   const [availableModels, setAvailableModels] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
+
 
   // Benchmark Form Config
   const [config, setConfig] = useState({
@@ -74,6 +79,16 @@ export function Benchmark() {
       console.error(err)
     }
   }
+
+  const modelSizing = useMemo(() => {
+    if (!config.model) return null
+    const parsed = parseModelName(config.model)
+    const vram = calcVRAM(parsed.params, parsed.precision, parsed.overhead)
+    const fit = evaluateHostFit(vram.weightsGb, vram.totalVramGb, currentTelemetry)
+    return { parsed, vram, fit }
+  }, [config.model, currentTelemetry])
+
+
 
   // Format per-run results for chart
   const resultsData = activeRun?.results?.map((r, i) => ({
@@ -142,10 +157,42 @@ export function Benchmark() {
                   required
                 />
               )}
+
+              {/* Inline Smart VRAM Estimation Card */}
+              {modelSizing && (
+                <div className="mt-2 p-2 rounded-lg bg-gray-800/80 border border-gray-700/60 flex items-center justify-between text-[11px] font-mono">
+                  <div className="flex items-center space-x-1.5 truncate">
+                    <span className="text-gray-400">Est. VRAM:</span>
+                    <span className="text-emerald-400 font-bold">
+                      {modelSizing.vram.totalVramGb.toFixed(1)} GB
+                    </span>
+                    <span className="text-gray-600">•</span>
+                    <span
+                      className={
+                        modelSizing.fit.color === 'emerald'
+                          ? 'text-emerald-400'
+                          : modelSizing.fit.color === 'amber'
+                          ? 'text-amber-400'
+                          : 'text-rose-400'
+                      }
+                    >
+                      {modelSizing.fit.badge}
+                    </span>
+                  </div>
+                  <Link
+                    to="/gpu-sizer"
+                    className="text-sky-400 hover:text-sky-300 ml-2 whitespace-nowrap underline underline-offset-2 flex items-center font-sans text-[11px]"
+                  >
+                    <span>Sizer</span>
+                    <ArrowRight className="w-3 h-3 ml-0.5" />
+                  </Link>
+                </div>
+              )}
             </div>
 
             <div>
               <label className="label">Benchmark Scenario</label>
+
               <select
                 className="select"
                 value={config.scenario}

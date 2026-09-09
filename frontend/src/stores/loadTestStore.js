@@ -43,6 +43,7 @@ export const useLoadTestStore = create((set, get) => ({
     await loadTestsApi.stop(id)
     set((s) => ({
       runs: s.runs.map((r) => (r.id === id ? { ...r, status: 'stopped' } : r)),
+      activeRun: s.activeRun?.id === id ? { ...s.activeRun, status: 'stopped' } : s.activeRun,
     }))
   },
 
@@ -77,7 +78,25 @@ export const useLoadTestStore = create((set, get) => ({
         runs: s.runs.map((r) =>
           r.id === event.run_id ? { ...r, status: 'failed', error: event.error } : r
         ),
+        activeRun: s.activeRun?.id === event.run_id ? { ...s.activeRun, status: 'failed', error: event.error } : s.activeRun,
+      }))
+    } else if (event.type === 'load_test_stopped') {
+      set((s) => ({
+        runs: s.runs.map((r) =>
+          r.id === event.run_id ? { ...r, status: 'stopped' } : r
+        ),
+        activeRun: s.activeRun?.id === event.run_id ? { ...s.activeRun, status: 'stopped' } : s.activeRun,
+      }))
+    } else if (event.type === 'runtime_health_alert') {
+      set((s) => ({
+        runs: s.runs.map((r) =>
+          r.id === event.run_id ? { ...r, status: 'failed', error: event.message, abort_reason: event.message } : r
+        ),
+        activeRun: s.activeRun?.id === event.run_id
+          ? { ...s.activeRun, status: 'failed', error: event.message, abort_reason: event.message }
+          : s.activeRun,
       }))
     }
   },
 }))
+
