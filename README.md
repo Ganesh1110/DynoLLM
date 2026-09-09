@@ -69,6 +69,8 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
  │  │ 42.8 ms         │ │ 84.6 tok/s      │ │ 6.8 GB / 24 GB  │ │ 0.48 tok/s / W   │ │
  │  └─────────────────┘ └─────────────────┘ └─────────────────┘ └─────────────────┘ │
  │                                                                                  │
+ │  [ 🖥️ GPU Sizer: VRAM Est. 6.2 GB │ Safe Concurrency: 3 instances ]             │
+ │                                                                                  │
  │  [ 📈 Concurrency vs P95 Latency Curve ]       [ 📊 Real-Time VRAM & Power Stream ]│
  └──────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -141,6 +143,13 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 
 - **Persistent Storage**: Lightweight, zero-config async SQLite storage.
 - **Export Formats**: One-click download of raw execution data in both **CSV** and **JSON** formats.
+
+### 10. 🖥️ GPU VRAM Sizer & Capacity Planner
+
+- **Interactive VRAM Estimation**: Input a model name, quantization, and context length to estimate total VRAM requirements in GB.
+- **Concurrency Evaluation**: Calculates the safe number of concurrent instances that fit in available GPU VRAM.
+- **Load Test Integration**: VRAM estimation card on the Load Test page shows real-time sizing feedback before launching tests.
+- **Cross-Hardware Support**: Covers NVIDIA consumer and data-center GPUs, plus Apple Silicon unified memory estimates.
 
 ---
 
@@ -276,9 +285,10 @@ DynoLLM/
 ├── frontend/                       # React + Vite SPA
 │   ├── src/
 │   │   ├── App.jsx                 # Root component with routes
-│   │   ├── pages/                  # Dashboard, Runtimes, Benchmark, etc.
+│   │   ├── pages/                  # Dashboard, Runtimes, Benchmark, GPU Sizer, etc.
 │   │   ├── components/             # Navbar, UI components
 │   │   ├── stores/                 # Zustand state stores
+│   │   ├── utils/gpuSizer.js       # GPU VRAM sizing & concurrency utilities
 │   │   └── services/api.js         # API client (REST + WebSocket)
 │   ├── package.json
 │   ├── Dockerfile
@@ -416,6 +426,8 @@ The load test engine aggregates the following per-request results:
 
 > **Retry behavior:** Transient errors (connection resets, network timeouts) are automatically retried once after a short jitter delay. The watchdog pings the runtime health endpoint every 2 seconds and aborts with a `runtime_health_alert` if the runtime becomes unreachable or crashes (e.g. OOM).
 
+> **VRAM Estimation:** The Load Test page now includes a real-time VRAM estimation card that calculates memory requirements based on the selected model, quantization, and context length. The standalone **GPU Sizer** page (`/gpu-sizer`) provides deeper capacity planning with safe concurrency calculations.
+
 ---
 
 ## 📡 WebSocket Events
@@ -430,7 +442,8 @@ Connect to `/api/monitoring/events` (benchmark/load-test events) or `/api/monito
 | `benchmark_stopped`    | `events`, `stream` | `{run_id}` — user-initiated cancellation                                                                                                                                      |
 | `load_test_progress`   | `events`, `stream` | `{run_id, concurrent_users, total_requests, successful_requests, failed_requests, avg_latency_ms, p95_latency_ms, avg_ttft_ms, error_rate}` — stats over the last 50 requests |
 | `load_test_completed`  | `events`, `stream` | `{run_id, aggregates}` — aggregates contain RPS, percentiles, `safe_max_concurrency`, power, and quality metrics                                                              |
-| `load_test_failed`     | `events`, `stream` | `{run_id, error}`                                                                                                                                                             |
+| `load_test_stopped`    | `events`, `stream` | `{run_id}` — user-initiated cancellation (status: `stopped`)                                                                                                                   |
+| `load_test_failed`     | `events`, `stream` | `{run_id, error}` — test terminated due to runtime crash or unrecoverable failure (status: `failed`)                                                                           |
 | `runtime_health_alert` | `events`, `stream` | `{run_id, status: "unhealthy"\|"crashed", message}` — emitted when the watchdog detects a runtime health failure or crash (e.g. OOM)                                          |
 | `hardware`             | `stream` only      | CPU, RAM, GPU, and Disk metrics — pushed every `MONITORING_INTERVAL_SECONDS` (default 1s)                                                                                     |
 | `ping`                 | `events` only      | `{}` keepalive sent every 30s on the events channel                                                                                                                           |
