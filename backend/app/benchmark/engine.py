@@ -23,6 +23,8 @@ from app.adapters.base import GenerateRequest
 from app.models.benchmark import BenchmarkRun, BenchmarkResult
 from app.core.config import settings
 from app.monitoring.collector import collect_metrics
+from app.benchmark.quality import evaluate_quality
+from app.benchmark.context_generator import generate_context_prompt
 
 # Predefined prompts for each scenario
 SCENARIO_PROMPTS = {
@@ -61,7 +63,7 @@ SCENARIO_PROMPTS = {
     ),
 }
 
-# Fix 3a: Cooperative cancellation registry for benchmark runs (mirrors load test engine)
+# Cooperative cancellation registry for benchmark runs
 _ACTIVE_BENCH_RUNS: dict[str, bool] = {}  # run_id -> should_continue
 
 
@@ -85,38 +87,56 @@ async def run_benchmark(
     use_streaming: bool,
     db: AsyncSession,
     broadcast_fn=None,
+    test_type: str = "standard",
+    context_lengths: Optional[list[int]] = None,
 ):
     """Execute benchmark runs and persist results to DB."""
-    actual_prompt = prompt or SCENARIO_PROMPTS.get(scenario, SCENARIO_PROMPTS["medium"])
     limits = httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=30.0)
     timeout_cfg = httpx.Timeout(timeout=300.0, connect=10.0)
 
-    # Fix 3a: Register run as active for cooperative cancellation
     _ACTIVE_BENCH_RUNS[run_id] = True
 
     results = []
     latencies = []
     ttfts = []
 
+    # Determine execution plan based on test_type
+    is_scaling = test_type == "context_scaling"
+    if is_scaling:
+        step_targets = [int(x) for x in (context_lengths or [100, 500, 1000, 2000])]
+        total_steps = len(step_targets)
+    else:
+        step_targets = [None] * num_runs
+        total_steps = num_runs
+        actual_prompt = prompt or SCENARIO_PROMPTS.get(scenario, SCENARIO_PROMPTS["medium"])
+
     try:
         async with httpx.AsyncClient(limits=limits, timeout=timeout_cfg) as client:
             adapter = get_adapter(runtime_type, endpoint, api_key, client=client)
 
-            for i in range(num_runs):
-                # Fix 3a: Check cancellation flag before each iteration
+            for i, target_len in enumerate(step_targets):
                 if not _ACTIVE_BENCH_RUNS.get(run_id, True):
                     break
+
+                if is_scaling:
+                    curr_prompt, _ = generate_context_prompt(target_len)
+                    curr_scenario = "context_scaling"
+                else:
+                    curr_prompt = actual_prompt
+                    curr_scenario = scenario
 
                 result = await _run_single(
                     run_id=run_id,
                     run_index=i,
                     adapter=adapter,
                     model=model,
-                    prompt=actual_prompt,
+                    prompt=curr_prompt,
                     system_prompt=system_prompt,
                     temperature=temperature,
                     max_tokens=max_tokens,
                     use_streaming=use_streaming,
+                    scenario=curr_scenario,
+                    prompt_length_target=target_len,
                     db=db,
                 )
                 results.append(result)
@@ -125,25 +145,29 @@ async def run_benchmark(
                 if result.ttft_ms:
                     ttfts.append(result.ttft_ms)
 
-                # Fix 2: Broadcast live progress INSIDE the loop (was previously outside)
                 if broadcast_fn:
                     await broadcast_fn({
                         "type": "benchmark_progress",
                         "run_id": run_id,
                         "completed": i + 1,
-                        "total": num_runs,
+                        "total": total_steps,
+                        "context_length": target_len,
                         "result": {
                             "ttft_ms": result.ttft_ms,
                             "total_latency_ms": result.total_latency_ms,
                             "generation_tokens_per_second": result.generation_tokens_per_second,
+                            "prompt_tokens": result.prompt_tokens,
+                            "completion_tokens": result.completion_tokens,
+                            "quality_score": result.quality_score,
+                            "coherence_score": result.coherence_score,
+                            "relevance_score": result.relevance_score,
                             "error": result.error,
                         },
                     })
     finally:
-        # Fix 3a: Always clean up the registry entry
         _ACTIVE_BENCH_RUNS.pop(run_id, None)
 
-    # Compute aggregates over results actually collected (may be < num_runs if stopped)
+    # Compute aggregates over collected results
     arr = np.array(latencies) if latencies else np.array([])
     avg_ttft = float(np.mean(ttfts)) if ttfts else None
     avg_lat = float(np.mean(arr)) if len(arr) > 0 else None
@@ -166,6 +190,10 @@ async def run_benchmark(
     quality_passed = sum(1 for r in results if r.quality_valid and not r.error)
     quality_rate = float(quality_passed / len(results)) if results else 1.0
 
+    valid_qualities = [r.quality_score for r in results if r.quality_score is not None]
+    valid_coherences = [r.coherence_score for r in results if r.coherence_score is not None]
+    valid_relevances = [r.relevance_score for r in results if r.relevance_score is not None]
+
     return {
         "avg_ttft_ms": avg_ttft,
         "avg_total_latency_ms": avg_lat,
@@ -179,8 +207,10 @@ async def run_benchmark(
         "avg_power_watts": avg_power,
         "tokens_per_watt": tokens_per_watt,
         "quality_integrity_rate": quality_rate,
+        "avg_quality_score": float(np.mean(valid_qualities)) if valid_qualities else None,
+        "avg_coherence_score": float(np.mean(valid_coherences)) if valid_coherences else None,
+        "avg_relevance_score": float(np.mean(valid_relevances)) if valid_relevances else None,
     }
-
 
 
 async def _run_single(
@@ -193,7 +223,9 @@ async def _run_single(
     temperature: float,
     max_tokens: int,
     use_streaming: bool,
+    scenario: str,
     db: AsyncSession,
+    prompt_length_target: Optional[int] = None,
 ) -> BenchmarkResult:
     request = GenerateRequest(
         model=model,
@@ -215,12 +247,8 @@ async def _run_single(
     raw = None
 
     power_watts = None
-    quality_valid = True
     full_text = ""
 
-    # --- Fix 1: Sample hardware BEFORE the try block so t_start is always defined ---
-    # Previously, if collect_metrics() raised an exception, t_start would be undefined
-    # and the except clause would itself raise UnboundLocalError, hiding the real error.
     hw_before = collect_metrics()
     p0 = hw_before.get("total_gpu_power_watts")
     if p0 is None and hw_before.get("gpus"):
@@ -229,7 +257,6 @@ async def _run_single(
     if p0 is not None:
         power_watts = float(p0)
 
-    # t_start is now always set before try so the except block can always compute latency
     t_start = time.perf_counter()
 
     try:
@@ -263,29 +290,11 @@ async def _run_single(
             full_text = response.content or ""
             raw = response.raw
 
-
         total_latency_ms = total_time * 1000
         if completion_tokens and total_time > 0:
             e2e_tokens_per_second = completion_tokens / total_time
 
-        # Validate output quality (non-empty & format check)
-        if not full_text.strip():
-            quality_valid = False
-        elif "json" in prompt.lower():
-            try:
-                # Basic json extract check
-                clean = full_text.strip()
-                if clean.startswith("```json"):
-                    clean = clean[7:]
-                if clean.startswith("```"):
-                    clean = clean[3:]
-                if clean.endswith("```"):
-                    clean = clean[:-3]
-                json.loads(clean.strip())
-            except Exception:
-                quality_valid = False
-
-        # Post-sample power to average across all GPUs
+        # Post-sample power
         hw_after = collect_metrics()
         p1 = hw_after.get("total_gpu_power_watts")
         if p1 is None and hw_after.get("gpus"):
@@ -298,7 +307,14 @@ async def _run_single(
         t_end = time.perf_counter()
         total_latency_ms = (t_end - t_start) * 1000
         error = str(e)
-        quality_valid = False
+
+    # Heuristic Semantic Quality Evaluation
+    quality_res = evaluate_quality(
+        prompt=prompt,
+        response_text=full_text,
+        scenario=scenario,
+        error=error,
+    )
 
     db_result = BenchmarkResult(
         id=result_id,
@@ -311,10 +327,15 @@ async def _run_single(
         generation_tokens_per_second=generation_tokens_per_second,
         e2e_tokens_per_second=e2e_tokens_per_second,
         power_watts=power_watts,
-        quality_valid=quality_valid,
+        quality_valid=quality_res.quality_valid,
+        quality_score=quality_res.quality_score,
+        coherence_score=quality_res.coherence_score,
+        relevance_score=quality_res.relevance_score,
+        prompt_length_target=prompt_length_target,
         error=error,
         raw_response=raw,
     )
     db.add(db_result)
     await db.flush()
     return db_result
+

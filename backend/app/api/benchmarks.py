@@ -41,6 +41,8 @@ async def _execute_benchmark(run_id: str, runtime_type: str, endpoint: str, api_
                 use_streaming=run_data["use_streaming"],
                 db=db,
                 broadcast_fn=manager.broadcast,
+                test_type=run_data.get("test_type", "standard"),
+                context_lengths=run_data.get("context_lengths"),
             )
 
             # Update run with aggregates
@@ -101,6 +103,9 @@ async def create_benchmark(
         max_tokens=data.max_tokens,
         num_runs=data.num_runs,
         use_streaming=data.use_streaming,
+        test_type=data.test_type or "standard",
+        context_lengths=data.context_lengths,
+        template_id=data.template_id,
         status="pending",
     )
     db.add(run)

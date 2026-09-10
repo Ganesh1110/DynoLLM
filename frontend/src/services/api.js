@@ -33,6 +33,14 @@ export const runtimesApi = {
   listModels: (id) => request(`/api/runtimes/${id}/models`),
 }
 
+export const promptTemplatesApi = {
+  list: () => request('/api/prompt-templates'),
+  create: (data) => request('/api/prompt-templates', { method: 'POST', body: data }),
+  get: (id) => request(`/api/prompt-templates/${id}`),
+  update: (id, data) => request(`/api/prompt-templates/${id}`, { method: 'PUT', body: data }),
+  delete: (id) => request(`/api/prompt-templates/${id}`, { method: 'DELETE' }),
+}
+
 export const benchmarksApi = {
   list: (limit = 50) => request(`/api/benchmarks?limit=${limit}`),
   create: (data) => request('/api/benchmarks', { method: 'POST', body: data }),

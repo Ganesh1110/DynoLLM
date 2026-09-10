@@ -22,6 +22,9 @@ class BenchmarkRun(Base):
     max_tokens = Column(Integer, default=512)
     num_runs = Column(Integer, default=3)
     use_streaming = Column(Boolean, default=True)
+    test_type = Column(String, default="standard")  # standard, context_scaling
+    context_lengths = Column(JSON, nullable=True)     # list of ints, e.g. [100, 500, 1000, 2000]
+    template_id = Column(String, nullable=True)
     error = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     completed_at = Column(DateTime(timezone=True), nullable=True)
@@ -39,6 +42,9 @@ class BenchmarkRun(Base):
     avg_power_watts = Column(Float, nullable=True)
     tokens_per_watt = Column(Float, nullable=True)
     quality_integrity_rate = Column(Float, nullable=True)
+    avg_quality_score = Column(Float, nullable=True)
+    avg_coherence_score = Column(Float, nullable=True)
+    avg_relevance_score = Column(Float, nullable=True)
 
 
 class BenchmarkResult(Base):
@@ -55,6 +61,10 @@ class BenchmarkResult(Base):
     e2e_tokens_per_second = Column(Float, nullable=True)
     power_watts = Column(Float, nullable=True)
     quality_valid = Column(Boolean, default=True)
+    quality_score = Column(Float, nullable=True)
+    coherence_score = Column(Float, nullable=True)
+    relevance_score = Column(Float, nullable=True)
+    prompt_length_target = Column(Integer, nullable=True)
     error = Column(Text, nullable=True)
     raw_response = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow)

@@ -6,13 +6,16 @@ from datetime import datetime
 class BenchmarkCreate(BaseModel):
     runtime_id: str
     model: str
-    scenario: str = "medium"    # short, medium, long, rag, conversation, json, streaming
+    scenario: str = "medium"    # short, medium, long, rag, conversation, json, streaming, custom
     prompt: Optional[str] = None
     system_prompt: Optional[str] = None
     temperature: float = 0.7
     max_tokens: int = 512
     num_runs: int = 3
     use_streaming: bool = True
+    test_type: str = "standard"  # standard, context_scaling
+    context_lengths: Optional[list[int]] = None
+    template_id: Optional[str] = None
 
 
 class BenchmarkResultOut(BaseModel):
@@ -27,6 +30,10 @@ class BenchmarkResultOut(BaseModel):
     e2e_tokens_per_second: Optional[float]
     power_watts: Optional[float] = None
     quality_valid: Optional[bool] = True
+    quality_score: Optional[float] = None
+    coherence_score: Optional[float] = None
+    relevance_score: Optional[float] = None
+    prompt_length_target: Optional[int] = None
     error: Optional[str]
     created_at: datetime
 
@@ -43,6 +50,9 @@ class BenchmarkRunOut(BaseModel):
     max_tokens: int
     num_runs: int
     use_streaming: bool
+    test_type: Optional[str] = "standard"
+    context_lengths: Optional[list[int]] = None
+    template_id: Optional[str] = None
     error: Optional[str]
     created_at: datetime
     completed_at: Optional[datetime]
@@ -60,6 +70,9 @@ class BenchmarkRunOut(BaseModel):
     avg_power_watts: Optional[float] = None
     tokens_per_watt: Optional[float] = None
     quality_integrity_rate: Optional[float] = None
+    avg_quality_score: Optional[float] = None
+    avg_coherence_score: Optional[float] = None
+    avg_relevance_score: Optional[float] = None
 
     results: Optional[list[BenchmarkResultOut]] = None
 

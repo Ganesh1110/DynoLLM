@@ -26,14 +26,16 @@ async def export_benchmark_csv(run_id: str, db: AsyncSession = Depends(get_db)):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "run_index", "ttft_ms", "total_latency_ms", "prompt_tokens",
+        "run_index", "prompt_length_target", "ttft_ms", "total_latency_ms", "prompt_tokens",
         "completion_tokens", "generation_tokens_per_second", "e2e_tokens_per_second",
+        "quality_score", "coherence_score", "relevance_score", "quality_valid",
         "error", "created_at"
     ])
     for r in rows:
         writer.writerow([
-            r.run_index, r.ttft_ms, r.total_latency_ms, r.prompt_tokens,
+            r.run_index, r.prompt_length_target, r.ttft_ms, r.total_latency_ms, r.prompt_tokens,
             r.completion_tokens, r.generation_tokens_per_second, r.e2e_tokens_per_second,
+            r.quality_score, r.coherence_score, r.relevance_score, r.quality_valid,
             r.error, r.created_at
         ])
     output.seek(0)
@@ -89,6 +91,8 @@ async def export_benchmark_json(run_id: str, db: AsyncSession = Depends(get_db))
             "id": run.id,
             "model": run.model,
             "scenario": run.scenario,
+            "test_type": run.test_type,
+            "context_lengths": run.context_lengths,
             "status": run.status,
             "avg_ttft_ms": run.avg_ttft_ms,
             "avg_total_latency_ms": run.avg_total_latency_ms,
@@ -96,17 +100,26 @@ async def export_benchmark_json(run_id: str, db: AsyncSession = Depends(get_db))
             "p50_latency_ms": run.p50_latency_ms,
             "p95_latency_ms": run.p95_latency_ms,
             "p99_latency_ms": run.p99_latency_ms,
+            "avg_quality_score": run.avg_quality_score,
+            "avg_coherence_score": run.avg_coherence_score,
+            "avg_relevance_score": run.avg_relevance_score,
+            "quality_integrity_rate": run.quality_integrity_rate,
             "created_at": str(run.created_at),
             "completed_at": str(run.completed_at),
         },
         "results": [
             {
                 "run_index": r.run_index,
+                "prompt_length_target": r.prompt_length_target,
                 "ttft_ms": r.ttft_ms,
                 "total_latency_ms": r.total_latency_ms,
                 "prompt_tokens": r.prompt_tokens,
                 "completion_tokens": r.completion_tokens,
                 "generation_tokens_per_second": r.generation_tokens_per_second,
+                "quality_score": r.quality_score,
+                "coherence_score": r.coherence_score,
+                "relevance_score": r.relevance_score,
+                "quality_valid": r.quality_valid,
                 "error": r.error,
             }
             for r in results
