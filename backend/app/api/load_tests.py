@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.runtime import Runtime
@@ -151,3 +151,26 @@ async def get_load_test_results(run_id: str, limit: int = 1000, db: AsyncSession
         .limit(limit)
     )
     return result.scalars().all()
+
+
+@router.delete("/{run_id}")
+async def delete_load_test(run_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a single load test run and all its results."""
+    result = await db.execute(select(LoadTestRun).where(LoadTestRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Load test run not found")
+    # Delete child results first
+    await db.execute(delete(LoadTestResult).where(LoadTestResult.run_id == run_id))
+    await db.delete(run)
+    await db.commit()
+    return {"deleted": True, "id": run_id}
+
+
+@router.delete("")
+async def clear_all_load_tests(db: AsyncSession = Depends(get_db)):
+    """Delete ALL load test runs and results (clear history)."""
+    await db.execute(delete(LoadTestResult))
+    await db.execute(delete(LoadTestRun))
+    await db.commit()
+    return {"deleted": True}

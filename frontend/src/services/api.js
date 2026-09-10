@@ -55,6 +55,8 @@ export const benchmarksApi = {
     const key = getApiKey()
     return `${BASE_URL}/api/export/benchmarks/${id}/json${key ? `?token=${encodeURIComponent(key)}` : ''}`
   },
+  delete: (id) => request(`/api/benchmarks/${id}`, { method: 'DELETE' }),
+  clearAll: () => request('/api/benchmarks', { method: 'DELETE' }),
 }
 
 export const loadTestsApi = {
@@ -63,6 +65,8 @@ export const loadTestsApi = {
   get: (id) => request(`/api/load-tests/${id}`),
   stop: (id) => request(`/api/load-tests/${id}/stop`, { method: 'POST' }),
   getResults: (id) => request(`/api/load-tests/${id}/results`),
+  delete: (id) => request(`/api/load-tests/${id}`, { method: 'DELETE' }),
+  clearAll: () => request('/api/load-tests', { method: 'DELETE' }),
   // Fix 6 + 7a: Use dynamic BASE_URL + append ?token= when key is set
   exportCsv: (id) => {
     const key = getApiKey()

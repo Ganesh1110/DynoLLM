@@ -46,6 +46,19 @@ export const useBenchmarkStore = create((set, get) => ({
     }))
   },
 
+  deleteRun: async (id) => {
+    await benchmarksApi.delete(id)
+    set((s) => ({
+      runs: s.runs.filter((r) => r.id !== id),
+      activeRun: s.activeRun?.id === id ? null : s.activeRun,
+    }))
+  },
+
+  clearHistory: async () => {
+    await benchmarksApi.clearAll()
+    set({ runs: [], activeRun: null, liveProgress: null })
+  },
+
   handleWebSocketEvent: (event) => {
     if (event.type === 'benchmark_progress') {
       set({ liveProgress: event })

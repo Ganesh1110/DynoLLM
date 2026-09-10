@@ -3,7 +3,7 @@ import asyncio
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.runtime import Runtime
@@ -152,3 +152,26 @@ async def stop_benchmark(run_id: str, db: AsyncSession = Depends(get_db)):
     # Fix 3b: Notify frontend via WebSocket
     await manager.broadcast({"type": "benchmark_stopped", "run_id": run_id})
     return {"stopped": True}
+
+
+@router.delete("/{run_id}")
+async def delete_benchmark(run_id: str, db: AsyncSession = Depends(get_db)):
+    """Delete a single benchmark run and all its results."""
+    result = await db.execute(select(BenchmarkRun).where(BenchmarkRun.id == run_id))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    # Delete child results first
+    await db.execute(delete(BenchmarkResult).where(BenchmarkResult.run_id == run_id))
+    await db.delete(run)
+    await db.commit()
+    return {"deleted": True, "id": run_id}
+
+
+@router.delete("")
+async def clear_all_benchmarks(db: AsyncSession = Depends(get_db)):
+    """Delete ALL benchmark runs and results (clear history)."""
+    await db.execute(delete(BenchmarkResult))
+    await db.execute(delete(BenchmarkRun))
+    await db.commit()
+    return {"deleted": True}

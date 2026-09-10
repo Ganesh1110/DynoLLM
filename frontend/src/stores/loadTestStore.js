@@ -47,6 +47,19 @@ export const useLoadTestStore = create((set, get) => ({
     }))
   },
 
+  deleteRun: async (id) => {
+    await loadTestsApi.delete(id)
+    set((s) => ({
+      runs: s.runs.filter((r) => r.id !== id),
+      activeRun: s.activeRun?.id === id ? null : s.activeRun,
+    }))
+  },
+
+  clearHistory: async () => {
+    await loadTestsApi.clearAll()
+    set({ runs: [], activeRun: null, liveData: [] })
+  },
+
   handleWebSocketEvent: (event) => {
     if (event.type === 'load_test_progress') {
       const point = {
