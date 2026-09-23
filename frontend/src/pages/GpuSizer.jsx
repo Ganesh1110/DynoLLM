@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Cpu,
   Zap,
@@ -82,8 +83,8 @@ export function GpuSizer() {
   // Sizing Calculations
   const weightsGb = useMemo(() => params * precision, [params, precision])
   const kvPerUserGb = useMemo(
-    () => calcKvCachePerUser(params, contextTokens),
-    [params, contextTokens]
+    () => calcKvCachePerUser(params, contextTokens, modelInput),
+    [params, contextTokens, modelInput]
   )
   const totalKvNeededGb = useMemo(
     () => kvPerUserGb * targetUsers,
@@ -267,11 +268,19 @@ export function GpuSizer() {
           </div>
           <div className="text-right shrink-0 bg-gray-950/60 p-2.5 rounded-lg border border-gray-800 font-mono">
             <span className="text-[10px] text-gray-400 block font-sans">
-              Host Concurrency
+              Theoretical Slots
             </span>
             <span className="text-sm font-bold text-sky-400">
-              ~{hostFit.maxConcurrentStreams} Streams
+              ~{hostFit.maxConcurrentStreams} Slots
             </span>
+          </div>
+        </div>
+
+        {/* Capacity Estimator vs Empirical Validator Info Banner */}
+        <div className="mt-3 p-3 bg-sky-950/40 border border-sky-800/60 rounded-xl flex items-start space-x-3 text-xs text-sky-200">
+          <Sparkles className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-semibold text-white">Capacity Estimator vs. Empirical Validator:</span> Theoretical slots (C_theoretical = floor(M_KV / KV_request)) define hard memory boundaries. Real-world multi-user serving capacity depends on arrival rates and latency targets — validate your production concurrency on the <Link to="/load-test" className="underline font-bold text-sky-300 hover:text-sky-100">Load Test</Link> page.
           </div>
         </div>
       </div>
@@ -363,7 +372,7 @@ export function GpuSizer() {
 
         <div className="bg-gray-900 border border-gray-800 p-3 rounded-xl">
           <span className="text-[10px] font-sans text-gray-400 uppercase block">
-            KV Cache / Stream
+            KV Cache / Slot
           </span>
           <span className="text-xl font-bold text-sky-400 mt-0.5 block">
             {kvPerUserGb.toFixed(2)} GB
@@ -375,7 +384,7 @@ export function GpuSizer() {
 
         <div className="bg-gray-900 border border-gray-800 p-3 rounded-xl">
           <span className="text-[10px] font-sans text-gray-400 uppercase block">
-            Min Single-User Tier
+            Min Single-Slot Tier
           </span>
           <span className="text-xl font-bold text-emerald-400 mt-0.5 block">
             {vramSummary.minTier} GB
@@ -387,13 +396,13 @@ export function GpuSizer() {
 
         <div className="bg-gray-900 border border-sky-500/30 bg-sky-500/5 p-3 rounded-xl">
           <span className="text-[10px] font-sans text-sky-400 uppercase font-semibold block">
-            VRAM for {targetUsers} Users
+            VRAM for {targetUsers} Slots
           </span>
           <span className="text-xl font-bold text-sky-400 mt-0.5 block">
             {fmtGB(totalRecommendedVramGb)}
           </span>
           <span className="text-[10px] text-gray-500 font-sans">
-            Weights + full KV cache
+            Weights + full KV cache pool
           </span>
         </div>
       </div>
@@ -404,10 +413,10 @@ export function GpuSizer() {
           <div>
             <h3 className="font-bold text-base text-white flex items-center space-x-2">
               <Server className="w-4 h-4 text-sky-400" />
-              <span>GPU Suggestions & Concurrency Capacity Matrix</span>
+              <span>GPU Memory Budget & Theoretical Slot Matrix</span>
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Comparison of how many simultaneous concurrent streams each GPU can sustain with {modelInput}.
+              Analytical memory capacity (C_theoretical = floor(M_KV / KV_request)) across GPUs for {modelInput}. Real-world serving capacity must be empirically validated via load testing.
             </p>
           </div>
 
@@ -510,7 +519,7 @@ export function GpuSizer() {
                   {/* Concurrency Highlight */}
                   <div className="flex items-center justify-between p-2 rounded-lg bg-gray-950 border border-gray-800">
                     <span className="text-xs text-gray-400 font-sans">
-                      Concurrent Generations:
+                      Theoretical Slots (C_theor):
                     </span>
                     <span
                       className={`text-base font-black ${
@@ -518,7 +527,7 @@ export function GpuSizer() {
                       }`}
                     >
                       {item.fits
-                        ? `~${item.maxConcurrentStreams} Streams`
+                        ? `~${item.maxConcurrentStreams} Slots`
                         : '0 (OOM)'}
                     </span>
                   </div>
@@ -537,7 +546,7 @@ export function GpuSizer() {
 
                       <div className="bg-gray-800/50 p-1.5 rounded border border-gray-800">
                         <span className="text-[10px] text-gray-500 block font-sans">
-                          Speed / Stream
+                          Speed / Slot
                         </span>
                         <span className="font-bold text-emerald-400">
                           ~{item.perUserTps} tok/s
@@ -549,7 +558,7 @@ export function GpuSizer() {
                   {/* Target Match Verdict */}
                   <div className="flex items-center justify-between text-xs pt-1">
                     <span className="text-gray-500 text-[11px] font-sans">
-                      Target {targetUsers} Users:
+                      Target {targetUsers} Slots:
                     </span>
                     {meetsTarget ? (
                       <span className="text-emerald-400 flex items-center space-x-1 font-sans font-medium text-[11px]">

@@ -1,14 +1,21 @@
 """
-Lightweight Semantic Quality Scoring for LLM Benchmark Outputs.
+DynoLLM Output Integrity & Quality Heuristics.
+
+This module implements lightweight, zero-overhead heuristic checks to detect
+common LLM failure modes under load (preemption truncation, empty responses,
+and degenerate n-gram repetition loops) without requiring a secondary LLM judge.
 
 Evaluates:
-  1. Coherence:
+  1. DynoLLM Coherence Heuristic:
      - N-gram diversity (Distinct-1 & Distinct-2 metrics to catch degenerate repetition loops)
      - Sentence boundary integrity & structural termination (balanced delimiters, clean endings)
      - Format compliance (strict JSON validation for structured scenarios)
-  2. Relevance:
-     - Content-token lexical overlap (stopword-filtered Jaccard & directional prompt containment)
+  2. DynoLLM Lexical Overlap Score:
+     - Content-token lexical overlap (stopword-filtered stem matching against prompt keywords)
      - Response informativeness & length appropriateness (penalizes empty/truncated/filler outputs)
+
+Note: These are fast empirical heuristics for operational benchmarking, not academic
+semantic evaluation benchmarks (like MT-Bench or MMLU).
 """
 import re
 import json

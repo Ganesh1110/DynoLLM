@@ -7,7 +7,7 @@ import { useLoadTestStore } from '../stores/loadTestStore'
 import { useMonitoringStore } from '../stores/monitoringStore'
 import { loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
-import { parseModelName, calcVRAM, evaluateHostFit } from '../utils/gpuSizer'
+import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
 
 
 export function LoadTest() {
@@ -83,7 +83,8 @@ export function LoadTest() {
     if (!config.model) return null
     const parsed = parseModelName(config.model)
     const vram = calcVRAM(parsed.params, parsed.precision, parsed.overhead)
-    const fit = evaluateHostFit(vram.weightsGb, vram.totalVramGb, currentTelemetry)
+    const kvPerUser = calcKvCachePerUser(parsed.params, 4096, config.model)
+    const fit = evaluateHostFit(vram.weightsGb, vram.totalVramGb, currentTelemetry, kvPerUser)
     return { parsed, vram, fit }
   }, [config.model, currentTelemetry])
 

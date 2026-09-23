@@ -22,20 +22,21 @@ export const PRECISION_OPTIONS = [
 ]
 
 export const MODEL_PRESETS = [
-  { name: 'llama3.1:8b-instruct-q4_K_M', params: 8, precision: 0.55, overhead: 25, label: 'Llama 3.1 8B (Q4_K_M)' },
-  { name: 'llama3.1:8b-instruct-fp16', params: 8, precision: 2.0, overhead: 25, label: 'Llama 3.1 8B (FP16 Unquantized)' },
-  { name: 'llama3.1:70b-instruct-q4_K_M', params: 70, precision: 0.55, overhead: 25, label: 'Llama 3.1 70B (Q4_K_M)' },
-  { name: 'qwen2.5:7b-instruct-q4_K_M', params: 7, precision: 0.55, overhead: 25, label: 'Qwen 2.5 7B (Q4_K_M)' },
-  { name: 'qwen2.5:14b-instruct-q4_K_M', params: 14, precision: 0.55, overhead: 25, label: 'Qwen 2.5 14B (Q4_K_M)' },
-  { name: 'qwen2.5:32b-instruct-q4_K_M', params: 32, precision: 0.55, overhead: 25, label: 'Qwen 2.5 32B (Q4_K_M)' },
-  { name: 'qwen2.5:72b-instruct-q4_K_M', params: 72, precision: 0.55, overhead: 25, label: 'Qwen 2.5 72B (Q4_K_M)' },
-  { name: 'deepseek-r1:14b', params: 14, precision: 0.55, overhead: 30, label: 'DeepSeek R1 14B (Q4_K_M)' },
-  { name: 'deepseek-r1:32b', params: 32, precision: 0.55, overhead: 30, label: 'DeepSeek R1 32B (Q4_K_M)' },
-  { name: 'deepseek-r1:70b', params: 70, precision: 0.55, overhead: 30, label: 'DeepSeek R1 70B (Q4_K_M)' },
-  { name: 'mistral:7b-instruct-v0.3', params: 7, precision: 0.55, overhead: 25, label: 'Mistral 7B (Q4_K_M)' },
-  { name: 'gemma2:9b', params: 9, precision: 0.55, overhead: 25, label: 'Gemma 2 9B (Q4_K_M)' },
-  { name: 'gemma2:27b', params: 27, precision: 0.55, overhead: 25, label: 'Gemma 2 27B (Q4_K_M)' },
-  { name: 'phi3.5:3.8b', params: 3.8, precision: 0.55, overhead: 20, label: 'Phi 3.5 3.8B (Q4_K_M)' },
+  { name: 'llama3.1:8b-instruct-q4_K_M', params: 8, precision: 0.55, overhead: 25, label: 'Llama 3.1 8B (Q4_K_M)', layers: 32, kvHeads: 8, headDim: 128 },
+  { name: 'llama3.1:8b-instruct-fp16', params: 8, precision: 2.0, overhead: 25, label: 'Llama 3.1 8B (FP16 Unquantized)', layers: 32, kvHeads: 8, headDim: 128 },
+  { name: 'llama3.1:70b-instruct-q4_K_M', params: 70, precision: 0.55, overhead: 25, label: 'Llama 3.1 70B (Q4_K_M)', layers: 80, kvHeads: 8, headDim: 128 },
+  { name: 'qwen2.5:7b-instruct-q4_K_M', params: 7, precision: 0.55, overhead: 25, label: 'Qwen 2.5 7B (Q4_K_M)', layers: 28, kvHeads: 4, headDim: 128 },
+  { name: 'qwen2.5:14b-instruct-q4_K_M', params: 14, precision: 0.55, overhead: 25, label: 'Qwen 2.5 14B (Q4_K_M)', layers: 40, kvHeads: 8, headDim: 128 },
+  { name: 'qwen3:14b-fp8', params: 14, precision: 1.0, overhead: 25, label: 'Qwen 3 14B (FP8 / vLLM)', layers: 40, kvHeads: 8, headDim: 128 },
+  { name: 'qwen2.5:32b-instruct-q4_K_M', params: 32, precision: 0.55, overhead: 25, label: 'Qwen 2.5 32B (Q4_K_M)', layers: 64, kvHeads: 8, headDim: 128 },
+  { name: 'qwen2.5:72b-instruct-q4_K_M', params: 72, precision: 0.55, overhead: 25, label: 'Qwen 2.5 72B (Q4_K_M)', layers: 80, kvHeads: 8, headDim: 128 },
+  { name: 'deepseek-r1:14b', params: 14, precision: 0.55, overhead: 30, label: 'DeepSeek R1 14B (Q4_K_M)', layers: 40, kvHeads: 8, headDim: 128 },
+  { name: 'deepseek-r1:32b', params: 32, precision: 0.55, overhead: 30, label: 'DeepSeek R1 32B (Q4_K_M)', layers: 64, kvHeads: 8, headDim: 128 },
+  { name: 'deepseek-r1:70b', params: 70, precision: 0.55, overhead: 30, label: 'DeepSeek R1 70B (Q4_K_M)', layers: 80, kvHeads: 8, headDim: 128 },
+  { name: 'mistral:7b-instruct-v0.3', params: 7, precision: 0.55, overhead: 25, label: 'Mistral 7B (Q4_K_M)', layers: 32, kvHeads: 8, headDim: 128 },
+  { name: 'gemma2:9b', params: 9, precision: 0.55, overhead: 25, label: 'Gemma 2 9B (Q4_K_M)', layers: 42, kvHeads: 8, headDim: 256 },
+  { name: 'gemma2:27b', params: 27, precision: 0.55, overhead: 25, label: 'Gemma 2 27B (Q4_K_M)', layers: 46, kvHeads: 16, headDim: 128 },
+  { name: 'phi3.5:3.8b', params: 3.8, precision: 0.55, overhead: 20, label: 'Phi 3.5 3.8B (Q4_K_M)', layers: 32, kvHeads: 32, headDim: 96 },
 ]
 
 export const GPU_CATALOG = [
@@ -176,49 +177,83 @@ export const GPU_CATALOG = [
  */
 export function parseModelName(name) {
   if (!name || typeof name !== 'string') {
-    return { params: 8, precision: 0.55, overhead: 25, detected: false }
+    return { params: 8, precision: 0.55, overhead: 25, layers: 32, kvHeads: 8, headDim: 128, detected: false }
   }
 
   const clean = name.toLowerCase().trim()
 
-  // 1. Extract billion parameter count
-  let params = 8
-  let detected = false
-  const paramMatch = clean.match(/(?:^|[:\-_/\s])(\d+(?:\.\d+)?)\s*[bB](?:$|[:\-_/\s])/)
-  if (paramMatch && paramMatch[1]) {
-    params = parseFloat(paramMatch[1])
-    detected = true
+  // 1. Check known presets first for exact architectural parameters
+  const matchedPreset = MODEL_PRESETS.find(
+    (p) => clean.includes(p.name.toLowerCase()) || clean.includes(p.label.toLowerCase())
+  )
+
+  // 2. Extract billion parameter count
+  let params = matchedPreset?.params || 8
+  let detected = Boolean(matchedPreset)
+  if (!matchedPreset) {
+    const paramMatch = clean.match(/(?:^|[:\-_/\s])(\d+(?:\.\d+)?)\s*[bB](?:$|[:\-_/\s])/)
+    if (paramMatch && paramMatch[1]) {
+      params = parseFloat(paramMatch[1])
+      detected = true
+    }
   }
 
-  // 2. Extract precision / quantization
-  let precision = 0.55 // default to 4-bit (Ollama / GGUF standard)
-  if (clean.includes('fp16') || clean.includes('bf16') || clean.includes('16bit')) {
-    precision = 2.0
-  } else if (clean.includes('int8') || clean.includes('q8') || clean.includes('8bit')) {
-    precision = 1.0
-  } else if (clean.includes('q6')) {
-    precision = 0.75
-  } else if (clean.includes('q5')) {
-    precision = 0.65
-  } else if (
-    clean.includes('q4') ||
-    clean.includes('int4') ||
-    clean.includes('awq') ||
-    clean.includes('gptq') ||
-    clean.includes('4bit')
-  ) {
-    precision = 0.55
+  // 3. Extract precision / quantization
+  let precision = matchedPreset?.precision || 0.55
+  if (!matchedPreset) {
+    if (clean.includes('fp16') || clean.includes('bf16') || clean.includes('16bit')) {
+      precision = 2.0
+    } else if (clean.includes('fp8') || clean.includes('int8') || clean.includes('q8') || clean.includes('8bit')) {
+      precision = 1.0
+    } else if (clean.includes('q6')) {
+      precision = 0.75
+    } else if (clean.includes('q5')) {
+      precision = 0.65
+    } else if (
+      clean.includes('q4') ||
+      clean.includes('int4') ||
+      clean.includes('awq') ||
+      clean.includes('gptq') ||
+      clean.includes('4bit')
+    ) {
+      precision = 0.55
+    }
   }
 
-  // 3. Estimate KV cache overhead
-  let overhead = 25
-  if (clean.includes('70b') || clean.includes('72b')) {
-    overhead = 25
-  } else if (clean.includes('deepseek')) {
-    overhead = 30
+  // 4. Estimate KV cache overhead
+  let overhead = matchedPreset?.overhead || 25
+  if (!matchedPreset) {
+    if (clean.includes('70b') || clean.includes('72b')) {
+      overhead = 25
+    } else if (clean.includes('deepseek')) {
+      overhead = 30
+    }
   }
 
-  return { params, precision, overhead, detected }
+  // 5. Attention Architecture (Layers, KV Heads, Head Dim)
+  let layers = matchedPreset?.layers
+  let kvHeads = matchedPreset?.kvHeads
+  let headDim = matchedPreset?.headDim || 128
+
+  if (!layers) {
+    if (clean.includes('qwen') || clean.includes('deepseek')) {
+      if (params >= 70) { layers = 80; kvHeads = 8 }
+      else if (params >= 30) { layers = 64; kvHeads = 8 }
+      else if (params >= 14) { layers = 40; kvHeads = 8 }
+      else { layers = 28; kvHeads = 4 }
+    } else if (clean.includes('gemma')) {
+      if (params >= 25) { layers = 46; kvHeads = 16; headDim = 128 }
+      else { layers = 42; kvHeads = 8; headDim = 256 }
+    } else {
+      // Standard Llama / Mistral GQA profile
+      if (params >= 65) { layers = 80; kvHeads = 8 }
+      else if (params >= 30) { layers = 64; kvHeads = 8 }
+      else if (params >= 12) { layers = 40; kvHeads = 8 }
+      else { layers = 32; kvHeads = 8 }
+    }
+  }
+
+  return { params, precision, overhead, layers, kvHeads, headDim, detected }
 }
 
 /**
@@ -251,21 +286,90 @@ export function calcVRAM(paramsBillion, bytesPerParam, overheadPct = 25) {
 }
 
 /**
- * Estimates KV cache memory consumed per active concurrent stream at a given context length
+ * Computes detailed KV cache architecture specifications.
+ * Uses the exact transformer attention architecture formula:
+ *   KV Bytes / token = 2 * N_layers * N_kv_heads * head_dim * bytes_per_element
+ *   Allocated Tokens = ceil(Context / BlockSize) * BlockSize
+ *   Total KV (GiB) = (KV Bytes / token * Allocated Tokens) / (1024^3)
+ *
+ * @param {number} paramsBillion Model parameters in billions
+ * @param {number} contextTokens Sequence length in tokens (default 4096)
+ * @param {string|object} modelOrArch Model name string or architecture object
+ * @param {number} blockSize PagedAttention block size in tokens (default 16)
+ * @param {number} kvDtypeBytes Bytes per element (2 for BF16/FP16, 1 for FP8)
  */
-export function calcKvCachePerUser(paramsBillion, contextTokens = 4096) {
+export function calcDetailedKvSpecs(paramsBillion, contextTokens = 4096, modelOrArch = null, blockSize = 16, kvDtypeBytes = 2) {
+  let layers, kvHeads, headDim = 128, bytesPerElement = kvDtypeBytes || 2
+
+  if (modelOrArch && typeof modelOrArch === 'object') {
+    layers = modelOrArch.layers
+    kvHeads = modelOrArch.kvHeads
+    headDim = modelOrArch.headDim || 128
+    bytesPerElement = modelOrArch.kvBytesPerElement || kvDtypeBytes || 2
+  } else if (typeof modelOrArch === 'string') {
+    const parsed = parseModelName(modelOrArch)
+    layers = parsed.layers
+    kvHeads = parsed.kvHeads
+    headDim = parsed.headDim || 128
+  }
+
+  // Fallback estimation using standard GQA architecture if layers / heads not resolved
   const p = Math.max(1, parseFloat(paramsBillion) || 8)
-  const c = Math.max(512, parseInt(contextTokens) || 4096)
-  // GQA architecture formula: approx 0.035 GB per billion params per 4k context tokens
-  const kvGb = (0.2 + (p * 0.025)) * (c / 4096)
-  return Math.max(0.15, kvGb)
+  if (!layers) {
+    if (p <= 8) {
+      layers = 32
+      kvHeads = 8
+    } else if (p <= 16) {
+      layers = 40
+      kvHeads = 8
+    } else if (p <= 36) {
+      layers = 64
+      kvHeads = 8
+    } else {
+      layers = 80
+      kvHeads = 8
+    }
+  }
+  if (!kvHeads) kvHeads = 8
+
+  const c = Math.max(1, parseInt(contextTokens) || 4096)
+  const b = Math.max(1, parseInt(blockSize) || 16)
+  const allocatedTokens = Math.ceil(c / b) * b
+
+  // First-principles formula: 2 * N_layers * N_kv_heads * head_dim * bytes_per_element
+  const bytesPerToken = 2 * layers * kvHeads * headDim * bytesPerElement
+  const totalBytes = bytesPerToken * allocatedTokens
+  const kvGiB = Math.max(0.05, totalBytes / (1024 ** 3))
+
+  return {
+    layers,
+    kvHeads,
+    headDim,
+    bytesPerElement,
+    bytesPerToken,
+    allocatedTokens,
+    kvGiB,
+  }
 }
 
 /**
- * Evaluates how much concurrency a specific GPU can sustain for a given model
+ * Calculates KV cache memory consumed per active concurrent stream at a given context length.
  */
-export function evaluateGpuConcurrency(gpu, weightsGb, kvPerUserGb) {
-  const usableVram = Math.max(0, gpu.vramGb - 1.0) // 1GB reserved for display / CUDA context
+export function calcKvCachePerUser(paramsBillion, contextTokens = 4096, modelOrArch = null, blockSize = 16, kvDtypeBytes = 2) {
+  return calcDetailedKvSpecs(paramsBillion, contextTokens, modelOrArch, blockSize, kvDtypeBytes).kvGiB
+}
+
+/**
+ * /**
+ * Evaluates how much theoretical concurrency a specific GPU can sustain for a given model.
+ * Formula:
+ *   M_budget = M_gpu * U (U=0.90)
+ *   M_KV = M_budget - M_runtime (weights + 1.0GB activation/workspace margin)
+ *   C_theoretical = floor(M_KV / KV_request)
+ */
+export function evaluateGpuConcurrency(gpu, weightsGb, kvPerUserGb, gpuMemoryUtilization = 0.90) {
+  const memoryBudget = gpu.vramGb * gpuMemoryUtilization
+  const usableVram = Math.max(0, memoryBudget - 1.0) // 1.0 GB reserved for CUDA context & peak activations
   const kvVramAvailable = usableVram - weightsGb
 
   if (kvVramAvailable <= 0.5) {
@@ -277,18 +381,20 @@ export function evaluateGpuConcurrency(gpu, weightsGb, kvPerUserGb) {
       badge: 'Insufficient VRAM',
       color: 'rose',
       headroomGb: kvVramAvailable,
+      theoreticalMaxSlots: 0,
       maxConcurrentStreams: 0,
       estimatedAggregateTps: 0,
       perUserTps: 0,
-      verdict: `Deficit of ${deficitGb.toFixed(1)} GB. Model weights cannot fit in this GPU's ${gpu.vramGb} GB VRAM.`,
+      verdict: `Deficit of ${deficitGb.toFixed(1)} GB. Model weights cannot fit within this GPU's ${memoryBudget.toFixed(1)} GB engine budget.`,
     }
   }
 
-  // Memory-bounded concurrent streams
+  // Memory-bounded theoretical concurrent slots: C_theoretical = floor(M_KV / KV_request)
   const rawConcurrent = Math.floor(kvVramAvailable / kvPerUserGb)
+  const theoreticalMaxSlots = Math.max(1, rawConcurrent)
   const maxConcurrentStreams = Math.max(1, Math.min(rawConcurrent, gpu.maxBatch))
 
-  // Estimated aggregate batch throughput
+  // Estimated aggregate batch throughput (illustrative empirical curve)
   const batchSpeedup = Math.min(3.5, 1.0 + Math.log2(Math.max(1, maxConcurrentStreams)) * 0.4)
   const singleStreamTps = (gpu.bandwidthGbps / Math.max(2, weightsGb)) * 0.65
   const estimatedAggregateTps = Math.min(gpu.maxComputeTps, Math.round(singleStreamTps * batchSpeedup))
@@ -303,15 +409,16 @@ export function evaluateGpuConcurrency(gpu, weightsGb, kvPerUserGb) {
     badge: isTight ? 'Tight Headroom' : 'Native Fit',
     color: isTight ? 'amber' : 'emerald',
     headroomGb: kvVramAvailable,
+    theoreticalMaxSlots,
     maxConcurrentStreams,
     estimatedAggregateTps,
     perUserTps,
-    verdict: `Sustains ~${maxConcurrentStreams} simultaneous streams (~${perUserTps} tok/s per user, ${estimatedAggregateTps} tok/s total).`,
+    verdict: `Theoretical capacity: ~${theoreticalMaxSlots} slots (~${perUserTps} tok/s/slot, ${estimatedAggregateTps} tok/s total). Real-world serving capacity must be empirically validated via load test.`,
   }
 }
 
 /**
- * Evaluates compatibility and concurrent capacity of connected host machine
+ * Evaluates compatibility and theoretical concurrent capacity of connected host machine.
  */
 export function evaluateHostFit(arg1, arg2, arg3, arg4) {
   let weightsGb, totalVramGb, currentTelemetry, kvPerUserGb
@@ -349,17 +456,19 @@ export function evaluateHostFit(arg1, arg2, arg3, arg4) {
     const totalGpuVramBytes = gpus.reduce((acc, g) => acc + (g.vram_total_bytes || 0), 0)
     const availableVramGb = totalGpuVramBytes / (1024 ** 3)
     const primaryGpuName = gpus[0]?.name || 'NVIDIA GPU'
-    const usableVram = Math.max(0, availableVramGb - 1.0)
+    // M_budget = VRAM * 0.90
+    const memoryBudget = availableVramGb * 0.90
+    const usableVram = Math.max(0, memoryBudget - 1.0)
     const kvVramAvailable = usableVram - weightsGb
 
     if (kvVramAvailable >= 2.0) {
-      const maxStreams = Math.max(1, Math.min(48, Math.floor(kvVramAvailable / kvPerUserGb)))
+      const maxStreams = Math.max(1, Math.floor(kvVramAvailable / kvPerUserGb))
       return {
         status: 'fits',
         badge: 'Fits Natively in VRAM',
         color: 'emerald',
         title: `Fits natively on ${primaryGpuName}`,
-        description: `Host has ${availableVramGb.toFixed(1)} GB VRAM. Model leaves ${kvVramAvailable.toFixed(1)} GB for KV cache, sustaining ~${maxStreams} concurrent generations.`,
+        description: `Host has ${availableVramGb.toFixed(1)} GB VRAM (${memoryBudget.toFixed(1)} GB engine budget). Leaves ${kvVramAvailable.toFixed(1)} GB for KV cache pool, fitting ~${maxStreams} theoretical full-length slots. Validated serving capacity requires load testing.`,
         availableGb: availableVramGb,
         headroomGb: kvVramAvailable,
         maxConcurrentStreams: maxStreams,
@@ -371,7 +480,7 @@ export function evaluateHostFit(arg1, arg2, arg3, arg4) {
         badge: 'Tight VRAM Fit',
         color: 'amber',
         title: `Fits with tight VRAM headroom on ${primaryGpuName}`,
-        description: `Host has ${availableVramGb.toFixed(1)} GB VRAM. Only ${kvVramAvailable.toFixed(1)} GB left for KV cache. Supports ~${maxStreams} concurrent stream(s).`,
+        description: `Host has ${availableVramGb.toFixed(1)} GB VRAM (${memoryBudget.toFixed(1)} GB engine budget). Only ${kvVramAvailable.toFixed(1)} GB left for KV cache pool (~${maxStreams} theoretical slot(s)). High risk of queueing under concurrent load.`,
         availableGb: availableVramGb,
         headroomGb: kvVramAvailable,
         maxConcurrentStreams: maxStreams,
@@ -383,7 +492,7 @@ export function evaluateHostFit(arg1, arg2, arg3, arg4) {
         badge: 'Exceeds Host VRAM',
         color: 'rose',
         title: `Exceeds VRAM by ${deficitGb.toFixed(1)} GB on ${primaryGpuName}`,
-        description: `Host has ${availableVramGb.toFixed(1)} GB VRAM. Model needs ${totalVramGb.toFixed(1)} GB. Weights will spill to CPU RAM, severely bottlenecking concurrency to ~1 stream.`,
+        description: `Host has ${availableVramGb.toFixed(1)} GB VRAM. Model needs ${totalVramGb.toFixed(1)} GB. Weights will spill to CPU RAM, severely bottlenecking inference to ~1 stream.`,
         availableGb: availableVramGb,
         headroomGb: kvVramAvailable,
         maxConcurrentStreams: 1,
