@@ -556,6 +556,7 @@ curl -o load_test.csv http://localhost:8000/api/export/load-tests/{run_id}/csv
 
 ## 📚 Documentation
 
+- [vLLM Inference Core Concepts & GPU Sizing Guide](docs/VLLM_INFERENCE_CORE_CONCEPTS.md): Production guide covering DeepLearning.AI & Red Hat's vLLM course, LLM Compressor quantization recipes (FP8, GPTQ, AWQ), PagedAttention mechanics, continuous batching, chunked prefill, and the 4-step GPU sizing framework.
 - [Detailed Metrics & Calculation Guide](docs/CALCULATIONS_GUIDE.md): Complete, step-by-step breakdown of how TTFT, tokens/sec, energy efficiency (tok/s/W), SLA safe concurrency, semantic quality scoring, and GPU VRAM capacity are calculated.
 - [Detailed Implementation Plan & Architecture Guide](docs/local-llm-testing-monitoring-implementation-plan.md): Comprehensive 11-module breakdown covering concurrency modeling, hardware telemetry collectors, and statistical scoring.
 

@@ -8,6 +8,7 @@ import { LoadTest } from './pages/LoadTest'
 import { History } from './pages/History'
 import { Compare } from './pages/Compare'
 import { GpuSizer } from './pages/GpuSizer'
+import { VllmOptimizer } from './pages/VllmOptimizer'
 import { useWebSocket } from './hooks/useWebSocket'
 
 function AppContent() {
@@ -23,6 +24,7 @@ function AppContent() {
           <Route path="/benchmark" element={<Benchmark />} />
           <Route path="/load-test" element={<LoadTest />} />
           <Route path="/gpu-sizer" element={<GpuSizer />} />
+          <Route path="/vllm-optimizer" element={<VllmOptimizer />} />
           <Route path="/compare" element={<Compare />} />
           <Route path="/history" element={<History />} />
         </Routes>
@@ -37,7 +39,7 @@ function AppContent() {
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <AppContent />
     </BrowserRouter>
   )

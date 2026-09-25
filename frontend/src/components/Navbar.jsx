@@ -11,6 +11,7 @@ import {
   Database,
   Menu,
   X,
+  Sparkles,
 } from 'lucide-react'
 import { useMonitoringStore } from '../stores/monitoringStore'
 
@@ -25,6 +26,7 @@ export function Navbar() {
     { to: '/benchmark', label: 'Benchmark', icon: PlayCircle },
     { to: '/load-test', label: 'Load Test', icon: Zap },
     { to: '/gpu-sizer', label: 'GPU Sizer', icon: Cpu },
+    { to: '/vllm-optimizer', label: 'vLLM Optimizer', icon: Sparkles },
     { to: '/compare', label: 'Compare', icon: GitCompare },
     { to: '/history', label: 'History', icon: History },
   ]
