@@ -291,7 +291,9 @@ export function Dashboard() {
                     fillOpacity={1}
                     fill="url(#cpuGlow)"
                     name="CPU Utilization"
-                    isAnimationActive={false}
+                    isAnimationActive={true}
+                    animationDuration={900}
+                    animationEasing="ease-out"
                   />
                 )}
                 {(activeMetric === 'all' || activeMetric === 'ram') && (
@@ -303,7 +305,9 @@ export function Dashboard() {
                     fillOpacity={activeMetric === 'ram' ? 1 : 0.6}
                     fill="url(#ramGlow)"
                     name="System RAM"
-                    isAnimationActive={false}
+                    isAnimationActive={true}
+                    animationDuration={900}
+                    animationEasing="ease-out"
                   />
                 )}
                 {current?.gpu_count > 0 && (activeMetric === 'all' || activeMetric === 'gpu') && (
@@ -315,7 +319,9 @@ export function Dashboard() {
                     fillOpacity={1}
                     fill="url(#gpuGlow)"
                     name="GPU Compute"
-                    isAnimationActive={false}
+                    isAnimationActive={true}
+                    animationDuration={900}
+                    animationEasing="ease-out"
                   />
                 )}
               </AreaChart>

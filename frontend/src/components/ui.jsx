@@ -31,7 +31,7 @@ export function GaugeBar({ label, value, max, unit = '', color = 'bg-sky-500' })
         <span>{value?.toFixed(1)}{unit} / {max}{unit}</span>
       </div>
       <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full transition-all duration-700 ease-out ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
   )
