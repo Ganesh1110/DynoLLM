@@ -520,7 +520,7 @@ def _compute_aggregates(
         "timeout_count": len(timed_out),
         "runtime_healthy_throughout": runtime_healthy,
         "abort_reason": abort_reason,
-        "quality_integrity_rate": float(len(quality_valid) / len(all_results)) if all_results else 1.0,
+        "quality_integrity_rate": float(len(quality_valid) / len(all_results)) if all_results else None,
         "avg_power_watts": avg_power,
         "tokens_per_watt": tokens_per_watt,
         "safe_max_concurrency": safe_max_concurrency,

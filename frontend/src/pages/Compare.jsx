@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { GitCompare, Award, Zap, Cpu, Activity, ShieldCheck, Check, ArrowRight } from 'lucide-react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
-import { SectionHeader, StatusBadge, fmt, fmtMs } from '../components/ui'
+import { SectionHeader, StatusBadge, fmt, fmtMs, formatPercent } from '../components/ui'
 
 export function Compare() {
   const runs = useBenchmarkStore((s) => s.runs)
@@ -244,9 +244,13 @@ export function Compare() {
                     <td className="p-3 text-gray-400 font-sans font-medium">Quality Integrity Rate</td>
                     {selectedRuns.map((r) => (
                       <td key={r.id} className="p-3">
-                        <span className="badge-green text-[10px]">
-                          {fmt((r.quality_integrity_rate ?? 1) * 100)}% Valid
-                        </span>
+                        {r.quality_integrity_rate != null ? (
+                          <span className={r.quality_integrity_rate >= 0.95 ? "badge-green text-[10px]" : "badge-yellow text-[10px]"}>
+                            {formatPercent(r.quality_integrity_rate)} Valid
+                          </span>
+                        ) : (
+                          <span className="text-gray-500 font-mono text-xs">—</span>
+                        )}
                       </td>
                     ))}
                   </tr>

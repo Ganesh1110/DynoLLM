@@ -167,7 +167,11 @@ async def run_benchmark(
     finally:
         _ACTIVE_BENCH_RUNS.pop(run_id, None)
 
-    # Compute aggregates over collected results
+    return compute_benchmark_aggregates(results, latencies, ttfts)
+
+
+def compute_benchmark_aggregates(results: list, latencies: list, ttfts: list) -> dict:
+    """Compute statistical aggregates across all completed benchmark iterations."""
     arr = np.array(latencies) if latencies else np.array([])
     avg_ttft = float(np.mean(ttfts)) if ttfts else None
     avg_lat = float(np.mean(arr)) if len(arr) > 0 else None
@@ -188,7 +192,7 @@ async def run_benchmark(
         tokens_per_watt = float(avg_gen_tps / avg_power)
 
     quality_passed = sum(1 for r in results if r.quality_valid and not r.error)
-    quality_rate = float(quality_passed / len(results)) if results else 1.0
+    quality_rate = float(quality_passed / len(results)) if results else None
 
     valid_qualities = [r.quality_score for r in results if r.quality_score is not None]
     valid_coherences = [r.coherence_score for r in results if r.coherence_score is not None]

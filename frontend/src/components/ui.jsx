@@ -100,3 +100,15 @@ export function fmtMs(ms) {
   if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`
   return `${ms.toFixed(0)}ms`
 }
+
+export function formatPercent(rate, decimals = 0) {
+  if (rate == null || isNaN(rate)) return '—'
+  return `${(Number(rate) * 100).toFixed(decimals)}%`
+}
+
+export function safeDiv(numerator, denominator, fallback = null) {
+  if (denominator == null || denominator === 0 || isNaN(denominator) || isNaN(numerator) || numerator == null) {
+    return fallback
+  }
+  return numerator / denominator
+}

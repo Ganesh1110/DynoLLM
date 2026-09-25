@@ -1,7 +1,15 @@
 /**
  * GPU Sizing & Concurrency Sizing Utility
  * Pure hardware capability, VRAM footprint, and concurrent generation modeling.
+ *
+ * NOTE ON UNITS:
+ * All memory calculations throughout this pipeline standardize on binary GiB (2^30 = 1,073,741,824 bytes).
+ * Physical GPU VRAM is binary GiB, model parameter weights are converted from decimal billions via (P * 1e9 * B) / 1024^3,
+ * and KV cache is computed in exact bytes and divided by 1024^3.
  */
+
+export const BYTES_PER_GIB = 1024 ** 3 // 1,073,741,824 bytes
+export const GIB_PER_BILLION = 1e9 / BYTES_PER_GIB // ~0.9313225746154785 GiB per 10^9 parameters (at 1 byte/param)
 
 export const GPU_TIERS = [8, 12, 16, 24, 32, 40, 48, 64, 80, 96, 128, 160, 192]
 
@@ -274,13 +282,16 @@ export function calcVRAM(paramsBillion, bytesPerParam, overheadPct = 25) {
   const bytes = Math.max(0.1, parseFloat(bytesPerParam) || 0.55)
   const overhead = Math.max(0, parseFloat(overheadPct) || 0)
 
-  const weightsGb = params * bytes
-  const totalVramGb = weightsGb * (1 + overhead / 100)
-  const minTier = nextTier(totalVramGb)
+  // Standardized binary GiB calculation: (N * 1e9 params * bytes_per_param) / 1024^3
+  const weightsGiB = (params * 1e9 * bytes) / BYTES_PER_GIB
+  const totalVramGiB = weightsGiB * (1 + overhead / 100)
+  const minTier = nextTier(totalVramGiB)
 
   return {
-    weightsGb,
-    totalVramGb,
+    weightsGb: weightsGiB,
+    totalVramGb: totalVramGiB,
+    weightsGiB,
+    totalVramGiB,
     minTier,
   }
 }
@@ -339,7 +350,7 @@ export function calcDetailedKvSpecs(paramsBillion, contextTokens = 4096, modelOr
   // First-principles formula: 2 * N_layers * N_kv_heads * head_dim * bytes_per_element
   const bytesPerToken = 2 * layers * kvHeads * headDim * bytesPerElement
   const totalBytes = bytesPerToken * allocatedTokens
-  const kvGiB = Math.max(0.05, totalBytes / (1024 ** 3))
+  const kvGiB = Math.max(0.05, totalBytes / BYTES_PER_GIB)
 
   return {
     layers,
@@ -454,7 +465,7 @@ export function evaluateHostFit(arg1, arg2, arg3, arg4) {
   const gpus = currentTelemetry.gpus || []
   if (gpus.length > 0) {
     const totalGpuVramBytes = gpus.reduce((acc, g) => acc + (g.vram_total_bytes || 0), 0)
-    const availableVramGb = totalGpuVramBytes / (1024 ** 3)
+    const availableVramGb = totalGpuVramBytes / BYTES_PER_GIB
     const primaryGpuName = gpus[0]?.name || 'NVIDIA GPU'
     // M_budget = VRAM * 0.90
     const memoryBudget = availableVramGb * 0.90
@@ -502,7 +513,7 @@ export function evaluateHostFit(arg1, arg2, arg3, arg4) {
 
   // 2. Check Apple Silicon / System Unified Memory
   const totalRamBytes = currentTelemetry.ram_total_bytes || 0
-  const totalRamGb = totalRamBytes / (1024 ** 3)
+  const totalRamGb = totalRamBytes / BYTES_PER_GIB
   const usableUnifiedRam = Math.max(0, totalRamGb - 4.0) // 4GB reserved for macOS
   const kvAvailable = usableUnifiedRam - weightsGb
 

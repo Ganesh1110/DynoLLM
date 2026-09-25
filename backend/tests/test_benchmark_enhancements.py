@@ -217,3 +217,30 @@ async def test_context_scaling_benchmark_and_export():
         export_json = json_export_resp.json()
         assert export_json["run"]["test_type"] == "context_scaling"
         assert export_json["run"]["context_lengths"] == [100, 500]
+
+
+def test_empty_benchmark_quality_integrity_rate_is_none():
+    """Verify that when a benchmark run produces 0 valid results, quality_integrity_rate is None (not 1.0)."""
+    from app.benchmark.engine import compute_benchmark_aggregates
+    aggregates = compute_benchmark_aggregates(results=[], latencies=[], ttfts=[])
+    assert aggregates["quality_integrity_rate"] is None
+    assert aggregates["avg_total_latency_ms"] is None
+    assert aggregates["avg_ttft_ms"] is None
+
+
+def test_valid_benchmark_quality_integrity_rate():
+    """Verify quality_integrity_rate calculates the honest passed ratio when results exist."""
+    from app.benchmark.engine import compute_benchmark_aggregates
+    from unittest.mock import MagicMock
+
+    r1 = MagicMock(quality_valid=True, error=None, generation_tokens_per_second=20.0,
+                   e2e_tokens_per_second=18.0, prompt_tokens=10, completion_tokens=50,
+                   power_watts=50.0, quality_score=0.9, coherence_score=0.9, relevance_score=0.9)
+    r2 = MagicMock(quality_valid=False, error="Repetition loop detected", generation_tokens_per_second=15.0,
+                   e2e_tokens_per_second=12.0, prompt_tokens=10, completion_tokens=50,
+                   power_watts=50.0, quality_score=0.3, coherence_score=0.2, relevance_score=0.4)
+
+    aggregates = compute_benchmark_aggregates(results=[r1, r2], latencies=[100.0, 120.0], ttfts=[20.0, 25.0])
+    assert aggregates["quality_integrity_rate"] == 0.5
+    assert aggregates["avg_total_latency_ms"] == 110.0
+

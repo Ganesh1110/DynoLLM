@@ -69,667 +69,42 @@ import { useMonitoringStore } from '../stores/monitoringStore'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { GPU_CATALOG, MODEL_PRESETS, parseModelName } from '../utils/gpuSizer'
 
-// ==============================================================================
-// 1. vLLM Version Registry & Compatibility Rules
-// ==============================================================================
-export const VLLM_VERSIONS = [
-  {
-    id: '0.8.x',
-    name: 'vLLM 0.8.0+ (Modern / V1 Architecture - Current)',
-    isV1Engine: true,
-    recommended: true,
-    supportedFlags: [
-      'gpuMemoryUtilization',
-      'maxModelLen',
-      'blockSize',
-      'maxNumSeqs',
-      'maxNumBatchedTokens',
-      'kvCacheDtype',
-      'tensorParallelSize',
-      'pipelineParallelSize',
-      'enforceEager',
-      'swapSpace',
-      'cpuOffloadGb',
-      'disableSlidingWindow',
-      'disableLogStats',
-      'enableSpeculative',
-      'speculativeMode',
-      'speculativeModel',
-      'numSpeculativeTokens',
-      'quantization',
-      'trustRemoteCode',
-      'distributedExecutorBackend',
-      'servedModelName',
-      'tokenizerMode',
-      'loadFormat',
-      'limitMmPerPrompt',
-      'apiKey',
-    ],
-    // In current vLLM, the legacy V0 engine and its flags were completely stripped upstream.
-    // Chunked prefill & prefix caching are native engine primitives.
-    // Explicitly passing legacy flags throws NotImplementedError / unrecognized argument crashes!
-    omitFromCli: ['enablePrefixCaching', 'enableChunkedPrefill', 'numSchedulerSteps', 'maxNumPartialPrefills', 'maxLongPartialPrefills'],
-    notes:
-      'Current upstream standard. The legacy V0 engine, legacy PagedAttention, and V0 attention backends were completely removed upstream in late 2025. Chunked prefill & zero-overhead prefix caching are native primitives. Passing legacy flags triggers NotImplementedError or unrecognized argument crashes. LoRA, speculative decoding, and structured outputs are fully supported.',
-  },
-  {
-    id: '0.6.x_0.7.x',
-    name: 'vLLM 0.6.0 - 0.7.x (Deprecated Upstream)',
-    isV1Engine: false,
-    recommended: false,
-    supportedFlags: [
-      'gpuMemoryUtilization',
-      'maxModelLen',
-      'blockSize',
-      'maxNumSeqs',
-      'maxNumBatchedTokens',
-      'kvCacheDtype',
-      'enablePrefixCaching',
-      'enableChunkedPrefill',
-      'numSchedulerSteps',
-      'prefixCachingHashAlgo',
-      'tensorParallelSize',
-      'pipelineParallelSize',
-      'enforceEager',
-      'swapSpace',
-      'cpuOffloadGb',
-      'disableSlidingWindow',
-      'disableLogStats',
-      'enableSpeculative',
-      'speculativeMode',
-      'speculativeModel',
-      'numSpeculativeTokens',
-      'quantization',
-      'trustRemoteCode',
-      'distributedExecutorBackend',
-      'servedModelName',
-      'apiKey',
-    ],
-    notes:
-      'Transitional release. The V0 engine supported in this branch has been completely removed in current upstream vLLM.',
-  },
-  {
-    id: '0.4.x_0.5.x',
-    name: 'vLLM 0.4.x - 0.5.x (Legacy / Removed Upstream)',
-    isV1Engine: false,
-    recommended: false,
-    supportedFlags: [
-      'gpuMemoryUtilization',
-      'maxModelLen',
-      'blockSize',
-      'maxNumSeqs',
-      'maxNumBatchedTokens',
-      'kvCacheDtype',
-      'enablePrefixCaching',
-      'enableChunkedPrefill',
-      'tensorParallelSize',
-      'enforceEager',
-      'swapSpace',
-      'quantization',
-      'trustRemoteCode',
-      'apiKey',
-    ],
-    notes:
-      'Legacy release. Prefix caching and chunked prefill were experimental.',
-  },
-  {
-    id: '0.3.x',
-    name: 'vLLM 0.3.x (Legacy / Removed Upstream)',
-    isV1Engine: false,
-    recommended: false,
-    supportedFlags: [
-      'gpuMemoryUtilization',
-      'maxModelLen',
-      'blockSize',
-      'maxNumSeqs',
-      'tensorParallelSize',
-      'enforceEager',
-      'quantization',
-      'trustRemoteCode',
-    ],
-    unsupportedFlags: [
-      'enablePrefixCaching',
-      'enableChunkedPrefill',
-      'kvCacheDtype',
-      'enableSpeculative',
-      'maxNumBatchedTokens',
-      'cpuOffloadGb',
-      'maxNumPartialPrefills',
-    ],
-    notes:
-      'Legacy release. Does NOT support --enable-prefix-caching, --enable-chunked-prefill, --kv-cache-dtype fp8, or speculative decoding.',
-  },
-]
+import {
+  VLLM_VERSIONS,
+  getGpuArchitecture,
+  GLOBAL_MODEL_CATALOG,
+  QUANTIZATION_RECIPES,
+  DEFAULT_VLLM_FLAGS,
+  validateTpConfig,
+  calcDraftModelVram,
+  calcLoraBuffer,
+  calcMaxSafeConcurrency,
+  calcEstimatedDecodeTps,
+  calcEstimatedTtftMs,
+  buildQuantComparisonData,
+  buildContextScalingCurve,
+  buildTpScalingData,
+  buildRooflineModel,
+  buildCostEfficiencyCurve,
+  buildConcurrencyChartData,
+  buildVramBreakdown,
+  buildMatchmakerRecommendations,
+  generateVllmCommand,
+  generateRayCluster,
+  generateHelpVerifyCmd,
+  generateDockerCompose,
+  generateEnvSnippet,
+} from '../utils/vllmOptimizer'
 
-// ==============================================================================
-// 2. GPU Architecture Helper (Ampere vs Ada/Hopper Hardware Acceleration)
-// ==============================================================================
-export function getGpuArchitecture(gpuName) {
-  const n = (gpuName || '').toLowerCase()
-  if (
-    n.includes('h100') ||
-    n.includes('h200') ||
-    n.includes('b200') ||
-    n.includes('blackwell') ||
-    n.includes('hopper')
-  ) {
-    return {
-      family: 'Hopper / Blackwell',
-      sm: 'SM 9.0+',
-      fp8Native: true,
-      peakTflops: 989,
-      hourlyCost: 3.25,
-      fp8GemmSpeedup: '2.0x native FP8 Tensor Core GEMM',
-      recommendedQuant: 'FP8 (W8A8)',
-    }
-  }
-  if (
-    n.includes('4090') ||
-    n.includes('4080') ||
-    n.includes('4070') ||
-    n.includes('4060') ||
-    n.includes('l40') ||
-    n.includes('l4') ||
-    n.includes('ada')
-  ) {
-    return {
-      family: 'Ada Lovelace',
-      sm: 'SM 8.9',
-      fp8Native: true,
-      peakTflops: n.includes('4090') ? 165 : 120,
-      hourlyCost: n.includes('4090') ? 0.65 : 0.75,
-      fp8GemmSpeedup: '1.9x native FP8 Tensor Core GEMM',
-      recommendedQuant: 'FP8 (W8A8)',
-    }
-  }
-  if (
-    n.includes('a100') ||
-    n.includes('a10g') ||
-    n.includes('a40') ||
-    n.includes('a10') ||
-    n.includes('3090') ||
-    n.includes('3080') ||
-    n.includes('3060')
-  ) {
-    return {
-      family: 'Ampere',
-      sm: 'SM 8.0/8.6',
-      fp8Native: false,
-      peakTflops: n.includes('a100') ? 312 : 125,
-      hourlyCost: n.includes('a100') ? 1.85 : 0.95,
-      fp8GemmSpeedup: 'Weight-only Marlin fallback (No FP8 GEMM speedup)',
-      recommendedQuant: 'INT4 AWQ / GPTQ (W4A16)',
-    }
-  }
-  if (n.includes('t4') || n.includes('v100') || n.includes('turing')) {
-    return {
-      family: 'Turing / Volta',
-      sm: 'SM 7.0/7.5',
-      fp8Native: false,
-      peakTflops: 65,
-      hourlyCost: 0.35,
-      fp8GemmSpeedup: 'No FP8 Support',
-      recommendedQuant: 'INT4 GPTQ / AWQ',
-    }
-  }
-  return {
-    family: 'Generic Accelerator',
-    sm: 'Unknown',
-    fp8Native: false,
-    peakTflops: 100,
-    hourlyCost: 1.0,
-    fp8GemmSpeedup: 'Standard FP16 Kernels',
-    recommendedQuant: 'INT4 AWQ',
-  }
+// Re-export constants for backward compatibility
+export {
+  VLLM_VERSIONS,
+  getGpuArchitecture,
+  GLOBAL_MODEL_CATALOG,
+  QUANTIZATION_RECIPES,
+  DEFAULT_VLLM_FLAGS,
 }
 
-// ==============================================================================
-// 3. Global Model Catalog with Curated Architecture Metadata
-// ==============================================================================
-export const GLOBAL_MODEL_CATALOG = [
-  {
-    id: 'meta-llama/Llama-3.1-8B-Instruct',
-    name: 'meta-llama/Llama-3.1-8B-Instruct',
-    label: 'Llama 3.1 8B Instruct',
-    family: 'Llama 3.1',
-    creator: 'Meta AI',
-    params: 8.03,
-    hiddenSize: 4096,
-    layers: 32,
-    attentionHeads: 32,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '4:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Llama 3.1 Community',
-    capabilities: ['General Reasoning', 'Coding', '128K Context', 'Tool Use'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~35s (FP16) / ~22s (FP8)',
-  },
-  {
-    id: 'meta-llama/Llama-3.1-70B-Instruct',
-    name: 'meta-llama/Llama-3.1-70B-Instruct',
-    label: 'Llama 3.1 70B Instruct',
-    family: 'Llama 3.1',
-    creator: 'Meta AI',
-    params: 70.6,
-    hiddenSize: 8192,
-    layers: 80,
-    attentionHeads: 64,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '8:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Llama 3.1 Community',
-    capabilities: ['PhD-Level Reasoning', 'Complex Agents', 'Advanced Math'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/meta-llama/Llama-3.1-70B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~180s (FP16) / ~110s (FP8)',
-  },
-  {
-    id: 'meta-llama/Llama-3.2-3B-Instruct',
-    name: 'meta-llama/Llama-3.2-3B-Instruct',
-    label: 'Llama 3.2 3B Instruct',
-    family: 'Llama 3.2',
-    creator: 'Meta AI',
-    params: 3.21,
-    hiddenSize: 3072,
-    layers: 28,
-    attentionHeads: 24,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '3:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Llama 3.2 Community',
-    capabilities: ['Edge Inference', 'Sub-second Latency', 'Mobile/Local'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~15s',
-  },
-  {
-    id: 'meta-llama/Llama-3.2-1B-Instruct',
-    name: 'meta-llama/Llama-3.2-1B-Instruct',
-    label: 'Llama 3.2 1B Instruct (Ideal Speculative Draft)',
-    family: 'Llama 3.2',
-    creator: 'Meta AI',
-    params: 1.23,
-    hiddenSize: 2048,
-    layers: 16,
-    attentionHeads: 32,
-    kvHeads: 8,
-    headDim: 64,
-    gqaRatio: '4:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Llama 3.2 Community',
-    capabilities: ['Speculative Draft Model', 'Ultra Lightweight', 'Edge Serving'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/meta-llama/Llama-3.2-1B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~8s',
-  },
-  {
-    id: 'Qwen/Qwen2.5-7B-Instruct',
-    name: 'Qwen/Qwen2.5-7B-Instruct',
-    label: 'Qwen 2.5 7B Instruct',
-    family: 'Qwen 2.5',
-    creator: 'Alibaba Cloud',
-    params: 7.61,
-    hiddenSize: 3584,
-    layers: 28,
-    attentionHeads: 28,
-    kvHeads: 4,
-    headDim: 128,
-    gqaRatio: '7:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Apache 2.0',
-    capabilities: ['Coding', 'Math', 'Multilingual (29+ Languages)'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/Qwen/Qwen2.5-7B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~30s',
-  },
-  {
-    id: 'Qwen/Qwen2.5-14B-Instruct',
-    name: 'Qwen/Qwen2.5-14B-Instruct',
-    label: 'Qwen 2.5 14B Instruct',
-    family: 'Qwen 2.5',
-    creator: 'Alibaba Cloud',
-    params: 14.7,
-    hiddenSize: 5120,
-    layers: 48,
-    attentionHeads: 40,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '5:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Apache 2.0',
-    capabilities: ['Near 70B Coding Score', 'Complex Math', 'Function Calling'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/Qwen/Qwen2.5-14B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~65s (FP16) / ~48s (FP8)',
-  },
-  {
-    id: 'Qwen/Qwen2.5-32B-Instruct',
-    name: 'Qwen/Qwen2.5-32B-Instruct',
-    label: 'Qwen 2.5 32B Instruct',
-    family: 'Qwen 2.5',
-    creator: 'Alibaba Cloud',
-    params: 32.5,
-    hiddenSize: 5120,
-    layers: 64,
-    attentionHeads: 40,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '5:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Apache 2.0',
-    capabilities: ['Matches 70B Models', 'Deep Math', 'Advanced Code'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/Qwen/Qwen2.5-32B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~110s',
-  },
-  {
-    id: 'Qwen/Qwen2.5-72B-Instruct',
-    name: 'Qwen/Qwen2.5-72B-Instruct',
-    label: 'Qwen 2.5 72B Instruct',
-    family: 'Qwen 2.5',
-    creator: 'Alibaba Cloud',
-    params: 72.7,
-    hiddenSize: 8192,
-    layers: 80,
-    attentionHeads: 64,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '8:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Apache 2.0',
-    capabilities: ['Flagship Open Weights', 'Enterprise Grade'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/Qwen/Qwen2.5-72B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~210s',
-  },
-  {
-    id: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B',
-    name: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-14B',
-    label: 'DeepSeek R1 Distill Qwen 14B',
-    family: 'DeepSeek R1',
-    creator: 'DeepSeek',
-    params: 14.7,
-    hiddenSize: 5120,
-    layers: 48,
-    attentionHeads: 40,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '5:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 16384,
-    license: 'MIT',
-    capabilities: ['Chain-of-Thought Reasoning', 'Math & Code Proofs'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-14B/raw/main/config.json',
-    coldStartSeconds: '~65s',
-  },
-  {
-    id: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B',
-    name: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-32B',
-    label: 'DeepSeek R1 Distill Qwen 32B',
-    family: 'DeepSeek R1',
-    creator: 'DeepSeek',
-    params: 32.5,
-    hiddenSize: 5120,
-    layers: 64,
-    attentionHeads: 40,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '5:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 16384,
-    license: 'MIT',
-    capabilities: ['Elite Reasoning', 'Exceeds o1-mini in Math'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-32B/raw/main/config.json',
-    coldStartSeconds: '~115s',
-  },
-  {
-    id: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B',
-    name: 'deepseek-ai/DeepSeek-R1-Distill-Llama-70B',
-    label: 'DeepSeek R1 Distill Llama 70B',
-    family: 'DeepSeek R1',
-    creator: 'DeepSeek',
-    params: 70.6,
-    hiddenSize: 8192,
-    layers: 80,
-    attentionHeads: 64,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '8:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 16384,
-    license: 'Llama 3.1 Community',
-    capabilities: ['Flagship Open Reasoning', 'PhD-Level Reasoning'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Llama-70B/raw/main/config.json',
-    coldStartSeconds: '~195s',
-  },
-  {
-    id: 'mistralai/Mistral-7B-Instruct-v0.3',
-    name: 'mistralai/Mistral-7B-Instruct-v0.3',
-    label: 'Mistral 7B Instruct v0.3',
-    family: 'Mistral',
-    creator: 'Mistral AI',
-    params: 7.25,
-    hiddenSize: 4096,
-    layers: 32,
-    attentionHeads: 32,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '4:1 GQA',
-    maxContext: 32768,
-    recommendedContext: 8192,
-    license: 'Apache 2.0',
-    capabilities: ['Fast Chat', 'Function Calling', 'Sliding Window Attention'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified Sept 2024)',
-    hfConfigUrl: 'https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3/raw/main/config.json',
-    coldStartSeconds: '~36s',
-  },
-  {
-    id: 'Qwen/Qwen2-VL-7B-Instruct',
-    name: 'Qwen/Qwen2-VL-7B-Instruct',
-    label: 'Qwen2-VL 7B Instruct (Vision Language Model)',
-    family: 'Qwen2-VL',
-    creator: 'Alibaba Cloud',
-    params: 7.61,
-    hiddenSize: 3584,
-    layers: 28,
-    attentionHeads: 28,
-    kvHeads: 4,
-    headDim: 128,
-    gqaRatio: '7:1 GQA',
-    maxContext: 32768,
-    recommendedContext: 8192,
-    license: 'Apache 2.0',
-    capabilities: ['Vision Understanding', 'OCR & Document Parsing', 'Video Analysis'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified 2025)',
-    hfConfigUrl: 'https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/raw/main/config.json',
-    coldStartSeconds: '~42s',
-    isMultimodal: true,
-    visionTokensPerImage: 1280,
-  },
-  {
-    id: 'meta-llama/Llama-3.2-11B-Vision-Instruct',
-    name: 'meta-llama/Llama-3.2-11B-Vision-Instruct',
-    label: 'Llama 3.2 11B Vision Instruct',
-    family: 'Llama 3.2 Vision',
-    creator: 'Meta AI',
-    params: 10.6,
-    hiddenSize: 4096,
-    layers: 32,
-    attentionHeads: 32,
-    kvHeads: 8,
-    headDim: 128,
-    gqaRatio: '4:1 GQA',
-    maxContext: 131072,
-    recommendedContext: 8192,
-    license: 'Llama 3.2 Community',
-    capabilities: ['High-Res Image Reasoning', 'Visual QA', 'Multimodal Agents'],
-    precision: 0.55,
-    dataSource: 'Curated HF Registry (Verified 2025)',
-    hfConfigUrl: 'https://huggingface.co/meta-llama/Llama-3.2-11B-Vision-Instruct/raw/main/config.json',
-    coldStartSeconds: '~55s',
-    isMultimodal: true,
-    visionTokensPerImage: 1600,
-  },
-]
-
-// ==============================================================================
-// 4. Quantization Recipes Matrix (Expanded with Marlin, GPTQ, GGUF, Compressed)
-// ==============================================================================
-export const QUANTIZATION_RECIPES = [
-  {
-    id: 'fp16',
-    name: 'Uncompressed (FP16 / BF16)',
-    bytesPerParam: 2.0,
-    bits: 16,
-    accuracyRetention: '100% (Baseline)',
-    accuracyScore: 100,
-    speedMultiplier: 1.0,
-    kernel: 'Native FlashAttention-2',
-    description: 'Full unquantized baseline. Maximum precision, highest VRAM requirement.',
-    vllmArg: '',
-    recipeCode: null,
-  },
-  {
-    id: 'fp8',
-    name: 'FP8 Dynamic (W8A8) — Native on Hopper/Ada',
-    bytesPerParam: 1.0,
-    bits: 8,
-    accuracyRetention: '~99.4% of FP16',
-    accuracyScore: 99.4,
-    speedMultiplier: 1.95,
-    kernel: 'FP8 Tensor Cores (Cutlass / FlashInfer)',
-    description: 'Dynamic 8-bit floating point. Doubles throughput on Hopper (H100) and Ada Lovelace (RTX 4090, L4). On Ampere (A100/A10G), falls back to weight-only Marlin with zero compute acceleration.',
-    vllmArg: '--quantization fp8',
-    recipeCode: `# LLM Compressor: FP8 Calibration Recipe\nfrom llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot\nfrom datasets import load_dataset\n\nmodel_id = "MODEL_ID"\nmodel = SparseAutoModelForCausalLM.from_pretrained(model_id, device_map="auto")\ndataset = load_dataset("neuralmagic/LLM_compression_calibration", split="train")\n\nrecipe = """\nquant_stage:\n  quant_modifiers:\n    QuantizationModifier:\n      weights:\n        num_bits: 8\n        type: float\n        strategy: tensor\n      input_activations:\n        num_bits: 8\n        type: float\n        strategy: token\n"""\noneshot(model=model, dataset=dataset, recipe=recipe, output_dir="./optimized-fp8")`,
-  },
-  {
-    id: 'int4_awq',
-    name: 'INT4 AWQ (Activation-aware Weight Quantization)',
-    bytesPerParam: 0.55,
-    bits: 4,
-    accuracyRetention: '~98.5% of FP16',
-    accuracyScore: 98.5,
-    speedMultiplier: 2.65,
-    kernel: 'AWQ Marlin Tensor Core Kernel',
-    description: 'Protects the top 1% salient activation outliers. Exceptional reasoning retention on math and coding benchmarks. Works efficiently across all NVIDIA generations (Ampere, Ada, Hopper).',
-    vllmArg: '--quantization awq',
-    recipeCode: `# LLM Compressor: AWQ Recipe\nfrom llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot\nfrom datasets import load_dataset\n\nmodel_id = "MODEL_ID"\nmodel = SparseAutoModelForCausalLM.from_pretrained(model_id, device_map="auto")\ndataset = load_dataset("neuralmagic/LLM_compression_calibration", split="train")\n\nrecipe = """\nquant_stage:\n  quant_modifiers:\n    AWQModifier:\n      targets: ["Linear"]\n      scheme: "W4A16"\n      group_size: 128\n"""\noneshot(model=model, dataset=dataset, recipe=recipe, output_dir="./optimized-awq")`,
-  },
-  {
-    id: 'int4_gptq',
-    name: 'INT4 GPTQ (W4A16 + Marlin Kernel)',
-    bytesPerParam: 0.55,
-    bits: 4,
-    accuracyRetention: '~97.8% of FP16',
-    accuracyScore: 97.8,
-    speedMultiplier: 2.75,
-    kernel: 'Marlin 4-bit High-Throughput Kernel',
-    description: 'Second-order weight quantization using inverse Hessian compensation. Blazing memory-bandwidth bound decode speed on Ampere and Ada.',
-    vllmArg: '--quantization gptq',
-    recipeCode: `# LLM Compressor: GPTQ 4-Bit Marlin Recipe\nfrom llmcompressor.transformers import SparseAutoModelForCausalLM, oneshot\nfrom datasets import load_dataset\n\nmodel_id = "MODEL_ID"\nmodel = SparseAutoModelForCausalLM.from_pretrained(model_id, device_map="auto")\ndataset = load_dataset("neuralmagic/LLM_compression_calibration", split="train")\n\nrecipe = """\nquant_stage:\n  quant_modifiers:\n    GPTQModifier:\n      sequential_targets: ["LlamaDecoderLayer"]\n      targets: ["Linear"]\n      scheme: "W4A16"\n      group_size: 128\n      dampening_frac: 0.01\n"""\noneshot(model=model, dataset=dataset, recipe=recipe, output_dir="./optimized-gptq-marlin")`,
-  },
-  {
-    id: 'compressed_tensors',
-    name: 'Compressed-Tensors (Marlin W8A8 / W4A16)',
-    bytesPerParam: 0.95,
-    bits: 8,
-    accuracyRetention: '~99.1% of FP16',
-    accuracyScore: 99.1,
-    speedMultiplier: 1.85,
-    kernel: 'Neural Magic Marlin / Cutlass Kernel',
-    description: 'Modern standard for vLLM & LLM Compressor models. Native support for mixed precision and calibration scales.',
-    vllmArg: '--quantization compressed-tensors',
-    recipeCode: null,
-  },
-  {
-    id: 'gguf',
-    name: 'GGUF (Q4_K_M Weight Format)',
-    bytesPerParam: 0.58,
-    bits: 4,
-    accuracyRetention: '~96.5% of FP16',
-    accuracyScore: 96.5,
-    speedMultiplier: 2.1,
-    kernel: 'vLLM GGUF Loader & Kernel',
-    description: 'Llama.cpp format supported by vLLM. Great for hybrid CPU/GPU setups or testing consumer hardware.',
-    vllmArg: '--load-format gguf',
-    recipeCode: null,
-  },
-]
-
-// Default Comprehensive vLLM Flags
-const DEFAULT_VLLM_FLAGS = {
-  gpuMemoryUtilization: 0.90,
-  maxModelLen: 4096,
-  blockSize: 16,
-  maxNumSeqs: 256,
-  maxNumBatchedTokens: 2048,
-  kvCacheDtype: 'auto',
-  swapSpace: 4,
-  cpuOffloadGb: 0,
-  maxNumPartialPrefills: 1,
-  maxLongPartialPrefills: 1,
-  disableSlidingWindow: false,
-  enablePrefixCaching: true,
-  enableChunkedPrefill: true,
-  numSchedulerSteps: 1,
-  prefixCachingHashAlgo: 'sha256',
-  disableLogStats: false,
-  tensorParallelSize: 1,
-  pipelineParallelSize: 1,
-  distributedExecutorBackend: 'mp', // 'mp' | 'ray'
-  enforceEager: false,
-  disableCustomAllReduce: false,
-  enableSpeculative: false,
-  speculativeMode: 'draft_model', // 'draft_model' | 'ngram' | 'eagle'
-  speculativeModel: 'meta-llama/Llama-3.2-1B-Instruct',
-  numSpeculativeTokens: 5,
-  quantization: 'none',
-  trustRemoteCode: true,
-  servedModelName: '',
-  tokenizerMode: 'auto',
-  loadFormat: 'auto',
-  limitMmPerPrompt: 'image=2',
-  imagesPerPrompt: 1,
-  apiKey: 'dyno-prod-key-99',
-  // LoRA Multi-Adapter Serving
-  enableLora: false,
-  maxLoras: 4,
-  maxLoraRank: 32,
-  loraModules: '',
-  // Structured Outputs & Tool Calling
-  guidedDecodingBackend: 'xgrammar', // 'xgrammar' | 'outlines' | 'lm-format-enforcer'
-  toolCallParser: 'llama3_json', // 'llama3_json' | 'mistral' | 'hermes' | 'pythonic' | 'none'
-  enableAutoToolChoice: true,
-}
 
 export function VllmOptimizer() {
   const currentTelemetry = useMonitoringStore((s) => s.current)
@@ -974,29 +349,10 @@ export function VllmOptimizer() {
   const effectiveGpuHourlyCost = customHourlyCost ?? gpuArch.hourlyCost
 
   // Guardrail: Validate Tensor Parallelism vs Attention Heads
-  const tpValidation = useMemo(() => {
-    const tp = flags.tensorParallelSize
-    if (tp <= 1) return { isValid: true }
-    const qHeads = selectedModel.attentionHeads || 32
-    const kvHeads = selectedModel.kvHeads || 8
-
-    const qDivisible = qHeads % tp === 0
-    const kvDivisible = kvHeads % tp === 0
-
-    if (!qDivisible) {
-      return {
-        isValid: false,
-        error: `TP degree (${tp}) does not evenly divide attention heads (${qHeads}). vLLM will fail at startup with an invalid head partition error!`,
-      }
-    }
-    if (!kvDivisible) {
-      return {
-        isValid: true,
-        warning: `TP degree (${tp}) does not evenly divide KV heads (${kvHeads}). vLLM will replicate KV heads, increasing per-GPU KV cache consumption.`,
-      }
-    }
-    return { isValid: true }
-  }, [flags.tensorParallelSize, selectedModel])
+  const tpValidation = useMemo(
+    () => validateTpConfig(targetGpu, flags.tensorParallelSize, selectedModel),
+    [flags.tensorParallelSize, selectedModel, targetGpu]
+  )
 
   // Is flag supported by current vLLM version?
   const isFlagSupported = (flagKey) => {
@@ -1035,17 +391,13 @@ export function VllmOptimizer() {
   const totalKvNeededGb = kvPerUserGb * concurrency
 
   // 3. Runtime & Overhead Buffers (LoRA + Speculative Decoding + CUDA Scratch)
-  const draftModelVramGb = useMemo(() => {
-    if (!flags.enableSpeculative) return 0
-    if (flags.speculativeMode === 'ngram') return 0 // 0 extra VRAM!
-    if (flags.speculativeMode === 'eagle') return 0.45 // minimal head weights
-    return 2.2 // Draft model ~1B params in FP16/BF16
-  }, [flags.enableSpeculative, flags.speculativeMode])
+  const draftModelVramGb = useMemo(
+    () => calcDraftModelVram(flags),
+    [flags.enableSpeculative, flags.speculativeMode]
+  )
 
   // LoRA Multi-Adapter Memory Buffer
-  const loraBufferGb = flags.enableLora
-    ? Number(((flags.maxLoras || 4) * (flags.maxLoraRank || 32) * 0.007 + 0.35).toFixed(2))
-    : 0
+  const loraBufferGb = calcLoraBuffer(flags)
 
   const runtimeOverheadGb = 1.35 + draftModelVramGb + loraBufferGb
 
@@ -1061,261 +413,152 @@ export function VllmOptimizer() {
   const isVramExceeded = totalUsedVramGb > availableEngineBudgetGb
 
   // 4. Concurrency Saturation Knee Point (Empirically Calibrated)
-  const maxSafeConcurrency = useMemo(() => {
-    const usableVramForKv = availableEngineBudgetGb - weightsGb - runtimeOverheadGb
-    if (usableVramForKv <= 0 || kvPerUserGb <= 0) return 0
-    const perInstance = Math.floor(usableVramForKv / kvPerUserGb)
-    return scalingMode === 'replicas' ? perInstance * replicaCount : perInstance
-  }, [availableEngineBudgetGb, weightsGb, runtimeOverheadGb, kvPerUserGb, scalingMode, replicaCount])
+  const maxSafeConcurrency = useMemo(
+    () =>
+      calcMaxSafeConcurrency({
+        availableEngineBudgetGb,
+        weightsGb,
+        runtimeOverheadGb,
+        kvPerUserGb,
+        scalingMode,
+        replicaCount,
+      }),
+    [availableEngineBudgetGb, weightsGb, runtimeOverheadGb, kvPerUserGb, scalingMode, replicaCount]
+  )
 
   // 5. Single-User Decode Speed (Empirically Calibrated Against Published vLLM Benchmarks)
-  // Calibrated baseline: Llama-3.1-8B on A10G ~34 tok/s (FP16), ~72 tok/s (AWQ); H100 ~210 tok/s (FP8)
-  const estimatedDecodeTps = useMemo(() => {
-    if (!targetGpu || weightsGb <= 0) return 30
-    const rawBandwidth = targetGpu.bandwidthGbps * (scalingMode === 'tp' ? flags.tensorParallelSize : 1)
-
-    let memBusEfficiency = 0.65
-    if (gpuArch.family.includes('Hopper')) memBusEfficiency = 0.80
-    else if (gpuArch.family.includes('Ada')) memBusEfficiency = 0.70
-    else if (targetGpu.name.toLowerCase().includes('a100')) memBusEfficiency = 0.74
-
-    let quantSpeedFactor = 1.0
-    if (selectedRecipe.id === 'fp8') {
-      quantSpeedFactor = gpuArch.fp8Native ? 1.85 : 1.05
-    } else if (selectedRecipe.id === 'int4_awq') {
-      quantSpeedFactor = 2.45
-    } else if (selectedRecipe.id === 'int4_gptq') {
-      quantSpeedFactor = 2.55
-    } else if (selectedRecipe.id === 'compressed_tensors') {
-      quantSpeedFactor = 1.85
-    } else if (selectedRecipe.id === 'gguf') {
-      quantSpeedFactor = 1.95
-    }
-
-    let specFactor = 1.0
-    if (flags.enableSpeculative) {
-      if (flags.speculativeMode === 'ngram') specFactor = 1.45
-      else if (flags.speculativeMode === 'eagle') specFactor = 1.75
-      else specFactor = 1.60
-    }
-
-    const tpOverhead = flags.tensorParallelSize > 1 ? 1 - 0.06 * Math.log2(flags.tensorParallelSize) : 1.0
-    const rawToks = (rawBandwidth * memBusEfficiency * 1.4) / Math.max(weightsGb, 0.5)
-    const calibratedSpeed = rawToks * quantSpeedFactor * 0.42 * specFactor * tpOverhead
-
-    const maxCeiling = targetGpu.maxComputeTps * (scalingMode === 'tp' ? flags.tensorParallelSize : 1) || 600
-    return Math.min(Math.max(12, Math.round(calibratedSpeed)), maxCeiling)
-  }, [targetGpu, weightsGb, flags.tensorParallelSize, flags.enableSpeculative, flags.speculativeMode, selectedRecipe, gpuArch, scalingMode])
+  const estimatedDecodeTps = useMemo(
+    () =>
+      calcEstimatedDecodeTps({
+        targetGpu,
+        weightsGb,
+        tensorParallelSize: flags.tensorParallelSize,
+        enableSpeculative: flags.enableSpeculative,
+        speculativeMode: flags.speculativeMode,
+        selectedRecipe,
+        gpuArch,
+        scalingMode,
+      }),
+    [targetGpu, weightsGb, flags.tensorParallelSize, flags.enableSpeculative, flags.speculativeMode, selectedRecipe, gpuArch, scalingMode]
+  )
 
   // 6. Time-To-First-Token (Empirical Prefill Compute + Kernel Overhead)
-  const estimatedTtftMs = useMemo(() => {
-    if (flags.enablePrefixCaching) return 14 // Cache hit
-    const promptLen = Math.min(contextLength, 2048)
-    const peakTflops = gpuArch.peakTflops * (scalingMode === 'tp' ? flags.tensorParallelSize : 1)
-    const prefillComputeMs = ((2 * params * 1e9 * promptLen) / (peakTflops * 1e12 * 0.45)) * 1000
-    const kernelOverheadMs = targetGpu.name.toLowerCase().includes('h100') ? 8 : 16
-    return Math.max(14, Math.round(prefillComputeMs + kernelOverheadMs))
-  }, [flags.enablePrefixCaching, contextLength, params, gpuArch, targetGpu, scalingMode, flags.tensorParallelSize])
+  const estimatedTtftMs = useMemo(
+    () =>
+      calcEstimatedTtftMs({
+        enablePrefixCaching: flags.enablePrefixCaching,
+        contextLength,
+        params,
+        gpuArch,
+        targetGpu,
+        scalingMode,
+        tensorParallelSize: flags.tensorParallelSize,
+      }),
+    [flags.enablePrefixCaching, contextLength, params, gpuArch, targetGpu, scalingMode, flags.tensorParallelSize]
+  )
 
   // ==========================================
   // CHART 1: QUANTIZATION TRADE-OFF SCATTER DATA
   // ==========================================
-  const quantScatterData = useMemo(() => {
-    const baseTps = Math.max(25, (targetGpu.bandwidthGbps / Math.max(baselineFp16Gb, 1.0)) * 0.45)
-    return QUANTIZATION_RECIPES.map((r) => {
-      let speedFactor = r.speedMultiplier
-      let isHwAccelerated = true
-
-      if (r.id === 'fp8') {
-        if (!gpuArch.fp8Native) {
-          speedFactor = 1.05 // Ampere lacks FP8 tensor cores
-          isHwAccelerated = false
-        }
-      } else if (r.id === 'gguf') {
-        isHwAccelerated = false // CPU/hybrid format
-      }
-
-      const speed = Math.round(baseTps * speedFactor * (scalingMode === 'tp' ? flags.tensorParallelSize : 1))
-      return {
-        id: r.id,
-        name: r.name.split(' (')[0],
-        fullName: r.name,
-        speed,
-        quality: r.accuracyScore,
-        bytes: r.bytesPerParam,
-        isHwAccelerated,
-        isSelected: selectedRecipe.id === r.id,
-      }
-    })
-  }, [targetGpu, baselineFp16Gb, gpuArch, flags.tensorParallelSize, scalingMode, selectedRecipe])
+  const quantScatterData = useMemo(
+    () =>
+      buildQuantComparisonData({
+        targetGpu,
+        baselineFp16Gb,
+        gpuArch,
+        tensorParallelSize: flags.tensorParallelSize,
+        scalingMode,
+        selectedRecipe,
+      }),
+    [targetGpu, baselineFp16Gb, gpuArch, flags.tensorParallelSize, scalingMode, selectedRecipe]
+  )
 
   // ==========================================
   // CHART 2: CONTEXT LENGTH VS CONCURRENCY CURVE
   // ==========================================
-  const contextCurveData = useMemo(() => {
-    const sampleContexts = [1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072].filter(
-      (c) => c <= (selectedModel.maxContext || 131072)
-    )
-
-    const usableVramForKv = availableEngineBudgetGb - weightsGb - runtimeOverheadGb
-
-    return sampleContexts.map((ctx) => {
-      const perUserKvGb = (2 * layers * kvHeads * headDim * bytesPerKvToken * ctx) / (1024 * 1024 * 1024)
-      const maxUsers = usableVramForKv > 0 && perUserKvGb > 0 ? Math.floor(usableVramForKv / perUserKvGb) : 0
-      const activeMaxUsers = scalingMode === 'replicas' ? maxUsers * replicaCount : maxUsers
-
-      return {
-        context: `${(ctx / 1024).toFixed(0)}k`,
-        contextTokens: ctx,
-        maxConcurrency: Math.max(0, activeMaxUsers),
-        kvPerUserMb: Number((perUserKvGb * 1024).toFixed(1)),
-        isCurrent: Math.abs(ctx - flags.maxModelLen) < 1024,
-      }
-    })
-  }, [selectedModel, availableEngineBudgetGb, weightsGb, runtimeOverheadGb, layers, kvHeads, headDim, bytesPerKvToken, scalingMode, replicaCount, flags.maxModelLen])
+  const contextCurveData = useMemo(
+    () =>
+      buildContextScalingCurve({
+        selectedModel,
+        availableEngineBudgetGb,
+        weightsGb,
+        runtimeOverheadGb,
+        layers,
+        kvHeads,
+        headDim,
+        bytesPerKvToken,
+        scalingMode,
+        replicaCount,
+        currentMaxModelLen: flags.maxModelLen,
+      }),
+    [selectedModel, availableEngineBudgetGb, weightsGb, runtimeOverheadGb, layers, kvHeads, headDim, bytesPerKvToken, scalingMode, replicaCount, flags.maxModelLen]
+  )
 
   // ==========================================
   // CHART 3: TP SCALING EFFICIENCY VS REPLICAS
   // ==========================================
-  const tpScalingData = useMemo(() => {
-    const gpuCounts = [1, 2, 4, 8]
-    const baseThroughput = estimatedDecodeTps * Math.min(concurrency, 16)
-
-    return gpuCounts.map((g) => {
-      const idealTp = baseThroughput * g
-      // All-Reduce communication penalty over NVLink/PCIe
-      const allReduceEfficiency = g === 1 ? 1.0 : g === 2 ? 0.94 : g === 4 ? 0.86 : 0.76
-      const realTp = Math.round(idealTp * allReduceEfficiency)
-      // Horizontal Replicas have virtually zero communication penalty
-      const replicasThroughput = Math.round(baseThroughput * g * 0.98)
-
-      return {
-        gpuCount: `${g} GPU${g > 1 ? 's' : ''}`,
-        gpus: g,
-        idealTp,
-        realTp,
-        replicasThroughput,
-      }
-    })
-  }, [estimatedDecodeTps, concurrency])
+  const tpScalingData = useMemo(
+    () => buildTpScalingData({ estimatedDecodeTps, concurrency }),
+    [estimatedDecodeTps, concurrency]
+  )
 
   // ==========================================
   // CHART 4: INTERACTIVE ROOFLINE MODEL DATA
   // ==========================================
-  const rooflineData = useMemo(() => {
-    const bwGbps = targetGpu.bandwidthGbps * (scalingMode === 'tp' ? flags.tensorParallelSize : 1)
-    const peakTflops = gpuArch.peakTflops * (scalingMode === 'tp' ? flags.tensorParallelSize : 1)
-    const ridgeIntensity = (peakTflops * 1000) / Math.max(bwGbps, 1)
-
-    const points = [0.25, 0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512]
-    const curve = points.map((intensity) => {
-      const attainableTflops = Math.min(peakTflops, (bwGbps * intensity) / 1000)
-      return {
-        intensity,
-        attainableTflops: Number(attainableTflops.toFixed(1)),
-        peakCeiling: peakTflops,
-      }
-    })
-
-    // Current Operating Points
-    const decodeIntensity = 1.0 * Math.min(concurrency, 32)
-    const decodeTflops = Math.min(peakTflops, (bwGbps * decodeIntensity) / 1000)
-
-    const prefillIntensity = 64
-    const prefillTflops = Math.min(peakTflops, (bwGbps * prefillIntensity) / 1000)
-
-    return {
-      curve,
-      peakTflops,
-      bwGbps,
-      ridgeIntensity: Number(ridgeIntensity.toFixed(1)),
-      operatingPoints: [
-        {
-          name: `Current Decode (bs=${concurrency})`,
-          intensity: decodeIntensity,
-          tflops: Number(decodeTflops.toFixed(1)),
-          bound: decodeIntensity < ridgeIntensity ? 'Memory-Bandwidth Bound' : 'Compute Bound',
-        },
-        {
-          name: 'Prefill Phase (Prompt)',
-          intensity: prefillIntensity,
-          tflops: Number(prefillTflops.toFixed(1)),
-          bound: 'Compute Bound',
-        },
-      ],
-    }
-  }, [targetGpu, flags.tensorParallelSize, gpuArch, scalingMode, concurrency])
+  const rooflineData = useMemo(
+    () =>
+      buildRooflineModel({
+        targetGpu,
+        tensorParallelSize: flags.tensorParallelSize,
+        gpuArch,
+        scalingMode,
+        concurrency,
+      }),
+    [targetGpu, flags.tensorParallelSize, gpuArch, scalingMode, concurrency]
+  )
 
   // ==========================================
   // CHART 5: CONCURRENCY VS COST PER 1M TOKENS
   // ==========================================
-  const costCurveData = useMemo(() => {
-    const steps = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64]
-    const effectiveCostPerHour =
-      effectiveGpuHourlyCost * (scalingMode === 'tp' ? flags.tensorParallelSize : replicaCount)
-
-    return steps.map((u) => {
-      const isSaturated = u > maxSafeConcurrency
-      const batchEfficiency = Math.min(1.0, 0.45 + Math.log10(u) * 0.35)
-      const systemThroughput = isSaturated
-        ? Math.round(estimatedDecodeTps * Math.max(1, maxSafeConcurrency) * 0.75)
-        : Math.round(estimatedDecodeTps * u * batchEfficiency * (scalingMode === 'replicas' ? replicaCount : 1))
-
-      const tokensPerHour = systemThroughput * 3600
-      const millionTokensPerHour = Math.max(0.001, tokensPerHour / 1000000)
-      const costPerMillion = Number((effectiveCostPerHour / millionTokensPerHour).toFixed(3))
-
-      return {
-        concurrency: u,
-        costPerMillion,
-        systemThroughput,
-        isSaturated,
-      }
-    })
-  }, [effectiveGpuHourlyCost, scalingMode, flags.tensorParallelSize, replicaCount, maxSafeConcurrency, estimatedDecodeTps])
+  const costCurveData = useMemo(
+    () =>
+      buildCostEfficiencyCurve({
+        effectiveGpuHourlyCost,
+        scalingMode,
+        tensorParallelSize: flags.tensorParallelSize,
+        replicaCount,
+        maxSafeConcurrency,
+        estimatedDecodeTps,
+      }),
+    [effectiveGpuHourlyCost, scalingMode, flags.tensorParallelSize, replicaCount, maxSafeConcurrency, estimatedDecodeTps]
+  )
 
   // ==========================================
   // CHART 0: THROUGHPUT & LATENCY COMPOSED DATA
   // ==========================================
-  const concurrencyChartData = useMemo(() => {
-    const steps = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64]
-    return steps.map((u) => {
-      const isSaturated = u > maxSafeConcurrency
-      const batchEfficiency = Math.min(1.0, 0.45 + Math.log10(u) * 0.35)
-      const systemThroughput = isSaturated
-        ? Math.round(estimatedDecodeTps * Math.max(1, maxSafeConcurrency) * 0.75)
-        : Math.round(estimatedDecodeTps * u * batchEfficiency * (scalingMode === 'replicas' ? replicaCount : 1))
-
-      const simTtft = isSaturated
-        ? Math.round(estimatedTtftMs * (1 + (u - maxSafeConcurrency) * 0.55))
-        : Math.round(estimatedTtftMs * (1 + (u - 1) * 0.04))
-
-      const simItl = isSaturated
-        ? Math.round((1000 / estimatedDecodeTps) * (1 + (u - maxSafeConcurrency) * 0.4))
-        : Math.round((1000 / estimatedDecodeTps) * (1 + (u - 1) * 0.025))
-
-      return {
-        concurrency: u,
-        throughput: systemThroughput,
-        ttft: simTtft,
-        itl: simItl,
-        isSaturated,
-      }
-    })
-  }, [maxSafeConcurrency, estimatedDecodeTps, estimatedTtftMs, scalingMode, replicaCount])
+  const concurrencyChartData = useMemo(
+    () =>
+      buildConcurrencyChartData({
+        maxSafeConcurrency,
+        estimatedDecodeTps,
+        estimatedTtftMs,
+        scalingMode,
+        replicaCount,
+      }),
+    [maxSafeConcurrency, estimatedDecodeTps, estimatedTtftMs, scalingMode, replicaCount]
+  )
 
   // VRAM Breakdown Chart Data
-  const vramBreakdownData = useMemo(() => {
-    return [
-      {
-        name: 'VRAM Usage',
-        Weights: Number(weightsGb.toFixed(1)),
-        KVCache: Number(totalKvNeededGb.toFixed(1)),
-        Overhead: Number(runtimeOverheadGb.toFixed(1)),
-        FreeHeadroom: Number(freeVramHeadroomGb.toFixed(1)),
-      },
-    ]
-  }, [weightsGb, totalKvNeededGb, runtimeOverheadGb, freeVramHeadroomGb])
+  const vramBreakdownData = useMemo(
+    () =>
+      buildVramBreakdown({
+        weightsGb,
+        totalKvNeededGb,
+        runtimeOverheadGb,
+        freeVramHeadroomGb,
+      }),
+    [weightsGb, totalKvNeededGb, runtimeOverheadGb, freeVramHeadroomGb]
+  )
 
   // ==========================================
   // REAL STARTUP LOG PARSER
@@ -1354,207 +597,52 @@ export function VllmOptimizer() {
   const isV1Engine = selectedVllmVersion.isV1Engine
   const isLegacy = selectedVllmVersion.id === '0.3.x'
 
-  const generatedVllmCommand = useMemo(() => {
-    let cmd = `vllm serve ${selectedModel.name}`
-    cmd += ` \\\n  --max-model-len ${flags.maxModelLen}`
-    cmd += ` \\\n  --gpu-memory-utilization ${flags.gpuMemoryUtilization.toFixed(2)}`
-    cmd += ` \\\n  --block-size ${flags.blockSize}`
-    cmd += ` \\\n  --max-num-seqs ${flags.maxNumSeqs}`
-
-    if (!isLegacy) {
-      cmd += ` \\\n  --max-num-batched-tokens ${flags.maxNumBatchedTokens}`
-    }
-
-    if (flags.kvCacheDtype !== 'auto' && !isLegacy) {
-      cmd += ` \\\n  --kv-cache-dtype ${flags.kvCacheDtype}`
-    }
-
-    if (flags.swapSpace !== 4) {
-      cmd += ` \\\n  --swap-space ${flags.swapSpace}`
-    }
-
-    if (flags.cpuOffloadGb > 0) {
-      cmd += ` \\\n  --cpu-offload-gb ${flags.cpuOffloadGb}`
-    }
-
-    if (scalingMode === 'tp' && flags.tensorParallelSize > 1) {
-      cmd += ` \\\n  --tensor-parallel-size ${flags.tensorParallelSize}`
-    }
-
-    if (flags.pipelineParallelSize > 1) {
-      cmd += ` \\\n  --pipeline-parallel-size ${flags.pipelineParallelSize}`
-    }
-
-    if (flags.distributedExecutorBackend !== 'mp' && (flags.tensorParallelSize > 1 || flags.pipelineParallelSize > 1)) {
-      cmd += ` \\\n  --distributed-executor-backend ${flags.distributedExecutorBackend}`
-    }
-
-    if (selectedRecipe.vllmArg) {
-      cmd += ` \\\n  ${selectedRecipe.vllmArg}`
-    } else if (flags.quantization !== 'none') {
-      cmd += ` \\\n  --quantization ${flags.quantization}`
-    }
-
-    // CRITICAL: In V1 engine (0.8+), chunked prefill and prefix caching are active by default.
-    // Explicitly passing --enable-prefix-caching or --enable-chunked-prefill causes silent downgrade to V0!
-    if (!isV1Engine && !isLegacy) {
-      if (flags.enablePrefixCaching) {
-        cmd += ` \\\n  --enable-prefix-caching`
-      }
-      if (flags.enableChunkedPrefill) {
-        cmd += ` \\\n  --enable-chunked-prefill`
-      }
-      if (flags.numSchedulerSteps > 1) {
-        cmd += ` \\\n  --num-scheduler-steps ${flags.numSchedulerSteps}`
-      }
-    }
-
-    if (flags.disableSlidingWindow) {
-      cmd += ` \\\n  --disable-sliding-window`
-    }
-
-    if (flags.disableLogStats) {
-      cmd += ` \\\n  --disable-log-stats`
-    }
-
-    // Speculative Decoding (Draft Model vs N-Gram vs EAGLE)
-    if (flags.enableSpeculative && !isLegacy) {
-      if (flags.speculativeMode === 'ngram') {
-        cmd += ` \\\n  --speculative-model [ngram] \\\n  --num-speculative-tokens ${flags.numSpeculativeTokens}`
-      } else {
-        cmd += ` \\\n  --speculative-model ${flags.speculativeModel} \\\n  --num-speculative-tokens ${flags.numSpeculativeTokens}`
-      }
-    }
-
-    if (flags.enforceEager) {
-      cmd += ` \\\n  --enforce-eager`
-    }
-
-    if (flags.servedModelName.trim()) {
-      cmd += ` \\\n  --served-model-name ${flags.servedModelName.trim()}`
-    }
-
-    if (flags.loadFormat !== 'auto') {
-      cmd += ` \\\n  --load-format ${flags.loadFormat}`
-    }
-
-    if (flags.limitMmPerPrompt.trim()) {
-      cmd += ` \\\n  --limit-mm-per-prompt ${flags.limitMmPerPrompt.trim()}`
-    }
-
-    // LoRA Multi-Adapter Serving
-    if (flags.enableLora) {
-      cmd += ` \\\n  --enable-lora`
-      if (flags.maxLoras > 1) {
-        cmd += ` \\\n  --max-loras ${flags.maxLoras}`
-      }
-      if (flags.maxLoraRank !== 16) {
-        cmd += ` \\\n  --max-lora-rank ${flags.maxLoraRank}`
-      }
-      if (flags.loraModules.trim()) {
-        cmd += ` \\\n  --lora-modules ${flags.loraModules.trim()}`
-      }
-    }
-
-    // Structured Outputs & Tool Calling
-    if (flags.guidedDecodingBackend && flags.guidedDecodingBackend !== 'xgrammar') {
-      cmd += ` \\\n  --guided-decoding-backend ${flags.guidedDecodingBackend}`
-    }
-    if (flags.toolCallParser && flags.toolCallParser !== 'none') {
-      cmd += ` \\\n  --tool-call-parser ${flags.toolCallParser}`
-    }
-    if (flags.enableAutoToolChoice) {
-      cmd += ` \\\n  --enable-auto-tool-choice`
-    }
-
-    if (flags.apiKey.trim()) {
-      cmd += ` \\\n  --api-key ${flags.apiKey.trim()}`
-    }
-
-    if (flags.trustRemoteCode) {
-      cmd += ` \\\n  --trust-remote-code`
-    }
-
-    return cmd
-  }, [selectedModel, flags, selectedRecipe, selectedVllmVersion, scalingMode, isV1Engine, isLegacy])
+  const generatedVllmCommand = useMemo(
+    () =>
+      generateVllmCommand({
+        selectedModel,
+        flags,
+        selectedRecipe,
+        selectedVllmVersion,
+        scalingMode,
+      }),
+    [selectedModel, flags, selectedRecipe, selectedVllmVersion, scalingMode]
+  )
 
   // Multi-Node Ray Cluster Bootstrap Snippet
-  const generatedRayCluster = useMemo(() => {
-    return `# Step 1: Start Ray Head Node on Primary Machine (Node 0)
-ray start --head --port=6379 --dashboard-host=0.0.0.0 --num-gpus=${flags.tensorParallelSize}
-
-# Step 2: On Worker Nodes (Nodes 1..N), connect to Head Node
-ray start --address='<HEAD_NODE_IP>:6379' --num-gpus=${flags.tensorParallelSize}
-
-# Step 3: Launch Multi-Node vLLM Engine on Head Node
-vllm serve ${selectedModel.name} \\
-  --pipeline-parallel-size ${flags.pipelineParallelSize} \\
-  --tensor-parallel-size ${flags.tensorParallelSize} \\
-  --distributed-executor-backend ray \\
-  --max-model-len ${flags.maxModelLen} \\
-  --gpu-memory-utilization ${flags.gpuMemoryUtilization.toFixed(2)} \\
-  ${selectedRecipe.vllmArg || ''} \\
-  --api-key ${flags.apiKey || 'dyno-prod-key-99'} \\
-  --port 8000`
-  }, [selectedModel, flags, selectedRecipe])
+  const generatedRayCluster = useMemo(
+    () => generateRayCluster({ selectedModel, flags, selectedRecipe }),
+    [selectedModel, flags, selectedRecipe]
+  )
 
   // Verification Help Command
-  const generatedHelpVerifyCmd = useMemo(() => {
-    return `python3 -m vllm.entrypoints.openai.api_server --help | grep -iE "max-model-len|gpu-memory-utilization|tensor-parallel-size|cpu-offload-gb|pipeline-parallel-size|enable-lora|guided-decoding-backend"`
-  }, [])
+  const generatedHelpVerifyCmd = useMemo(() => generateHelpVerifyCmd(), [])
 
   // Docker Compose Snippet with Auth & GPU Reservation
-  const generatedDockerCompose = useMemo(() => {
-    return `version: '3.8'
-services:
-  vllm-engine:
-    image: vllm/vllm-openai:latest
-    container_name: vllm-production
-    runtime: nvidia
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    environment:
-      - HUGGING_FACE_HUB_TOKEN=\${HF_TOKEN}
-      - VLLM_API_KEY=\${VLLM_API_KEY:-${flags.apiKey || 'dyno-prod-key-99'}}
-    volumes:
-      - ~/.cache/huggingface:/root/.cache/huggingface
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: ${scalingMode === 'tp' ? flags.tensorParallelSize : replicaCount}
-              capabilities: [gpu]
-    command: >
-      serve ${selectedModel.name}
-      --max-model-len ${flags.maxModelLen}
-      --gpu-memory-utilization ${flags.gpuMemoryUtilization.toFixed(2)}
-      --block-size ${flags.blockSize}
-      ${!isV1Engine && flags.enablePrefixCaching ? '--enable-prefix-caching' : ''}
-      ${!isV1Engine && flags.enableChunkedPrefill ? '--enable-chunked-prefill' : ''}
-      ${flags.cpuOffloadGb > 0 ? `--cpu-offload-gb ${flags.cpuOffloadGb}` : ''}
-      ${selectedRecipe.vllmArg || ''}
-      --api-key \${VLLM_API_KEY:-${flags.apiKey || 'dyno-prod-key-99'}}
-      --port 8000`
-  }, [selectedModel, flags, selectedRecipe, scalingMode, replicaCount, isV1Engine])
+  const generatedDockerCompose = useMemo(
+    () =>
+      generateDockerCompose({
+        selectedModel,
+        flags,
+        selectedRecipe,
+        scalingMode,
+        replicaCount,
+        isV1Engine,
+      }),
+    [selectedModel, flags, selectedRecipe, scalingMode, replicaCount, isV1Engine]
+  )
 
   // Env file snippet with Auth
-  const generatedEnvSnippet = useMemo(() => {
-    return `# vLLM Production Configuration for ${selectedModel.name}
-VLLM_MODEL=${selectedModel.name}
-VLLM_MAX_MODEL_LEN=${flags.maxModelLen}
-VLLM_GPU_MEMORY_UTILIZATION=${flags.gpuMemoryUtilization.toFixed(2)}
-VLLM_BLOCK_SIZE=${flags.blockSize}
-${!isV1Engine ? `VLLM_ENABLE_PREFIX_CACHING=${flags.enablePrefixCaching}\nVLLM_ENABLE_CHUNKED_PREFILL=${flags.enableChunkedPrefill}` : '# In vLLM 0.8+ (V1), Chunked Prefill & Prefix Caching are active by default'}
-VLLM_TENSOR_PARALLEL_SIZE=${flags.tensorParallelSize}
-VLLM_PIPELINE_PARALLEL_SIZE=${flags.pipelineParallelSize}
-VLLM_CPU_OFFLOAD_GB=${flags.cpuOffloadGb}
-VLLM_QUANTIZATION=${selectedRecipe.id === 'fp8' ? 'fp8' : selectedRecipe.id.includes('awq') ? 'awq' : selectedRecipe.id.includes('gptq') ? 'gptq' : 'none'}
-VLLM_API_KEY=${flags.apiKey || 'dyno-prod-key-99'}
-VLLM_HOST=0.0.0.0
-VLLM_PORT=8000`
-  }, [selectedModel, flags, selectedRecipe, isV1Engine])
+  const generatedEnvSnippet = useMemo(
+    () =>
+      generateEnvSnippet({
+        selectedModel,
+        flags,
+        selectedRecipe,
+        isV1Engine,
+      }),
+    [selectedModel, flags, selectedRecipe, isV1Engine]
+  )
 
   const copyText = (text, type) => {
     navigator.clipboard.writeText(text)
@@ -1577,103 +665,10 @@ VLLM_PORT=8000`
   }
 
   // Model & GPU Matchmaker Recommendation Engine
-  const matchmakerRecommendations = useMemo(() => {
-    const params = selectedModel.params || 8
-
-    // 1. Best Value / Budget Pick
-    let valueGpuName = 'NVIDIA A10G (24GB)'
-    let valueRecipeId = 'int4_awq'
-    let valueTp = 1
-    let valueScaling = 'tp'
-    let valueReason = 'Lowest cloud hourly cost (~$1.00/hr) with INT4 AWQ fitting smoothly on a single 24GB node.'
-
-    if (params <= 9) {
-      valueGpuName = 'NVIDIA L4 (24GB Ada)'
-      valueRecipeId = 'int4_awq'
-      valueTp = 1
-      valueReason = 'Lowest cloud hourly cost (~$0.65/hr) with INT4 AWQ. Fits comfortably on 24GB VRAM with ample KV headroom.'
-    } else if (params <= 16) {
-      valueGpuName = 'NVIDIA RTX 3090 / 4090'
-      valueRecipeId = 'int4_awq'
-      valueTp = 1
-      valueReason = 'Single 24GB workstation card with AWQ quantization (~9GB weights), leaving 15GB VRAM for concurrent KV cache.'
-    } else if (params <= 35) {
-      valueGpuName = 'Dual RTX 3090 / 4090 (2x24GB)'
-      valueRecipeId = 'int4_awq'
-      valueTp = 2
-      valueReason = 'Dual 24GB cards with TP=2 splits 32B weights to ~9GB/card with 1.9 TB/s aggregate bandwidth.'
-    } else {
-      valueGpuName = 'Dual RTX 3090 / 4090 (2x24GB)'
-      valueRecipeId = 'int4_awq'
-      valueTp = 2
-      valueReason = 'Dual 24GB or L40S with INT4 AWQ fits 70B (~38.5 GB weights) across two GPUs without needing an 80GB SXM cluster.'
-    }
-
-    // 2. Lowest Latency / Pure Speed Pick
-    let speedGpuName = 'NVIDIA H100 (80GB SXM5)'
-    let speedRecipeId = 'fp8'
-    let speedTp = params > 35 ? 4 : (params > 16 ? 2 : 1)
-    let speedReason = `Hopper 4th-Gen Tensor Cores + 3.35 TB/s HBM3 delivering 180-220 tok/s decode with sub-25ms TTFT.`
-    if (params > 35) {
-      speedReason = `4x H100 (TP=4) over NVLink delivering ultra-fast 80+ tok/s on 70B with native FP8 acceleration.`
-    }
-
-    // 3. Enterprise High-Concurrency Pick
-    let scaleGpuName = 'NVIDIA A100 (80GB HBM2e)'
-    let scaleRecipeId = 'fp8'
-    let scaleTp = params > 35 ? 2 : 1
-    let scaleReason = `80GB HBM2e memory pool provides massive KV cache for 64+ concurrent users without out-of-memory preemption.`
-    if (params > 35) {
-      scaleGpuName = 'NVIDIA A100 (80GB HBM2e)'
-      scaleRecipeId = 'int4_awq'
-      scaleTp = 2
-      scaleReason = `2x A100 80GB (TP=2) provides 160GB total VRAM, comfortably handling 80+ simultaneous users with 8k contexts.`
-    }
-
-    const valueGpu = GPU_CATALOG.find((g) => g.name === valueGpuName) || GPU_CATALOG[0]
-    const speedGpu = GPU_CATALOG.find((g) => g.name === speedGpuName) || GPU_CATALOG[GPU_CATALOG.length - 1]
-    const scaleGpu = GPU_CATALOG.find((g) => g.name === scaleGpuName) || GPU_CATALOG[GPU_CATALOG.length - 2]
-
-    const valueRecipe = QUANTIZATION_RECIPES.find((r) => r.id === valueRecipeId) || QUANTIZATION_RECIPES[2]
-    const speedRecipe = QUANTIZATION_RECIPES.find((r) => r.id === speedRecipeId) || QUANTIZATION_RECIPES[1]
-    const scaleRecipe = QUANTIZATION_RECIPES.find((r) => r.id === scaleRecipeId) || QUANTIZATION_RECIPES[1]
-
-    return [
-      {
-        tag: 'Best Value / Budget',
-        tagColor: 'emerald',
-        gpu: valueGpu,
-        recipe: valueRecipe,
-        tp: valueTp,
-        scaling: valueScaling,
-        rationale: valueReason,
-        costEstimate: params <= 9 ? '~$0.65/hr' : params <= 35 ? '~$1.50/hr' : '~$2.80/hr',
-        estDecode: params <= 9 ? '~68 tok/s' : params <= 35 ? '~54 tok/s' : '~32 tok/s',
-      },
-      {
-        tag: 'Lowest Latency / Pure Speed',
-        tagColor: 'amber',
-        gpu: speedGpu,
-        recipe: speedRecipe,
-        tp: speedTp,
-        scaling: 'tp',
-        rationale: speedReason,
-        costEstimate: speedTp > 1 ? `~$${(3.85 * speedTp).toFixed(2)}/hr (${speedTp}x H100)` : '~$3.85/hr',
-        estDecode: params <= 9 ? '~210 tok/s' : params <= 35 ? '~135 tok/s' : '~82 tok/s',
-      },
-      {
-        tag: 'Enterprise Concurrency (Scale-Out)',
-        tagColor: 'sky',
-        gpu: scaleGpu,
-        recipe: scaleRecipe,
-        tp: scaleTp,
-        scaling: 'tp',
-        rationale: scaleReason,
-        costEstimate: scaleTp > 1 ? `~$${(2.40 * scaleTp).toFixed(2)}/hr (${scaleTp}x A100)` : '~$2.40/hr',
-        estDecode: params <= 9 ? '~130 tok/s' : params <= 35 ? '~92 tok/s' : '~58 tok/s',
-      },
-    ]
-  }, [selectedModel])
+  const matchmakerRecommendations = useMemo(
+    () => buildMatchmakerRecommendations({ selectedModel }),
+    [selectedModel]
+  )
 
   const applyMatchmakerConfig = (rec) => {
     setTargetGpu(rec.gpu)
