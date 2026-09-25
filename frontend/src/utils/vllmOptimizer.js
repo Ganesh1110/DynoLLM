@@ -398,6 +398,55 @@ export function buildVramBreakdown({
 }
 
 /**
+ * Suggest optimal target GPU for a given model
+ * Considers model parameter count, precision/quantization, and minimum viable VRAM.
+ * @param {object} model - Model specification (contains .params)
+ * @param {Array} [gpuCatalog=GPU_CATALOG] - List of available GPUs
+ * @returns {object} Recommended GPU with reason, suggested tensorParallelSize, and minVramRequired
+ */
+export function getRecommendedGpuForModel(model, gpuCatalog = GPU_CATALOG) {
+  const params = Number(model?.params) || 8
+
+  let preferredName = 'NVIDIA RTX 3090 / 4090'
+  let suggestedTp = 1
+  let reason = ''
+
+  if (params <= 4) {
+    preferredName = 'NVIDIA RTX 4060 Ti (16GB)'
+    suggestedTp = 1
+    reason = `Compact ${params}B model fits comfortably on cost-effective 16GB VRAM with fast single-user latency.`
+  } else if (params <= 9) {
+    preferredName = 'NVIDIA RTX 3090 / 4090'
+    suggestedTp = 1
+    reason = `Standard 24GB VRAM provides optimal buffer for ${params}B models with full KV cache and high concurrency.`
+  } else if (params <= 16) {
+    preferredName = 'NVIDIA RTX 3090 / 4090'
+    suggestedTp = 1
+    reason = `24GB VRAM runs ${params}B in FP8 or AWQ quantization (~9–14GB weights) with ample KV headroom.`
+  } else if (params <= 35) {
+    preferredName = 'Dual RTX 3090 / 4090 (2x24GB)'
+    suggestedTp = 2
+    reason = `Dual 24GB cards (TP=2) or 48GB VRAM splits ${params}B weights to ~9GB/card with 1.9 TB/s aggregate bandwidth.`
+  } else {
+    preferredName = 'Dual RTX 3090 / 4090 (2x24GB)'
+    suggestedTp = 2
+    reason = `Large ${params}B model requires multi-GPU (TP=2) or 48GB+ memory pool to host quantized weights.`
+  }
+
+  const matchedGpu =
+    gpuCatalog.find((g) => g.name === preferredName) ||
+    gpuCatalog.find((g) => g.vramGb >= (params > 35 ? 48 : params > 16 ? 32 : params > 8 ? 20 : 12)) ||
+    gpuCatalog[0]
+
+  return {
+    gpu: matchedGpu,
+    suggestedTp,
+    reason,
+    minVramRequired: params > 35 ? 40 : params > 16 ? 24 : params > 8 ? 16 : 8,
+  }
+}
+
+/**
  * Model & GPU Matchmaker Recommendation Engine
  */
 export function buildMatchmakerRecommendations({

@@ -91,6 +91,7 @@ import {
   buildConcurrencyChartData,
   buildVramBreakdown,
   buildMatchmakerRecommendations,
+  getRecommendedGpuForModel,
   generateVllmCommand,
   generateRayCluster,
   generateHelpVerifyCmd,
@@ -174,9 +175,17 @@ export function VllmOptimizer() {
     )
     if (matchedModel) {
       setSelectedModel(matchedModel)
+      const rec = getRecommendedGpuForModel(matchedModel)
+      if (rec?.gpu) {
+        setTargetGpu(rec.gpu)
+      }
     }
 
-    setFlags((prev) => ({ ...prev, maxModelLen: safeContext }))
+    setFlags((prev) => ({
+      ...prev,
+      maxModelLen: safeContext,
+      tensorParallelSize: matchedModel ? getRecommendedGpuForModel(matchedModel).suggestedTp : prev.tensorParallelSize,
+    }))
     setConcurrency(runConcurrency)
     setRealTrafficProfile({
       id: run.id,
@@ -218,7 +227,14 @@ export function VllmOptimizer() {
         const matched = GLOBAL_MODEL_CATALOG.find((m) =>
           m.name.toLowerCase().includes(modelParam.toLowerCase()) || modelParam.toLowerCase().includes(m.id.toLowerCase())
         )
-        if (matched) setSelectedModel(matched)
+        if (matched) {
+          setSelectedModel(matched)
+          const rec = getRecommendedGpuForModel(matched)
+          if (rec?.gpu) {
+            setTargetGpu(rec.gpu)
+            setFlags((prev) => ({ ...prev, tensorParallelSize: rec.suggestedTp }))
+          }
+        }
       }
 
       setRealTrafficProfile({
@@ -234,6 +250,9 @@ export function VllmOptimizer() {
 
   // 5. Active Visualization Chart Tab
   const [activeChartTab, setActiveChartTab] = useState('throughput') // 'throughput' | 'quant' | 'context' | 'tp_scaling' | 'roofline' | 'cost'
+
+  // Flag Groups Navigation Tab State
+  const [activeFlagGroup, setActiveFlagGroup] = useState('group1') // 'group1' | 'group2' | 'group3' | 'group4' | 'group5' | 'all'
 
   // 6. Output / Code Export Tab
   const [exportTab, setExportTab] = useState('cli') // 'cli' | 'help' | 'env' | 'docker' | 'validator' | 'ray'
@@ -361,17 +380,25 @@ export function VllmOptimizer() {
     })
   }, [runtimes.length])
 
-  // Filter global catalog based on search
+  // Filter global catalog based on search with deduplication
   const filteredCatalog = useMemo(() => {
-    const combined = [...connectedModels, ...GLOBAL_MODEL_CATALOG]
-    if (!modelSearchQuery.trim()) return combined
+    const seen = new Set()
+    const unique = []
+    for (const m of [...connectedModels, ...GLOBAL_MODEL_CATALOG]) {
+      const key = m.name.toLowerCase().trim()
+      if (!seen.has(key)) {
+        seen.add(key)
+        unique.push(m)
+      }
+    }
+    if (!modelSearchQuery.trim()) return unique
     const q = modelSearchQuery.toLowerCase().trim()
-    return combined.filter(
+    return unique.filter(
       (m) =>
         m.name.toLowerCase().includes(q) ||
-        m.label.toLowerCase().includes(q) ||
-        m.family.toLowerCase().includes(q) ||
-        m.creator.toLowerCase().includes(q)
+        m.label?.toLowerCase().includes(q) ||
+        m.family?.toLowerCase().includes(q) ||
+        m.creator?.toLowerCase().includes(q)
     )
   }, [modelSearchQuery, connectedModels])
 
@@ -385,6 +412,12 @@ export function VllmOptimizer() {
         ...prev,
         maxModelLen: Math.min(prev.maxModelLen, model.maxContext),
       }))
+    }
+    // Auto-suggest optimal GPU and TP for the newly selected model
+    const rec = getRecommendedGpuForModel(model)
+    if (rec?.gpu) {
+      setTargetGpu(rec.gpu)
+      updateFlag('tensorParallelSize', rec.suggestedTp)
     }
   }
 
@@ -416,6 +449,12 @@ export function VllmOptimizer() {
     }
     setSelectedModel(customModel)
     setIsSearching(false)
+    // Auto-suggest optimal GPU and TP for the custom model
+    const rec = getRecommendedGpuForModel(customModel)
+    if (rec?.gpu) {
+      setTargetGpu(rec.gpu)
+      updateFlag('tensorParallelSize', rec.suggestedTp)
+    }
   }
 
   // Helper to update individual flag value
@@ -425,6 +464,7 @@ export function VllmOptimizer() {
 
   // Reset flags to recommended best-practice values
   const resetToRecommended = () => {
+    const rec = getRecommendedGpuForModel(selectedModel)
     setFlags({
       ...DEFAULT_VLLM_FLAGS,
       maxModelLen: selectedModel.recommendedContext || 4096,
@@ -436,9 +476,18 @@ export function VllmOptimizer() {
           : selectedRecipe.id.includes('awq')
           ? 'awq'
           : 'none',
-      tensorParallelSize: targetGpu.vramGb < 20 && selectedModel.params >= 14 ? 2 : 1,
+      tensorParallelSize: rec.suggestedTp,
     })
+    if (rec?.gpu) {
+      setTargetGpu(rec.gpu)
+    }
   }
+
+  // Dynamic Recommended GPU for Currently Selected Model
+  const recommendedGpuInfo = useMemo(
+    () => getRecommendedGpuForModel(selectedModel),
+    [selectedModel]
+  )
 
   // GPU Architecture Detection
   const gpuArch = useMemo(() => getGpuArchitecture(targetGpu.name), [targetGpu])
@@ -1085,7 +1134,7 @@ export function VllmOptimizer() {
                   <div className="flex items-center gap-3 text-gray-400 font-mono text-[11px]">
                     <span>{m.params}B params</span>
                     <span>•</span>
-                    <span>{m.layers} layers</span>
+                    <span className="text-amber-300 font-medium">✨ {getRecommendedGpuForModel(m).gpu.name.replace(/\s*\([^)]*\)/, '')} ({getRecommendedGpuForModel(m).gpu.vramGb}GB)</span>
                     <span>•</span>
                     <span className="text-emerald-400 font-semibold">{m.gqaRatio}</span>
                   </div>
@@ -1109,10 +1158,14 @@ export function VllmOptimizer() {
                     {selectedModel.creator}
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 mt-0.5">
                   <span>Architecture: <strong className="text-gray-200">{selectedModel.family}</strong></span>
                   <span>•</span>
                   <span>License: <strong className="text-gray-200">{selectedModel.license}</strong></span>
+                  <span>•</span>
+                  <span className="text-amber-300 font-mono text-[11px] flex items-center gap-1">
+                    ✨ Suggested GPU: <strong>{recommendedGpuInfo.gpu.name}</strong> ({recommendedGpuInfo.gpu.vramGb}GB)
+                  </span>
                 </div>
               </div>
             </div>
@@ -1192,9 +1245,28 @@ export function VllmOptimizer() {
               </option>
             ))}
           </select>
-          <span className="text-[10px] text-gray-500 mt-1 block">
-            Arch: <strong className="text-gray-300">{gpuArch.family}</strong> ({gpuArch.sm})
-          </span>
+          <div className="flex items-center justify-between text-[10px] text-gray-500 mt-1">
+            <span>
+              Arch: <strong className="text-gray-300">{gpuArch.family}</strong> ({gpuArch.sm})
+            </span>
+            {targetGpu.name === recommendedGpuInfo.gpu.name ? (
+              <span className="text-emerald-400 font-mono font-medium flex items-center gap-0.5">
+                ✓ Best match
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setTargetGpu(recommendedGpuInfo.gpu)
+                  updateFlag('tensorParallelSize', recommendedGpuInfo.suggestedTp)
+                }}
+                className="text-amber-400 hover:text-amber-300 font-mono underline"
+                title={`Click to switch to recommended ${recommendedGpuInfo.gpu.name}`}
+              >
+                Rec: {recommendedGpuInfo.gpu.name.replace(/\s*\([^)]*\)/, '')} →
+              </button>
+            )}
+          </div>
         </div>
 
         <div>
@@ -2199,7 +2271,7 @@ export function VllmOptimizer() {
                               ? `$${((effectiveGpuHourlyCost / (realTrafficProfile.totalTokensPerSec * 3600)) * 1_000_000).toFixed(2)}`
                               : realTrafficProfile.costEstimate && (realTrafficProfile.totalCompletionTokens || realTrafficProfile.totalPromptTokens)
                               ? `$${((realTrafficProfile.costEstimate / (realTrafficProfile.totalCompletionTokens + (realTrafficProfile.totalPromptTokens || 0))) * 1_000_000).toFixed(2)}`
-                              : '$0.83'}
+                              : '—'}
                           </span>
                           <span className="text-[10px] text-gray-500 block font-sans">
                             {realTrafficProfile.totalTokensPerSec > 0
@@ -2694,8 +2766,90 @@ vLLM version 0.8.2`
               </button>
             </div>
 
+            {/* Flag Group Navigation Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin border-b border-gray-800/80">
+              <button
+                type="button"
+                onClick={() => setActiveFlagGroup('group1')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border flex items-center gap-1.5 ${
+                  activeFlagGroup === 'group1'
+                    ? 'bg-sky-500/20 border-sky-500 text-sky-300 font-bold shadow-sm'
+                    : 'bg-gray-950/80 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                <Cpu className="w-3.5 h-3.5 text-sky-400" />
+                <span>Group 1: Memory &amp; VRAM</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFlagGroup('group2')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border flex items-center gap-1.5 ${
+                  activeFlagGroup === 'group2'
+                    ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300 font-bold shadow-sm'
+                    : 'bg-gray-950/80 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                <Activity className="w-3.5 h-3.5 text-indigo-400" />
+                <span>Group 2: Batching &amp; Prefill</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFlagGroup('group3')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border flex items-center gap-1.5 ${
+                  activeFlagGroup === 'group3'
+                    ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-bold shadow-sm'
+                    : 'bg-gray-950/80 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                <Split className="w-3.5 h-3.5 text-amber-400" />
+                <span>Group 3: Parallelism &amp; Scaling</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFlagGroup('group4')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border flex items-center gap-1.5 ${
+                  activeFlagGroup === 'group4'
+                    ? 'bg-pink-500/20 border-pink-500 text-pink-300 font-bold shadow-sm'
+                    : 'bg-gray-950/80 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 text-pink-400" />
+                <span>Group 4: LoRA Adapters</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFlagGroup('group5')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border flex items-center gap-1.5 ${
+                  activeFlagGroup === 'group5'
+                    ? 'bg-violet-500/20 border-violet-500 text-violet-300 font-bold shadow-sm'
+                    : 'bg-gray-950/80 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                <Code2 className="w-3.5 h-3.5 text-violet-400" />
+                <span>Group 5: Structured Outputs</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFlagGroup('all')}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors border flex items-center gap-1.5 ml-auto ${
+                  activeFlagGroup === 'all'
+                    ? 'bg-gray-700/50 border-gray-500 text-white font-bold'
+                    : 'bg-gray-950/80 border-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                <Sliders className="w-3.5 h-3.5 text-gray-400" />
+                <span>All Groups</span>
+              </button>
+            </div>
+
             {/* GROUP 1: MEMORY & KV CACHE ALLOCATION FLAGS */}
-            <div className="space-y-3.5">
+            {(activeFlagGroup === 'group1' || activeFlagGroup === 'all') && (
+              <div className="space-y-3.5">
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20 font-mono">
                   Group 1
@@ -2899,9 +3053,11 @@ vLLM version 0.8.2`
                 </div>
               </div>
             </div>
+            )}
 
             {/* GROUP 2: THROUGHPUT & SCHEDULING FLAGS */}
-            <div className="space-y-3.5 pt-2 border-t border-gray-800/80">
+            {(activeFlagGroup === 'group2' || activeFlagGroup === 'all') && (
+            <div className={`space-y-3.5 ${activeFlagGroup === 'all' ? 'pt-2 border-t border-gray-800/80' : ''}`}>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
                   Group 2
@@ -3113,9 +3269,11 @@ vLLM version 0.8.2`
                 </div>
               </div>
             </div>
+            )}
 
             {/* GROUP 3: DISTRIBUTED & ADVANCED HARDWARE FLAGS */}
-            <div className="space-y-3.5 pt-2 border-t border-gray-800/80">
+            {(activeFlagGroup === 'group3' || activeFlagGroup === 'all') && (
+            <div className={`space-y-3.5 ${activeFlagGroup === 'all' ? 'pt-2 border-t border-gray-800/80' : ''}`}>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">
                   Group 3
@@ -3329,9 +3487,11 @@ vLLM version 0.8.2`
                 </div>
               </div>
             </div>
+            )}
 
             {/* GROUP 4: LORA MULTI-ADAPTER SERVING FLAGS */}
-            <div className="space-y-3.5 pt-2 border-t border-gray-800/80">
+            {(activeFlagGroup === 'group4' || activeFlagGroup === 'all') && (
+            <div className={`space-y-3.5 ${activeFlagGroup === 'all' ? 'pt-2 border-t border-gray-800/80' : ''}`}>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-pink-500/10 text-pink-400 border border-pink-500/20 font-mono">
                   Group 4
@@ -3453,9 +3613,11 @@ vLLM version 0.8.2`
                 </div>
               </div>
             </div>
+            )}
 
             {/* GROUP 5: STRUCTURED OUTPUTS & TOOL CALLING */}
-            <div className="space-y-3.5 pt-2 border-t border-gray-800/80">
+            {(activeFlagGroup === 'group5' || activeFlagGroup === 'all') && (
+            <div className={`space-y-3.5 ${activeFlagGroup === 'all' ? 'pt-2 border-t border-gray-800/80' : ''}`}>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-violet-500/10 text-violet-400 border border-violet-500/20 font-mono">
                   Group 5
@@ -3552,6 +3714,7 @@ vLLM version 0.8.2`
                 </div>
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>

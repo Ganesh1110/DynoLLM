@@ -10,6 +10,7 @@ import {
   calcEstimatedTtftMs,
   buildRooflineModel,
   generateVllmCommand,
+  getRecommendedGpuForModel,
   VLLM_VERSIONS,
   QUANTIZATION_RECIPES,
   GLOBAL_MODEL_CATALOG,
@@ -161,3 +162,32 @@ test('vLLM Optimizer: generateVllmCommand omits deprecated V0 flags on vLLM 0.8+
   assert.ok(cmdV0.includes('--enable-prefix-caching'), 'V0 command should pass --enable-prefix-caching')
   assert.ok(cmdV0.includes('--enable-chunked-prefill'), 'V0 command should pass --enable-chunked-prefill')
 })
+
+test('vLLM Optimizer: getRecommendedGpuForModel suggests appropriate hardware by parameter size', () => {
+  // 3B model (e.g. Llama-3.2-3B) -> 16GB
+  const rec3b = getRecommendedGpuForModel({ params: 3 })
+  assert.strictEqual(rec3b.gpu.vramGb, 16)
+  assert.strictEqual(rec3b.suggestedTp, 1)
+
+  // 8B model (e.g. Llama-3.1-8B) -> 24GB
+  const rec8b = getRecommendedGpuForModel({ params: 8 })
+  assert.strictEqual(rec8b.gpu.vramGb, 24)
+  assert.strictEqual(rec8b.suggestedTp, 1)
+
+  // 14B model (e.g. Qwen-14B) -> 24GB
+  const rec14b = getRecommendedGpuForModel({ params: 14 })
+  assert.strictEqual(rec14b.gpu.vramGb, 24)
+  assert.strictEqual(rec14b.suggestedTp, 1)
+
+  // 32B model (e.g. Qwen-32B) -> 48GB (Dual 3090/4090 or L40S)
+  const rec32b = getRecommendedGpuForModel({ params: 32 })
+  assert.strictEqual(rec32b.gpu.vramGb, 48)
+  assert.strictEqual(rec32b.suggestedTp, 2)
+
+  // 70B model (e.g. Llama-3.1-70B) -> 48GB (Dual 3090/4090 with TP=2)
+  const rec70b = getRecommendedGpuForModel({ params: 70 })
+  assert.strictEqual(rec70b.gpu.vramGb, 48)
+  assert.strictEqual(rec70b.suggestedTp, 2)
+  assert.ok(rec70b.reason.includes('multi-GPU'))
+})
+
