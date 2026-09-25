@@ -8,7 +8,7 @@ import { useMonitoringStore } from '../stores/monitoringStore'
 import { loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
-import { classifyWorkload, calcTokenCosts, formatTokenCount } from '../utils/tokenMetrics'
+import { classifyWorkload, calcTokenCosts, calcHardwareCosts, formatTokenCount } from '../utils/tokenMetrics'
 
 
 export function LoadTest() {
@@ -92,7 +92,8 @@ export function LoadTest() {
 
   const latestLivePoint = liveData[liveData.length - 1]
 
-  // Pricing configuration for real measured cost calculation ($/1M tokens)
+  // Pricing configuration for real measured cost calculation (Hardware $/hr and Cloud API $/1M tokens)
+  const [gpuHourlyCost, setGpuHourlyCost] = useState(0.70)
   const [promptCostRate, setPromptCostRate] = useState(0.50)
   const [completionCostRate, setCompletionCostRate] = useState(1.50)
   const [showCostSettings, setShowCostSettings] = useState(false)
@@ -116,6 +117,16 @@ export function LoadTest() {
       completionCostPerMillion: completionCostRate,
     })
   }, [activeRun, latestLivePoint, activeTokensIn, activeTokensOut, promptCostRate, completionCostRate])
+
+  const hardwareCosts = useMemo(() => {
+    if (!activeRun && !latestLivePoint) return null
+    const dur = activeRun?.duration_seconds ?? (liveData.length > 0 ? (liveData[liveData.length - 1].elapsed_seconds || liveData.length) : 60)
+    return calcHardwareCosts({
+      durationSeconds: dur,
+      gpuHourlyCost,
+      totalTokens: activeTokensIn + activeTokensOut,
+    })
+  }, [activeRun, latestLivePoint, liveData, gpuHourlyCost, activeTokensIn, activeTokensOut])
 
 
   return (
@@ -520,12 +531,12 @@ export function LoadTest() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                      <div className="md:col-span-2 space-y-1.5">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+                      <div className="lg:col-span-1 space-y-1.5">
                         <p className="text-gray-300 leading-relaxed text-[11px]">
                           {workloadClassification.recommendation}
                         </p>
-                        <div className="flex items-center gap-4 text-[11px] text-gray-400 font-mono pt-1">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-400 font-mono pt-1">
                           <span>
                             Avg Prompt: <strong className="text-indigo-300">{activeRun.avg_prompt_tokens ? Math.round(activeRun.avg_prompt_tokens) : '—'} tok</strong>
                           </span>
@@ -540,26 +551,76 @@ export function LoadTest() {
                         </div>
                       </div>
 
-                      <div className="bg-gray-950/70 p-2.5 rounded-lg border border-gray-800 font-mono space-y-1">
-                        <div className="flex justify-between items-center text-[11px]">
-                          <span className="text-gray-400">Measured Run Cost:</span>
-                          <span className="text-emerald-400 font-bold">${measuredCosts?.totalCost?.toFixed(4) ?? '0.0000'}</span>
+                      {/* Dual Cost Model Cards: Self-Hosted GPU vs Cloud API Equivalent */}
+                      <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Self-Hosted Hardware Cost Card */}
+                        <div className="bg-gray-950/70 p-2.5 rounded-lg border border-sky-500/30 font-mono space-y-1">
+                          <div className="flex justify-between items-center text-[10px] text-sky-400 font-sans font-semibold uppercase tracking-wider">
+                            <span>Self-Hosted GPU Cost</span>
+                            <span className="text-gray-400 font-mono font-normal">@ ${gpuHourlyCost.toFixed(2)}/hr</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[11px] pt-0.5">
+                            <span className="text-gray-400">Run Hardware Cost:</span>
+                            <span className="text-sky-300 font-bold">${hardwareCosts?.runCost?.toFixed(4) ?? '0.0000'}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[10px] text-gray-400">
+                            <span>Hardware Rate:</span>
+                            <span className="text-sky-200 font-semibold">${hardwareCosts?.costPerMillion?.toFixed(2) ?? '0.00'} / 1M tok</span>
+                          </div>
+                          <div className="text-[10px] text-gray-500 pt-0.5 border-t border-gray-800 font-sans">
+                            {hardwareCosts?.costPerMillion > 0 && measuredCosts?.effectiveCostPerMillion > 0 ? (
+                              hardwareCosts.costPerMillion < measuredCosts.effectiveCostPerMillion ? (
+                                <span className="text-emerald-400 font-medium">
+                                  ✓ Saves {Math.round((1 - hardwareCosts.costPerMillion / measuredCosts.effectiveCostPerMillion) * 100)}% vs Cloud API
+                                </span>
+                              ) : (
+                                <span className="text-amber-400 font-medium">
+                                  ⚠ Under-utilized vs API: boost batching
+                                </span>
+                              )
+                            ) : (
+                              <span>Amortized across {hardwareCosts?.durationSeconds ?? 60}s run</span>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex justify-between items-center text-[10px] text-gray-500">
-                          <span>Effective Rate:</span>
-                          <span className="text-gray-300">${measuredCosts?.effectiveCostPerMillion?.toFixed(2) ?? '0.00'} / 1M tok</span>
-                        </div>
-                        <div className="text-[10px] text-gray-500 pt-0.5 border-t border-gray-800">
-                          Based on ${(promptCostRate).toFixed(2)}/M in, ${(completionCostRate).toFixed(2)}/M out
+
+                        {/* Cloud API Reference Card */}
+                        <div className="bg-gray-950/70 p-2.5 rounded-lg border border-gray-800 font-mono space-y-1">
+                          <div className="flex justify-between items-center text-[10px] text-emerald-400 font-sans font-semibold uppercase tracking-wider">
+                            <span>Cloud API Reference</span>
+                            <span className="text-gray-400 font-mono font-normal">${promptCostRate.toFixed(2)} / ${completionCostRate.toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[11px] pt-0.5">
+                            <span className="text-gray-400">Commercial API Bill:</span>
+                            <span className="text-emerald-400 font-bold">${measuredCosts?.totalCost?.toFixed(4) ?? '0.0000'}</span>
+                          </div>
+                          <div className="flex justify-between items-center text-[10px] text-gray-400">
+                            <span>API Effective Rate:</span>
+                            <span className="text-gray-300">${measuredCosts?.effectiveCostPerMillion?.toFixed(2) ?? '0.00'} / 1M tok</span>
+                          </div>
+                          <div className="text-[10px] text-gray-500 pt-0.5 border-t border-gray-800 font-sans">
+                            Reference token pricing equivalent
+                          </div>
                         </div>
                       </div>
                     </div>
 
                     {showCostSettings && (
-                      <div className="mt-2 pt-2 border-t border-gray-800 flex items-center gap-4 text-xs font-mono bg-gray-950/40 p-2 rounded-lg">
-                        <span className="text-gray-400">Cost Assumptions:</span>
+                      <div className="mt-2 pt-2 border-t border-gray-800 flex flex-wrap items-center gap-4 text-xs font-mono bg-gray-950/40 p-2.5 rounded-lg">
+                        <span className="text-gray-400 font-sans font-medium">Economics Parameters:</span>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-indigo-400">Input $/1M:</span>
+                          <span className="text-sky-400">GPU $/hr:</span>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min="0"
+                            className="input text-xs py-0.5 px-1.5 w-16 text-right font-mono"
+                            value={gpuHourlyCost}
+                            onChange={(e) => setGpuHourlyCost(parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-indigo-400">API In $/1M:</span>
                           <input
                             type="number"
                             step="0.1"
@@ -570,7 +631,7 @@ export function LoadTest() {
                           />
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-emerald-400">Output $/1M:</span>
+                          <span className="text-emerald-400">API Out $/1M:</span>
                           <input
                             type="number"
                             step="0.1"

@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     # Default Ollama endpoint
     DEFAULT_OLLAMA_ENDPOINT: str = "http://localhost:11434"
 
+    # Economics & Pricing Defaults
+    DEFAULT_PROMPT_COST_PER_MILLION: float = 0.50
+    DEFAULT_COMPLETION_COST_PER_MILLION: float = 1.50
+    DEFAULT_GPU_HOURLY_COST: float = 0.70
+
     class Config:
         env_file = ".env"
         case_sensitive = True

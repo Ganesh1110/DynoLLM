@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   classifyWorkload,
   calcTokenCosts,
+  calcHardwareCosts,
   calcTokensPerDollar,
   formatTokenCount,
 } from '../src/utils/tokenMetrics.js'
@@ -67,3 +68,20 @@ test('Token Metrics: calcTokensPerDollar and formatTokenCount', () => {
   assert.equal(formatTokenCount(2500000), '2.50M')
   assert.equal(formatTokenCount(null), '—')
 })
+
+test('Token Metrics: calcHardwareCosts computes run cost and cost per million tokens', () => {
+  // 60-second run at $0.70/hr GPU with 100,000 total tokens
+  // Run cost = (60 / 3600) * 0.70 = 0.011667
+  // Cost per million = (0.01166667 / 100,000) * 1,000,000 = $0.1167 / 1M
+  const hw = calcHardwareCosts({
+    durationSeconds: 60,
+    gpuHourlyCost: 0.70,
+    totalTokens: 100_000,
+  })
+
+  assert.equal(hw.durationSeconds, 60)
+  assert.equal(hw.gpuHourlyCost, 0.70)
+  assert.equal(hw.runCost, 0.011667)
+  assert.equal(hw.costPerMillion, 0.1167)
+})
+

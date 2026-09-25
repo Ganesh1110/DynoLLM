@@ -123,3 +123,35 @@ export function formatTokenCount(n) {
   if (val >= 1_000) return `${(val / 1_000).toFixed(1)}k`
   return `${Math.round(val)}`
 }
+
+/**
+ * Calculate self-hosted hardware cost for a test run based on duration and hourly GPU rate
+ * @param {object} params
+ * @param {number} params.durationSeconds - Run duration in seconds
+ * @param {number} [params.gpuHourlyCost=0.70] - Hourly GPU rental/depreciation rate ($/hr)
+ * @param {number} [params.totalTokens=0] - Total tokens generated/processed
+ * @returns {object} Hardware cost breakdown
+ */
+export function calcHardwareCosts({
+  durationSeconds = 0,
+  gpuHourlyCost = 0.70,
+  totalTokens = 0,
+} = {}) {
+  const dur = Math.max(0, Number(durationSeconds) || 0)
+  const rate = Math.max(0, Number(gpuHourlyCost) || 0)
+  const tokens = Math.max(0, Number(totalTokens) || 0)
+
+  const durationHours = dur / 3600.0
+  const runCost = durationHours * rate
+  const costPerMillion =
+    tokens > 0 ? Number(((runCost / tokens) * 1_000_000).toFixed(4)) : 0
+
+  return {
+    durationSeconds: dur,
+    durationHours,
+    gpuHourlyCost: rate,
+    runCost: Number(runCost.toFixed(6)),
+    costPerMillion,
+  }
+}
+

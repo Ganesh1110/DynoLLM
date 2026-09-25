@@ -518,10 +518,14 @@ def _compute_aggregates(
     total_tokens_per_second = float(total_tokens / span_s) if total_tokens > 0 else 0.0
     input_token_ratio = float(total_prompt_tokens / total_tokens) if total_tokens > 0 else None
 
-    # Cost-per-run estimate using real measured tokens: ($0.50/1M in, $1.50/1M out)
+    # Cost-per-run reference estimate using measured tokens and configured rates:
     cost_estimate = None
     if total_tokens > 0:
-        cost_estimate = float((total_prompt_tokens * 0.50 + total_completion_tokens * 1.50) / 1_000_000.0)
+        prompt_rate = getattr(settings, "DEFAULT_PROMPT_COST_PER_MILLION", 0.50)
+        comp_rate = getattr(settings, "DEFAULT_COMPLETION_COST_PER_MILLION", 1.50)
+        cost_estimate = float(
+            (total_prompt_tokens * prompt_rate + total_completion_tokens * comp_rate) / 1_000_000.0
+        )
 
     avg_power = float(np.mean(power_samples)) if power_samples else None
     avg_gen_tps = float(np.mean(tps_list)) if tps_list else None

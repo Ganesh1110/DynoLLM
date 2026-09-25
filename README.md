@@ -568,11 +568,11 @@ DynoLLM ships with a pytest-based backend test suite covering the API layer, eng
 
 ### 1. Install Test Dependencies
 
-`pytest` and `pytest-asyncio` are **not** included in `backend/requirements.txt` and must be installed separately:
+Development and testing dependencies (`pytest`, `pytest-asyncio`, `anyio`, `httpx`) are maintained in `backend/requirements-dev.txt`:
 
 ```bash
 cd backend
-pip install pytest pytest-asyncio
+pip install -r requirements-dev.txt
 ```
 
 ### 2. Run the Full Test Suite

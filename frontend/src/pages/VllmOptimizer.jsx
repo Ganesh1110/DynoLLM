@@ -188,8 +188,10 @@ export function VllmOptimizer() {
       totalPromptTokens: run.total_prompt_tokens,
       totalCompletionTokens: run.total_completion_tokens,
       costEstimate: run.cost_estimate,
+      durationSeconds: run.duration_seconds,
       tokensInPerSec: run.tokens_in_per_second,
       tokensOutPerSec: run.tokens_out_per_second,
+      totalTokensPerSec: run.total_tokens_per_second || ((run.tokens_in_per_second || 0) + (run.tokens_out_per_second || 0)),
       workload: classifyWorkload(promptTokens, completionTokens),
     })
     setShowRunPicker(false)
@@ -2181,22 +2183,28 @@ export function VllmOptimizer() {
                     {realTrafficProfile ? (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono pt-1">
                         <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
-                          <span className="text-[10px] text-gray-400 block font-sans">Predicted Model Cost</span>
+                          <span className="text-[10px] text-gray-400 block font-sans">Predicted Hardware Cost</span>
                           <span className="text-base font-bold text-rose-400">
                             ${costCurveData.find((d) => d.concurrency === concurrency)?.costPerMillion ?? costCurveData[costCurveData.length - 1]?.costPerMillion ?? '—'}
                           </span>
-                          <span className="text-[10px] text-gray-500 block font-sans">/ 1M tokens (at {concurrency} users)</span>
+                          <span className="text-[10px] text-gray-500 block font-sans">/ 1M tokens (at {concurrency} users, ${effectiveGpuHourlyCost.toFixed(2)}/hr)</span>
                         </div>
 
                         <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
-                          <span className="text-[10px] text-gray-400 block font-sans">Measured Traffic Cost</span>
+                          <span className="text-[10px] text-gray-400 block font-sans">
+                            {realTrafficProfile.totalTokensPerSec > 0 ? 'Empirical Hardware Rate' : 'Cloud API Equivalent'}
+                          </span>
                           <span className="text-base font-bold text-emerald-400">
-                            {realTrafficProfile.costEstimate && (realTrafficProfile.totalCompletionTokens || realTrafficProfile.totalPromptTokens)
+                            {realTrafficProfile.totalTokensPerSec > 0
+                              ? `$${((effectiveGpuHourlyCost / (realTrafficProfile.totalTokensPerSec * 3600)) * 1_000_000).toFixed(2)}`
+                              : realTrafficProfile.costEstimate && (realTrafficProfile.totalCompletionTokens || realTrafficProfile.totalPromptTokens)
                               ? `$${((realTrafficProfile.costEstimate / (realTrafficProfile.totalCompletionTokens + (realTrafficProfile.totalPromptTokens || 0))) * 1_000_000).toFixed(2)}`
                               : '$0.83'}
                           </span>
                           <span className="text-[10px] text-gray-500 block font-sans">
-                            / 1M tokens ({realTrafficProfile.promptTokens} in / {realTrafficProfile.completionTokens} out)
+                            {realTrafficProfile.totalTokensPerSec > 0
+                              ? `/ 1M tok (observed ${Math.round(realTrafficProfile.totalTokensPerSec)} tok/s)`
+                              : `/ 1M tok (${realTrafficProfile.promptTokens} in / ${realTrafficProfile.completionTokens} out)`}
                           </span>
                         </div>
 
