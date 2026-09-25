@@ -276,5 +276,3 @@ The two models answer different questions: (A) "what does my own GPU-hour cost m
 9. **V1-engine flag correctness** — the generated vLLM CLI/`.env`/`docker-compose.yml` output correctly omits flags (`--enable-prefix-caching`, `--enable-chunked-prefill`) that are default-on/removed in vLLM's V1 engine (0.8.0+), preventing generated commands that would error against a current vLLM install. A live `--help`-output diff tool lets a user verify DynoLLM's assumptions against their actual installed binary rather than trusting a hardcoded version table.
 
 ---
-
-_This document reflects the state of the repository at commit `b326b7f`. vLLM's own CLI surface changes quickly — re-verify flag-specific claims (§7.9) against the live `--help` diff tool inside the app rather than trusting this document indefinitely._
