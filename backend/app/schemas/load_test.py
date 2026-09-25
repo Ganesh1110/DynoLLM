@@ -25,6 +25,7 @@ class LoadTestResultOut(BaseModel):
     concurrent_users: int
     ttft_ms: Optional[float]
     total_latency_ms: float
+    prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int]
     generation_tokens_per_second: Optional[float]
     success: bool
@@ -69,6 +70,17 @@ class LoadTestRunOut(BaseModel):
     abort_reason: Optional[str] = None
     safe_max_concurrency: Optional[int] = None
 
+    # Token aggregates & capacity metrics
+    total_prompt_tokens: Optional[int] = None
+    total_completion_tokens: Optional[int] = None
+    avg_prompt_tokens: Optional[float] = None
+    avg_completion_tokens: Optional[float] = None
+    tokens_in_per_second: Optional[float] = None
+    tokens_out_per_second: Optional[float] = None
+    total_tokens_per_second: Optional[float] = None
+    input_token_ratio: Optional[float] = None
+    cost_estimate: Optional[float] = None
+
     results: Optional[list[LoadTestResultOut]] = None
 
     model_config = {"from_attributes": True}
@@ -87,3 +99,7 @@ class LiveLoadTestUpdate(BaseModel):
     p95_latency_ms: Optional[float]
     avg_ttft_ms: Optional[float]
     avg_tokens_per_second: Optional[float]
+    total_prompt_tokens: Optional[int] = None
+    total_completion_tokens: Optional[int] = None
+    tokens_in_per_second: Optional[float] = None
+    tokens_out_per_second: Optional[float] = None

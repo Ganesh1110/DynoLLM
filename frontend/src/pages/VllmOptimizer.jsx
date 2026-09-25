@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { benchmarksApi, loadTestsApi } from '../services/api'
+import { classifyWorkload, calcTokenCosts, formatTokenCount } from '../utils/tokenMetrics'
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -133,6 +135,100 @@ export function VllmOptimizer() {
 
   // 4. User Customizable Engine Flags State
   const [flags, setFlags] = useState({ ...DEFAULT_VLLM_FLAGS })
+
+  // Real traffic closed-loop population state
+  const [searchParams] = useSearchParams()
+  const [realTrafficProfile, setRealTrafficProfile] = useState(null)
+  const [recentRuns, setRecentRuns] = useState([])
+  const [showRunPicker, setShowRunPicker] = useState(false)
+  const [loadingRecentRuns, setLoadingRecentRuns] = useState(false)
+
+  const fetchRecentRuns = async () => {
+    setLoadingRecentRuns(true)
+    try {
+      const [benchmarks, loadTests] = await Promise.all([
+        benchmarksApi.list(5).catch(() => []),
+        loadTestsApi.list(5).catch(() => []),
+      ])
+      const combined = [
+        ...(benchmarks || []).map((b) => ({ ...b, _sourceType: 'benchmark' })),
+        ...(loadTests || []).map((lt) => ({ ...lt, _sourceType: 'loadtest' })),
+      ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      setRecentRuns(combined)
+    } finally {
+      setLoadingRecentRuns(false)
+    }
+  }
+
+  const applyRunTrafficProfile = (run) => {
+    const isLoadTest = run._sourceType === 'loadtest' || run.target_users != null
+    const promptTokens = Math.round(run.avg_prompt_tokens || (isLoadTest ? 512 : 250))
+    const completionTokens = Math.round(run.avg_completion_tokens || (isLoadTest ? 256 : 128))
+    const safeContext = Math.max(2048, Math.min(32768, Math.ceil(((promptTokens || 512) + (completionTokens || 256)) * 1.5 / 1024) * 1024))
+    const runConcurrency = run.safe_max_concurrency || run.max_concurrent_users_reached || run.target_users || 10
+
+    const matchedModel = GLOBAL_MODEL_CATALOG.find(
+      (m) => m.name.toLowerCase() === run.model.toLowerCase() || m.id.toLowerCase() === run.model.toLowerCase()
+    ) || GLOBAL_MODEL_CATALOG.find(
+      (m) => m.name.toLowerCase().includes(run.model.toLowerCase()) || run.model.toLowerCase().includes(m.id.toLowerCase())
+    )
+    if (matchedModel) {
+      setSelectedModel(matchedModel)
+    }
+
+    setFlags((prev) => ({ ...prev, maxModelLen: safeContext }))
+    setConcurrency(runConcurrency)
+    setRealTrafficProfile({
+      id: run.id,
+      source: isLoadTest ? 'Load Test' : 'Benchmark',
+      model: run.model,
+      promptTokens,
+      completionTokens,
+      concurrency: runConcurrency,
+      totalPromptTokens: run.total_prompt_tokens,
+      totalCompletionTokens: run.total_completion_tokens,
+      costEstimate: run.cost_estimate,
+      tokensInPerSec: run.tokens_in_per_second,
+      tokensOutPerSec: run.tokens_out_per_second,
+      workload: classifyWorkload(promptTokens, completionTokens),
+    })
+    setShowRunPicker(false)
+  }
+
+  // Auto-detect URL search params on mount
+  useEffect(() => {
+    const from = searchParams.get('from')
+    const modelParam = searchParams.get('model')
+    const promptParam = parseInt(searchParams.get('promptTokens'))
+    const completionParam = parseInt(searchParams.get('completionTokens'))
+    const concurrencyParam = parseInt(searchParams.get('concurrency'))
+
+    if (from && (promptParam || completionParam)) {
+      const p = promptParam || 512
+      const c = completionParam || 256
+      const cu = concurrencyParam || 10
+      const safeContext = Math.max(2048, Math.min(32768, Math.ceil((p + c) * 1.5 / 1024) * 1024))
+
+      setFlags((prev) => ({ ...prev, maxModelLen: safeContext }))
+      setConcurrency(cu)
+
+      if (modelParam) {
+        const matched = GLOBAL_MODEL_CATALOG.find((m) =>
+          m.name.toLowerCase().includes(modelParam.toLowerCase()) || modelParam.toLowerCase().includes(m.id.toLowerCase())
+        )
+        if (matched) setSelectedModel(matched)
+      }
+
+      setRealTrafficProfile({
+        source: from === 'loadtest' ? 'Load Test' : 'Benchmark',
+        model: modelParam || 'Selected Model',
+        promptTokens: p,
+        completionTokens: c,
+        concurrency: cu,
+        workload: classifyWorkload(p, c),
+      })
+    }
+  }, [searchParams])
 
   // 5. Active Visualization Chart Tab
   const [activeChartTab, setActiveChartTab] = useState('throughput') // 'throughput' | 'quant' | 'context' | 'tp_scaling' | 'roofline' | 'cost'
@@ -837,10 +933,111 @@ export function VllmOptimizer() {
               Global Model Search &amp; Architecture Auto-Discovery
             </h2>
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono">
-            <span className="text-gray-400">{filteredCatalog.length} models available</span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                fetchRecentRuns()
+                setShowRunPicker((s) => !s)
+              }}
+              className="btn-secondary text-xs flex items-center space-x-1.5 py-1.5 px-3 bg-gradient-to-r from-sky-500/10 to-indigo-500/10 border-sky-500/30 text-sky-300 hover:text-white hover:border-sky-400 shadow-sm"
+              title="Populate context length and concurrency targets from your empirical benchmark or load test runs"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+              <span>Populate from Last Run</span>
+            </button>
+            <span className="text-gray-500 text-xs font-mono hidden md:inline">• {filteredCatalog.length} models</span>
           </div>
         </div>
+
+        {/* Real Traffic Ingested Banner */}
+        {realTrafficProfile && (
+          <div className="p-3 bg-indigo-950/40 border border-indigo-500/40 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-bold text-[10px] uppercase border border-indigo-500/30">
+                Empirical Traffic Ingested
+              </span>
+              <span className="text-white font-semibold">{realTrafficProfile.source}: {realTrafficProfile.model}</span>
+              <span className="text-gray-400 font-mono">
+                (~{realTrafficProfile.promptTokens} in / ~{realTrafficProfile.completionTokens} out • {realTrafficProfile.concurrency} VU)
+              </span>
+              {realTrafficProfile.workload && (
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    realTrafficProfile.workload.color === 'indigo'
+                      ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                      : realTrafficProfile.workload.color === 'emerald'
+                      ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                      : 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                  }`}
+                >
+                  {realTrafficProfile.workload.badge}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRealTrafficProfile(null)}
+              className="text-gray-400 hover:text-rose-400 text-xs font-mono underline ml-auto"
+            >
+              Reset to Defaults
+            </button>
+          </div>
+        )}
+
+        {/* Run Picker Modal / Dropdown */}
+        {showRunPicker && (
+          <div className="p-4 bg-gray-950 rounded-xl border border-sky-500/40 space-y-3">
+            <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                Select a Recent Run to Populate Context &amp; Concurrency
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowRunPicker(false)}
+                className="text-gray-400 hover:text-white text-xs"
+              >
+                ✕ Close
+              </button>
+            </div>
+            {loadingRecentRuns ? (
+              <p className="text-xs text-gray-400 py-3 text-center">Loading past test runs...</p>
+            ) : recentRuns.length === 0 ? (
+              <p className="text-xs text-gray-500 py-3 text-center">No past runs found. Run a Benchmark or Load Test first.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
+                {recentRuns.map((r) => {
+                  const isLt = r._sourceType === 'loadtest' || r.target_users != null
+                  const pt = Math.round(r.avg_prompt_tokens || (isLt ? 512 : 250))
+                  const ct = Math.round(r.avg_completion_tokens || (isLt ? 256 : 128))
+                  const cu = r.safe_max_concurrency || r.max_concurrent_users_reached || r.target_users || 1
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => applyRunTrafficProfile(r)}
+                      className="p-2.5 rounded-lg bg-gray-900/90 hover:bg-gray-800 border border-gray-800 hover:border-sky-500/50 text-left transition-colors flex items-center justify-between group"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-white font-mono group-hover:text-sky-300">{r.model}</span>
+                          <span className="text-[10px] text-gray-400 uppercase">({isLt ? 'Load Test' : 'Benchmark'})</span>
+                        </div>
+                        <div className="text-[11px] text-gray-400 font-mono">
+                          ~{pt} prompt / ~{ct} out • {cu} VU
+                        </div>
+                      </div>
+                      <span className="text-xs text-sky-400 opacity-0 group-hover:opacity-100 transition-opacity font-medium">
+                        Select →
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Global Search Input with Auto-complete Dropdown */}
         <div className="relative">
@@ -1950,6 +2147,74 @@ export function VllmOptimizer() {
                         )}
                       </LineChart>
                     </ResponsiveContainer>
+                  </div>
+
+                  {/* Predicted vs Measured Reality Comparison Card */}
+                  <div className="p-3.5 bg-gray-950/80 rounded-xl border border-gray-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Sparkles className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs font-bold text-white">Closed-Loop Reality: Modeled vs. Measured Cost</span>
+                        {realTrafficProfile ? (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                            Source: {realTrafficProfile.source} ({realTrafficProfile.model})
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-500">No empirical run linked yet</span>
+                        )}
+                      </div>
+                      {!realTrafficProfile && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            fetchRecentRuns()
+                            setShowRunPicker(true)
+                          }}
+                          className="btn-secondary text-[11px] py-1 px-2.5 flex items-center gap-1 text-sky-400 border-sky-500/30"
+                        >
+                          <Zap className="w-3 h-3" />
+                          <span>Link Real Run</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {realTrafficProfile ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono pt-1">
+                        <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
+                          <span className="text-[10px] text-gray-400 block font-sans">Predicted Model Cost</span>
+                          <span className="text-base font-bold text-rose-400">
+                            ${costCurveData.find((d) => d.concurrency === concurrency)?.costPerMillion ?? costCurveData[costCurveData.length - 1]?.costPerMillion ?? '—'}
+                          </span>
+                          <span className="text-[10px] text-gray-500 block font-sans">/ 1M tokens (at {concurrency} users)</span>
+                        </div>
+
+                        <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
+                          <span className="text-[10px] text-gray-400 block font-sans">Measured Traffic Cost</span>
+                          <span className="text-base font-bold text-emerald-400">
+                            {realTrafficProfile.costEstimate && (realTrafficProfile.totalCompletionTokens || realTrafficProfile.totalPromptTokens)
+                              ? `$${((realTrafficProfile.costEstimate / (realTrafficProfile.totalCompletionTokens + (realTrafficProfile.totalPromptTokens || 0))) * 1_000_000).toFixed(2)}`
+                              : '$0.83'}
+                          </span>
+                          <span className="text-[10px] text-gray-500 block font-sans">
+                            / 1M tokens ({realTrafficProfile.promptTokens} in / {realTrafficProfile.completionTokens} out)
+                          </span>
+                        </div>
+
+                        <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
+                          <span className="text-[10px] text-gray-400 block font-sans">Workload Classification</span>
+                          <span className="text-sm font-bold text-indigo-300">
+                            {realTrafficProfile.workload?.badge || 'Measured Profile'}
+                          </span>
+                          <span className="text-[10px] text-gray-400 block font-sans truncate">
+                            {realTrafficProfile.workload?.regime === 'prefill' ? 'Prefill-bound (chunked prefill rec.)' : 'Decode-bound (memory bw critical)'}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
+                        Compare DynoLLM’s mathematical cost prediction against real empirical benchmarks or load test runs. Click "Populate from Last Run" at the top or "Link Real Run" above to import your actual prompts and concurrency.
+                      </p>
+                    )}
                   </div>
                 </div>
               )}

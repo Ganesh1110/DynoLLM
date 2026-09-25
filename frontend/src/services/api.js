@@ -55,6 +55,10 @@ export const benchmarksApi = {
     const key = getApiKey()
     return `${BASE_URL}/api/export/benchmarks/${id}/json${key ? `?token=${encodeURIComponent(key)}` : ''}`
   },
+  exportJsonl: (id) => {
+    const key = getApiKey()
+    return `${BASE_URL}/api/export/benchmarks/${id}/jsonl${key ? `?token=${encodeURIComponent(key)}` : ''}`
+  },
   delete: (id) => request(`/api/benchmarks/${id}`, { method: 'DELETE' }),
   clearAll: () => request('/api/benchmarks', { method: 'DELETE' }),
 }
@@ -71,6 +75,14 @@ export const loadTestsApi = {
   exportCsv: (id) => {
     const key = getApiKey()
     return `${BASE_URL}/api/export/load-tests/${id}/csv${key ? `?token=${encodeURIComponent(key)}` : ''}`
+  },
+  exportJson: (id) => {
+    const key = getApiKey()
+    return `${BASE_URL}/api/export/load-tests/${id}/json${key ? `?token=${encodeURIComponent(key)}` : ''}`
+  },
+  exportJsonl: (id) => {
+    const key = getApiKey()
+    return `${BASE_URL}/api/export/load-tests/${id}/jsonl${key ? `?token=${encodeURIComponent(key)}` : ''}`
   },
 }
 

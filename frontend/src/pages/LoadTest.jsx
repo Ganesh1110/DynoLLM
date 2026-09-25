@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight } from 'lucide-react'
+import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight, DollarSign, Layers, Sparkles } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
@@ -8,6 +8,7 @@ import { useMonitoringStore } from '../stores/monitoringStore'
 import { loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
+import { classifyWorkload, calcTokenCosts, formatTokenCount } from '../utils/tokenMetrics'
 
 
 export function LoadTest() {
@@ -90,6 +91,31 @@ export function LoadTest() {
 
 
   const latestLivePoint = liveData[liveData.length - 1]
+
+  // Pricing configuration for real measured cost calculation ($/1M tokens)
+  const [promptCostRate, setPromptCostRate] = useState(0.50)
+  const [completionCostRate, setCompletionCostRate] = useState(1.50)
+  const [showCostSettings, setShowCostSettings] = useState(false)
+
+  const activeTokensIn = activeRun?.total_prompt_tokens ?? (latestLivePoint?.total_prompt_tokens || 0)
+  const activeTokensOut = activeRun?.total_completion_tokens ?? (latestLivePoint?.total_completion_tokens || 0)
+  const activeTokensInSec = activeRun?.tokens_in_per_second ?? (latestLivePoint?.tokens_in_per_second || 0)
+  const activeTokensOutSec = activeRun?.tokens_out_per_second ?? (latestLivePoint?.tokens_out_per_second || 0)
+
+  const workloadClassification = useMemo(() => {
+    if (!activeRun && !latestLivePoint) return null
+    return classifyWorkload(activeTokensIn, activeTokensOut)
+  }, [activeRun, latestLivePoint, activeTokensIn, activeTokensOut])
+
+  const measuredCosts = useMemo(() => {
+    if (!activeRun && !latestLivePoint) return null
+    return calcTokenCosts({
+      promptTokens: activeTokensIn,
+      completionTokens: activeTokensOut,
+      promptCostPerMillion: promptCostRate,
+      completionCostPerMillion: completionCostRate,
+    })
+  }, [activeRun, latestLivePoint, activeTokensIn, activeTokensOut, promptCostRate, completionCostRate])
 
 
   return (
@@ -321,7 +347,7 @@ export function LoadTest() {
                     </p>
                   </div>
 
-                  <div className="flex items-center space-x-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {activeRun.status === 'running' && (
                       <button
                         onClick={() => stopRun(activeRun.id)}
@@ -332,14 +358,32 @@ export function LoadTest() {
                       </button>
                     )}
                     {(activeRun.status === 'completed' || activeRun.status === 'stopped') && (
-                      <a
-                        href={loadTestsApi.exportCsv(activeRun.id)}
-                        download
-                        className="btn-secondary text-xs flex items-center space-x-1"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Export CSV</span>
-                      </a>
+                      <>
+                        <a
+                          href={loadTestsApi.exportCsv(activeRun.id)}
+                          download
+                          className="btn-secondary text-xs flex items-center space-x-1"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Export CSV</span>
+                        </a>
+                        <a
+                          href={loadTestsApi.exportJsonl(activeRun.id)}
+                          download
+                          className="btn-secondary text-xs flex items-center space-x-1"
+                          title="Stream raw newline-delimited JSON for pandas or notebooks"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Export JSONL</span>
+                        </a>
+                        <Link
+                          to={`/vllm-optimizer?from=loadtest&model=${encodeURIComponent(activeRun.model)}&promptTokens=${activeRun.avg_prompt_tokens ? Math.round(activeRun.avg_prompt_tokens) : ''}&completionTokens=${activeRun.avg_completion_tokens ? Math.round(activeRun.avg_completion_tokens) : ''}&concurrency=${activeRun.safe_max_concurrency || activeRun.max_concurrent_users_reached || ''}`}
+                          className="btn-primary text-xs flex items-center space-x-1.5 bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 border-none shadow-md shadow-sky-900/20"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                          <span>Wire to Optimizer →</span>
+                        </Link>
+                      </>
                     )}
                   </div>
                 </div>
@@ -356,7 +400,7 @@ export function LoadTest() {
                 )}
 
                 {/* Scorecard Grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
                   <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
                     <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Concurrent Users</span>
                     <div className="text-2xl font-black text-sky-400 mt-1">
@@ -399,6 +443,26 @@ export function LoadTest() {
                     <span className="text-[10px] text-gray-500">Tokens / Second</span>
                   </div>
 
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-indigo-700/50 text-center">
+                    <span className="text-[11px] uppercase tracking-wider text-indigo-300 font-semibold">Tokens (In / Out)</span>
+                    <div className="text-xl font-black text-white mt-1">
+                      <span className="text-indigo-400">{formatTokenCount(activeTokensIn)}</span>
+                      <span className="text-gray-500 text-sm font-normal"> / </span>
+                      <span className="text-emerald-400">{formatTokenCount(activeTokensOut)}</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400">Total Tokens</span>
+                  </div>
+
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-indigo-700/50 text-center">
+                    <span className="text-[11px] uppercase tracking-wider text-indigo-300 font-semibold">Token Rates (In/Out)</span>
+                    <div className="text-base font-bold text-white mt-1 font-mono">
+                      <span className="text-indigo-400">{fmt(activeTokensInSec)}</span>
+                      <span className="text-gray-500 text-xs font-normal"> / </span>
+                      <span className="text-emerald-400">{fmt(activeTokensOutSec)}</span>
+                    </div>
+                    <span className="text-[10px] text-gray-400">tok/s (In · Out)</span>
+                  </div>
+
                   <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
                     <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Energy Eff.</span>
                     <div className="text-2xl font-black text-yellow-400 mt-1">
@@ -423,6 +487,103 @@ export function LoadTest() {
                     <span className="text-[10px] text-gray-500">SLA &le;5% Err</span>
                   </div>
                 </div>
+
+                {/* Token Traffic Profiler & Measured Cost Card */}
+                {workloadClassification && (
+                  <div className="p-4 rounded-xl bg-gray-900/90 border border-gray-800 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-800/60 pb-2.5">
+                      <div className="flex items-center space-x-2">
+                        <Layers className="w-4 h-4 text-indigo-400" />
+                        <span className="text-xs font-bold text-gray-200">Workload Regime & Economic Profile</span>
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            workloadClassification.color === 'indigo'
+                              ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                              : workloadClassification.color === 'emerald'
+                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                              : 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                          }`}
+                        >
+                          {workloadClassification.badge}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-3 text-xs">
+                        <button
+                          type="button"
+                          onClick={() => setShowCostSettings((s) => !s)}
+                          className="text-gray-400 hover:text-gray-200 flex items-center space-x-1 font-mono text-[11px]"
+                        >
+                          <DollarSign className="w-3.5 h-3.5 text-rose-400" />
+                          <span>Pricing Rates</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                      <div className="md:col-span-2 space-y-1.5">
+                        <p className="text-gray-300 leading-relaxed text-[11px]">
+                          {workloadClassification.recommendation}
+                        </p>
+                        <div className="flex items-center gap-4 text-[11px] text-gray-400 font-mono pt-1">
+                          <span>
+                            Avg Prompt: <strong className="text-indigo-300">{activeRun.avg_prompt_tokens ? Math.round(activeRun.avg_prompt_tokens) : '—'} tok</strong>
+                          </span>
+                          <span>•</span>
+                          <span>
+                            Avg Output: <strong className="text-emerald-300">{activeRun.avg_completion_tokens ? Math.round(activeRun.avg_completion_tokens) : '—'} tok</strong>
+                          </span>
+                          <span>•</span>
+                          <span>
+                            Prefill Ratio: <strong className="text-white">{workloadClassification.prefillPercent}%</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-950/70 p-2.5 rounded-lg border border-gray-800 font-mono space-y-1">
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span className="text-gray-400">Measured Run Cost:</span>
+                          <span className="text-emerald-400 font-bold">${measuredCosts?.totalCost?.toFixed(4) ?? '0.0000'}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-[10px] text-gray-500">
+                          <span>Effective Rate:</span>
+                          <span className="text-gray-300">${measuredCosts?.effectiveCostPerMillion?.toFixed(2) ?? '0.00'} / 1M tok</span>
+                        </div>
+                        <div className="text-[10px] text-gray-500 pt-0.5 border-t border-gray-800">
+                          Based on ${(promptCostRate).toFixed(2)}/M in, ${(completionCostRate).toFixed(2)}/M out
+                        </div>
+                      </div>
+                    </div>
+
+                    {showCostSettings && (
+                      <div className="mt-2 pt-2 border-t border-gray-800 flex items-center gap-4 text-xs font-mono bg-gray-950/40 p-2 rounded-lg">
+                        <span className="text-gray-400">Cost Assumptions:</span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-indigo-400">Input $/1M:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            className="input text-xs py-0.5 px-1.5 w-16 text-right font-mono"
+                            value={promptCostRate}
+                            onChange={(e) => setPromptCostRate(parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-emerald-400">Output $/1M:</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            className="input text-xs py-0.5 px-1.5 w-16 text-right font-mono"
+                            value={completionCostRate}
+                            onChange={(e) => setCompletionCostRate(parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Real-time Latency & Concurrency Chart */}

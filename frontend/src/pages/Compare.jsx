@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react'
-import { GitCompare, Award, Zap, Cpu, Activity, ShieldCheck, Check, ArrowRight } from 'lucide-react'
+import { GitCompare, Award, Zap, Cpu, Activity, ShieldCheck, Check, ArrowRight, DollarSign } from 'lucide-react'
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { SectionHeader, StatusBadge, fmt, fmtMs, formatPercent } from '../components/ui'
+import { classifyWorkload, calcTokenCosts, formatTokenCount } from '../utils/tokenMetrics'
 
 export function Compare() {
   const runs = useBenchmarkStore((s) => s.runs)
@@ -54,6 +55,24 @@ export function Compare() {
   const lowestTtft = Math.min(...selectedRuns.map((r) => r.avg_ttft_ms || Infinity))
   const lowestP95 = Math.min(...selectedRuns.map((r) => r.p95_latency_ms || Infinity))
   const highestEfficiency = Math.max(...selectedRuns.map((r) => r.tokens_per_watt || 0), 0)
+
+  // Determine Cost-per-million for each run
+  const costMap = useMemo(() => {
+    const map = {}
+    selectedRuns.forEach((r) => {
+      const pt = r.avg_prompt_tokens || 0
+      const ct = r.avg_completion_tokens || 0
+      if (pt > 0 || ct > 0) {
+        map[r.id] = calcTokenCosts({ promptTokens: pt, completionTokens: ct }).effectiveCostPerMillion
+      } else {
+        map[r.id] = null
+      }
+    })
+    return map
+  }, [selectedRuns])
+
+  const validCosts = Object.values(costMap).filter((c) => c !== null)
+  const lowestCost = validCosts.length > 0 ? Math.min(...validCosts) : null
 
   return (
     <div className="space-y-6">
@@ -116,11 +135,11 @@ export function Compare() {
       ) : (
         <div className="space-y-6">
           {/* Comparative Leaderboard Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div className="card space-y-2 border-emerald-900/40 bg-emerald-950/10">
               <div className="flex items-center space-x-2 text-emerald-400">
                 <Award className="w-4 h-4" />
-                <span className="text-xs uppercase font-bold tracking-wider">Fastest Generation</span>
+                <span className="text-xs uppercase font-bold tracking-wider">Fastest Speed</span>
               </div>
               <div className="text-2xl font-black text-white font-mono">
                 {fmt(fastestSpeed)} <span className="text-xs text-gray-400 font-sans">tok/s</span>
@@ -146,13 +165,26 @@ export function Compare() {
             <div className="card space-y-2 border-amber-900/40 bg-amber-950/10">
               <div className="flex items-center space-x-2 text-amber-400">
                 <Activity className="w-4 h-4" />
-                <span className="text-xs uppercase font-bold tracking-wider">Lowest P95 Latency</span>
+                <span className="text-xs uppercase font-bold tracking-wider">Lowest P95</span>
               </div>
               <div className="text-2xl font-black text-white font-mono">
                 {lowestP95 !== Infinity ? fmtMs(lowestP95) : '—'}
               </div>
               <div className="text-xs text-gray-400 truncate">
                 Leader: <strong className="text-amber-300">{selectedRuns.find((r) => r.p95_latency_ms === lowestP95)?.model || '—'}</strong>
+              </div>
+            </div>
+
+            <div className="card space-y-2 border-rose-900/40 bg-rose-950/10">
+              <div className="flex items-center space-x-2 text-rose-400">
+                <DollarSign className="w-4 h-4" />
+                <span className="text-xs uppercase font-bold tracking-wider">Lowest Cost / 1M</span>
+              </div>
+              <div className="text-2xl font-black text-white font-mono">
+                {lowestCost != null ? `$${lowestCost.toFixed(2)}` : '—'}
+              </div>
+              <div className="text-xs text-gray-400 truncate">
+                Leader: <strong className="text-rose-300">{lowestCost != null ? selectedRuns.find((r) => costMap[r.id] === lowestCost)?.model : '—'}</strong>
               </div>
             </div>
 
@@ -165,7 +197,7 @@ export function Compare() {
                 {highestEfficiency > 0 ? fmt(highestEfficiency, 2) : 'N/A'}
               </div>
               <div className="text-xs text-gray-400 truncate">
-                Most Efficient: <strong className="text-purple-300">{highestEfficiency > 0 ? selectedRuns.find((r) => r.tokens_per_watt === highestEfficiency)?.model : 'Host CPU/Metal'}</strong>
+                Leader: <strong className="text-purple-300">{highestEfficiency > 0 ? selectedRuns.find((r) => r.tokens_per_watt === highestEfficiency)?.model : 'Host CPU'}</strong>
               </div>
             </div>
           </div>
@@ -229,6 +261,50 @@ export function Compare() {
                     {selectedRuns.map((r) => (
                       <td key={r.id} className={`p-3 ${r.p95_latency_ms === lowestP95 ? 'text-amber-400 font-bold' : 'text-gray-300'}`}>
                         {fmtMs(r.p95_latency_ms)}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-gray-400 font-sans font-medium">Prompt Tokens (In)</td>
+                    {selectedRuns.map((r) => (
+                      <td key={r.id} className="p-3 text-indigo-300">
+                        {r.avg_prompt_tokens ? `${Math.round(r.avg_prompt_tokens)} tok` : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-gray-400 font-sans font-medium">Completion Tokens (Out)</td>
+                    {selectedRuns.map((r) => (
+                      <td key={r.id} className="p-3 text-emerald-300">
+                        {r.avg_completion_tokens ? `${Math.round(r.avg_completion_tokens)} tok` : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-gray-400 font-sans font-medium">Workload Profile</td>
+                    {selectedRuns.map((r) => {
+                      const profile = classifyWorkload(r.avg_prompt_tokens, r.avg_completion_tokens)
+                      return (
+                        <td key={r.id} className="p-3">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                            profile.color === 'indigo'
+                              ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                              : profile.color === 'emerald'
+                              ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                              : 'bg-sky-500/10 text-sky-300 border-sky-500/30'
+                          }`}>
+                            {profile.badge}
+                          </span>
+                        </td>
+                      )
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-gray-400 font-sans font-medium">Cost / 1M Tokens</td>
+                    {selectedRuns.map((r) => (
+                      <td key={r.id} className={`p-3 ${costMap[r.id] === lowestCost && lowestCost != null ? 'text-rose-400 font-bold' : 'text-gray-300'}`}>
+                        {costMap[r.id] != null ? `$${costMap[r.id].toFixed(2)}` : '—'}
+                        {costMap[r.id] === lowestCost && lowestCost != null && ' 💎'}
                       </td>
                     ))}
                   </tr>

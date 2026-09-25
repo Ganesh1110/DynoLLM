@@ -51,6 +51,17 @@ class LoadTestRun(Base):
     abort_reason = Column(Text, nullable=True)
     safe_max_concurrency = Column(Integer, nullable=True)
 
+    # Token aggregates & capacity metrics
+    total_prompt_tokens = Column(Integer, nullable=True)
+    total_completion_tokens = Column(Integer, nullable=True)
+    avg_prompt_tokens = Column(Float, nullable=True)
+    avg_completion_tokens = Column(Float, nullable=True)
+    tokens_in_per_second = Column(Float, nullable=True)
+    tokens_out_per_second = Column(Float, nullable=True)
+    total_tokens_per_second = Column(Float, nullable=True)
+    input_token_ratio = Column(Float, nullable=True)
+    cost_estimate = Column(Float, nullable=True)
+
 
 class LoadTestResult(Base):
     __tablename__ = "load_test_results"
@@ -61,6 +72,7 @@ class LoadTestResult(Base):
     concurrent_users = Column(Integer, nullable=False)
     ttft_ms = Column(Float, nullable=True)
     total_latency_ms = Column(Float, nullable=False)
+    prompt_tokens = Column(Integer, nullable=True)
     completion_tokens = Column(Integer, nullable=True)
     generation_tokens_per_second = Column(Float, nullable=True)
     success = Column(Boolean, default=True)

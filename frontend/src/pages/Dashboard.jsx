@@ -7,6 +7,7 @@ import { useRuntimeStore } from '../stores/runtimeStore'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
 import { MetricCard, GaugeBar, StatusBadge, fmt, fmtBytes, fmtMs } from '../components/ui'
+import { classifyWorkload, formatTokenCount } from '../utils/tokenMetrics'
 
 export function Dashboard() {
   const current = useMonitoringStore((s) => s.current)
@@ -382,22 +383,35 @@ export function Dashboard() {
 
             {latestBenchmark ? (
               <div className="space-y-2">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between items-center text-xs text-gray-400">
                   <span>Model: <strong className="text-white">{latestBenchmark.model}</strong></span>
-                  <span>Scenario: <strong className="text-white capitalize">{latestBenchmark.scenario}</strong></span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="capitalize">{latestBenchmark.scenario}</span>
+                    {latestBenchmark.avg_prompt_tokens != null && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono">
+                        {classifyWorkload(latestBenchmark.avg_prompt_tokens, latestBenchmark.avg_completion_tokens).badge}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-800">
+                <div className="grid grid-cols-4 gap-2 pt-2 border-t border-gray-800">
                   <div className="bg-gray-800/40 p-2 rounded text-center">
-                    <div className="text-xs text-gray-500">TTFT</div>
-                    <div className="text-sm font-bold text-white">{fmtMs(latestBenchmark.avg_ttft_ms)}</div>
+                    <div className="text-[10px] text-gray-500">TTFT</div>
+                    <div className="text-xs font-bold text-white font-mono">{fmtMs(latestBenchmark.avg_ttft_ms)}</div>
                   </div>
                   <div className="bg-gray-800/40 p-2 rounded text-center">
-                    <div className="text-xs text-gray-500">Speed</div>
-                    <div className="text-sm font-bold text-emerald-400">{fmt(latestBenchmark.avg_generation_tokens_per_second)} tok/s</div>
+                    <div className="text-[10px] text-gray-500">Speed</div>
+                    <div className="text-xs font-bold text-emerald-400 font-mono">{fmt(latestBenchmark.avg_generation_tokens_per_second)} tok/s</div>
                   </div>
                   <div className="bg-gray-800/40 p-2 rounded text-center">
-                    <div className="text-xs text-gray-500">P95 Latency</div>
-                    <div className="text-sm font-bold text-white">{fmtMs(latestBenchmark.p95_latency_ms)}</div>
+                    <div className="text-[10px] text-gray-500">P95 Lat</div>
+                    <div className="text-xs font-bold text-white font-mono">{fmtMs(latestBenchmark.p95_latency_ms)}</div>
+                  </div>
+                  <div className="bg-gray-800/40 p-2 rounded text-center">
+                    <div className="text-[10px] text-gray-500">Tokens (In/Out)</div>
+                    <div className="text-xs font-bold text-indigo-300 font-mono">
+                      {latestBenchmark.avg_prompt_tokens ? Math.round(latestBenchmark.avg_prompt_tokens) : '—'}/{latestBenchmark.avg_completion_tokens ? Math.round(latestBenchmark.avg_completion_tokens) : '—'}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -418,24 +432,39 @@ export function Dashboard() {
 
             {latestLoadTest ? (
               <div className="space-y-2">
-                <div className="flex justify-between text-xs text-gray-400">
+                <div className="flex justify-between items-center text-xs text-gray-400">
                   <span>Model: <strong className="text-white">{latestLoadTest.model}</strong></span>
-                  <span>Pattern: <strong className="text-white capitalize">{latestLoadTest.pattern} ({latestLoadTest.target_users} users)</strong></span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="capitalize">{latestLoadTest.pattern} ({latestLoadTest.target_users}u)</span>
+                    {latestLoadTest.total_prompt_tokens != null && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-mono">
+                        {classifyWorkload(latestLoadTest.total_prompt_tokens, latestLoadTest.total_completion_tokens).badge}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-800">
+                <div className="grid grid-cols-4 gap-2 pt-2 border-t border-gray-800">
                   <div className="bg-gray-800/40 p-2 rounded text-center">
-                    <div className="text-xs text-gray-500">Throughput</div>
-                    <div className="text-sm font-bold text-white">{fmt(latestLoadTest.requests_per_second, 2)} RPS</div>
+                    <div className="text-[10px] text-gray-500">Throughput</div>
+                    <div className="text-xs font-bold text-white font-mono">{fmt(latestLoadTest.requests_per_second, 1)} RPS</div>
                   </div>
                   <div className="bg-gray-800/40 p-2 rounded text-center">
-                    <div className="text-xs text-gray-500">Error Rate</div>
-                    <div className={`text-sm font-bold ${latestLoadTest.error_rate > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    <div className="text-[10px] text-gray-500">Error Rate</div>
+                    <div className={`text-xs font-bold font-mono ${latestLoadTest.error_rate > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                       {fmt((latestLoadTest.error_rate || 0) * 100)}%
                     </div>
                   </div>
                   <div className="bg-gray-800/40 p-2 rounded text-center">
-                    <div className="text-xs text-gray-500">P95 Latency</div>
-                    <div className="text-sm font-bold text-white">{fmtMs(latestLoadTest.p95_latency_ms)}</div>
+                    <div className="text-[10px] text-gray-500">Tokens (In/Out)</div>
+                    <div className="text-xs font-bold text-indigo-300 font-mono">
+                      {formatTokenCount(latestLoadTest.total_prompt_tokens)}/{formatTokenCount(latestLoadTest.total_completion_tokens)}
+                    </div>
+                  </div>
+                  <div className="bg-gray-800/40 p-2 rounded text-center">
+                    <div className="text-[10px] text-gray-500">Run Cost</div>
+                    <div className="text-xs font-bold text-emerald-400 font-mono">
+                      {latestLoadTest.cost_estimate != null ? `$${latestLoadTest.cost_estimate.toFixed(4)}` : '—'}
+                    </div>
                   </div>
                 </div>
               </div>

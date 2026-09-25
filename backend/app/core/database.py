@@ -173,6 +173,34 @@ def _migrate_columns_sync(conn):
         if col_name not in existing_res_cols:
             conn.execute(text(f"ALTER TABLE benchmark_results ADD COLUMN {col_name} {col_type}"))
 
+    # Columns for load_test_results
+    cur = conn.execute(text("PRAGMA table_info(load_test_results)"))
+    existing_lt_res_cols = {row[1] for row in cur.fetchall()}
+    lt_res_cols = [
+        ("prompt_tokens", "INTEGER"),
+    ]
+    for col_name, col_type in lt_res_cols:
+        if col_name not in existing_lt_res_cols:
+            conn.execute(text(f"ALTER TABLE load_test_results ADD COLUMN {col_name} {col_type}"))
+
+    # Columns for load_test_runs
+    cur = conn.execute(text("PRAGMA table_info(load_test_runs)"))
+    existing_lt_run_cols = {row[1] for row in cur.fetchall()}
+    lt_run_cols = [
+        ("total_prompt_tokens", "INTEGER"),
+        ("total_completion_tokens", "INTEGER"),
+        ("avg_prompt_tokens", "FLOAT"),
+        ("avg_completion_tokens", "FLOAT"),
+        ("tokens_in_per_second", "FLOAT"),
+        ("tokens_out_per_second", "FLOAT"),
+        ("total_tokens_per_second", "FLOAT"),
+        ("input_token_ratio", "FLOAT"),
+        ("cost_estimate", "FLOAT"),
+    ]
+    for col_name, col_type in lt_run_cols:
+        if col_name not in existing_lt_run_cols:
+            conn.execute(text(f"ALTER TABLE load_test_runs ADD COLUMN {col_name} {col_type}"))
+
     # Seed default templates if table empty
     cur = conn.execute(text("SELECT COUNT(*) FROM prompt_templates"))
     count = cur.fetchone()[0]

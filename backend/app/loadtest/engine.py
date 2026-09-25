@@ -141,6 +141,7 @@ async def _single_request(
 
     ttft_ms = None
     total_latency_ms = 0.0
+    prompt_tokens = None
     completion_tokens = None
     generation_tokens_per_second = None
     success = True
@@ -152,6 +153,7 @@ async def _single_request(
     max_attempts = 2  # 1 initial + 1 quick retry on transient socket drop
     for attempt in range(1, max_attempts + 1):
         ttft_ms = None
+        prompt_tokens = None
         completion_tokens = None
         generation_tokens_per_second = None
         success = True
@@ -169,13 +171,22 @@ async def _single_request(
                         if first_token_time is None:
                             first_token_time = time.perf_counter()
                         content_parts.append(chunk.delta)
+                    if chunk.prompt_tokens is not None:
+                        prompt_tokens = chunk.prompt_tokens
                     if chunk.is_last:
                         completion_tokens = chunk.completion_tokens
+                        if chunk.prompt_tokens is not None:
+                            prompt_tokens = chunk.prompt_tokens
 
             t_end = time.perf_counter()
             total_time = t_end - t_start
             total_latency_ms = total_time * 1000
             full_text = "".join(content_parts)
+
+            # Fallback estimation for prompt_tokens if provider stream did not return token metrics
+            if prompt_tokens is None:
+                full_prompt = f"{system_prompt or ''} {prompt}".strip()
+                prompt_tokens = max(1, int(len(full_prompt.split()) * 1.33))
 
             if first_token_time:
                 ttft_ms = (first_token_time - t_start) * 1000
@@ -222,6 +233,7 @@ async def _single_request(
         concurrent_users=concurrent_users,
         ttft_ms=ttft_ms,
         total_latency_ms=total_latency_ms,
+        prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         generation_tokens_per_second=generation_tokens_per_second,
         success=success,
@@ -424,6 +436,13 @@ async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
     successful = [r for r in recent if r.success]
     failed = len(recent) - len(successful)
 
+    # Compute live token throughput
+    tot_prompt = sum(getattr(r, "prompt_tokens", 0) or 0 for r in all_results)
+    tot_compl = sum(getattr(r, "completion_tokens", 0) or 0 for r in all_results)
+    timestamps = [r.timestamp for r in all_results if getattr(r, "timestamp", None)]
+    span = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) > 1 else 1.0
+    span_s = max(span, 1.0)
+
     await broadcast_fn({
         "type": "load_test_progress",
         "run_id": run_id,
@@ -435,6 +454,10 @@ async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
         "p95_latency_ms": float(np.percentile(latencies, 95)) if len(latencies) >= 2 else None,
         "avg_ttft_ms": float(np.mean(ttfts)) if ttfts else None,
         "error_rate": failed / len(recent) if recent else 0,
+        "total_prompt_tokens": tot_prompt,
+        "total_completion_tokens": tot_compl,
+        "tokens_in_per_second": float(tot_prompt / span_s),
+        "tokens_out_per_second": float(tot_compl / span_s),
     })
 
 
@@ -448,27 +471,57 @@ def _compute_aggregates(
         return {
             "runtime_healthy_throughout": runtime_healthy,
             "abort_reason": abort_reason,
-            "quality_integrity_rate": 0.0,
+            "quality_integrity_rate": None,
             "safe_max_concurrency": None,
+            "total_prompt_tokens": None,
+            "total_completion_tokens": None,
+            "avg_prompt_tokens": None,
+            "avg_completion_tokens": None,
+            "tokens_in_per_second": None,
+            "tokens_out_per_second": None,
+            "total_tokens_per_second": None,
+            "input_token_ratio": None,
+            "cost_estimate": None,
         }
 
-    latencies = [r.total_latency_ms for r in all_results if r.total_latency_ms]
-    ttfts = [r.ttft_ms for r in all_results if r.ttft_ms]
-    tps_list = [r.generation_tokens_per_second for r in all_results if r.generation_tokens_per_second]
+    latencies = [r.total_latency_ms for r in all_results if getattr(r, "total_latency_ms", None)]
+    ttfts = [r.ttft_ms for r in all_results if getattr(r, "ttft_ms", None)]
+    tps_list = [r.generation_tokens_per_second for r in all_results if getattr(r, "generation_tokens_per_second", None)]
     successful = [r for r in all_results if r.success]
     failed = [r for r in all_results if not r.success]
-    timed_out = [r for r in all_results if r.timed_out]
+    timed_out = [r for r in all_results if getattr(r, "timed_out", False)]
     quality_valid = [r for r in all_results if getattr(r, "quality_valid", True) and r.success]
 
     arr = np.array(latencies) if latencies else np.array([])
 
-    # Calculate RPS
+    # Calculate RPS & Token Throughput Rates
     if all_results:
-        timestamps = [r.timestamp for r in all_results]
-        span = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) > 1 else 1
-        rps = len(all_results) / max(span, 1)
+        timestamps = [r.timestamp for r in all_results if getattr(r, "timestamp", None)]
+        span = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) > 1 else 1.0
+        span_s = max(span, 1.0)
+        rps = len(all_results) / span_s
     else:
+        span_s = 1.0
         rps = 0
+
+    valid_pt = [getattr(r, "prompt_tokens", None) for r in all_results if getattr(r, "prompt_tokens", None) is not None]
+    valid_ct = [getattr(r, "completion_tokens", None) for r in all_results if getattr(r, "completion_tokens", None) is not None]
+    total_prompt_tokens = int(sum(valid_pt)) if valid_pt else 0
+    total_completion_tokens = int(sum(valid_ct)) if valid_ct else 0
+    total_tokens = total_prompt_tokens + total_completion_tokens
+
+    avg_pt = float(np.mean(valid_pt)) if valid_pt else None
+    avg_ct = float(np.mean(valid_ct)) if valid_ct else None
+
+    tokens_in_per_second = float(total_prompt_tokens / span_s) if total_prompt_tokens > 0 else 0.0
+    tokens_out_per_second = float(total_completion_tokens / span_s) if total_completion_tokens > 0 else 0.0
+    total_tokens_per_second = float(total_tokens / span_s) if total_tokens > 0 else 0.0
+    input_token_ratio = float(total_prompt_tokens / total_tokens) if total_tokens > 0 else None
+
+    # Cost-per-run estimate using real measured tokens: ($0.50/1M in, $1.50/1M out)
+    cost_estimate = None
+    if total_tokens > 0:
+        cost_estimate = float((total_prompt_tokens * 0.50 + total_completion_tokens * 1.50) / 1_000_000.0)
 
     avg_power = float(np.mean(power_samples)) if power_samples else None
     avg_gen_tps = float(np.mean(tps_list)) if tps_list else None
@@ -524,4 +577,13 @@ def _compute_aggregates(
         "avg_power_watts": avg_power,
         "tokens_per_watt": tokens_per_watt,
         "safe_max_concurrency": safe_max_concurrency,
+        "total_prompt_tokens": total_prompt_tokens,
+        "total_completion_tokens": total_completion_tokens,
+        "avg_prompt_tokens": avg_pt,
+        "avg_completion_tokens": avg_ct,
+        "tokens_in_per_second": tokens_in_per_second,
+        "tokens_out_per_second": tokens_out_per_second,
+        "total_tokens_per_second": total_tokens_per_second,
+        "input_token_ratio": input_token_ratio,
+        "cost_estimate": cost_estimate,
     }

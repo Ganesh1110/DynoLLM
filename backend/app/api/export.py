@@ -58,12 +58,12 @@ async def export_load_test_csv(run_id: str, db: AsyncSession = Depends(get_db)):
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "timestamp", "concurrent_users", "ttft_ms", "total_latency_ms",
+        "timestamp", "concurrent_users", "ttft_ms", "total_latency_ms", "prompt_tokens",
         "completion_tokens", "generation_tokens_per_second", "success", "error", "timed_out"
     ])
     for r in rows:
         writer.writerow([
-            r.timestamp, r.concurrent_users, r.ttft_ms, r.total_latency_ms,
+            r.timestamp, r.concurrent_users, r.ttft_ms, r.total_latency_ms, getattr(r, "prompt_tokens", None),
             r.completion_tokens, r.generation_tokens_per_second, r.success, r.error, r.timed_out
         ])
     output.seek(0)
@@ -126,3 +126,146 @@ async def export_benchmark_json(run_id: str, db: AsyncSession = Depends(get_db))
         ],
     }
     return JSONResponse(content=data, headers={"Content-Disposition": f"attachment; filename=benchmark_{run_id}.json"})
+
+
+@router.get("/benchmarks/{run_id}/jsonl")
+async def export_benchmark_jsonl(run_id: str, db: AsyncSession = Depends(get_db)):
+    run_result = await db.execute(select(BenchmarkRun).where(BenchmarkRun.id == run_id))
+    run = run_result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    r_result = await db.execute(
+        select(BenchmarkResult).where(BenchmarkResult.run_id == run_id).order_by(BenchmarkResult.run_index)
+    )
+    results = r_result.scalars().all()
+    if not results:
+        raise HTTPException(status_code=404, detail="No results found")
+
+    lines = []
+    for r in results:
+        row = {
+            "run_id": run.id,
+            "model": run.model,
+            "scenario": run.scenario,
+            "run_index": r.run_index,
+            "prompt_length_target": r.prompt_length_target,
+            "ttft_ms": r.ttft_ms,
+            "total_latency_ms": r.total_latency_ms,
+            "prompt_tokens": r.prompt_tokens,
+            "completion_tokens": r.completion_tokens,
+            "generation_tokens_per_second": r.generation_tokens_per_second,
+            "e2e_tokens_per_second": r.e2e_tokens_per_second,
+            "quality_valid": r.quality_valid,
+            "error": r.error,
+            "created_at": str(r.created_at) if getattr(r, "created_at", None) else None,
+        }
+        lines.append(json.dumps(row))
+
+    content = "\n".join(lines) + "\n"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f"attachment; filename=benchmark_{run_id}.jsonl"},
+    )
+
+
+@router.get("/load-tests/{run_id}/json")
+async def export_load_test_json(run_id: str, db: AsyncSession = Depends(get_db)):
+    run_result = await db.execute(select(LoadTestRun).where(LoadTestRun.id == run_id))
+    run = run_result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    r_result = await db.execute(
+        select(LoadTestResult).where(LoadTestResult.run_id == run_id).order_by(LoadTestResult.timestamp).limit(10000)
+    )
+    results = r_result.scalars().all()
+
+    data = {
+        "run": {
+            "id": run.id,
+            "model": run.model,
+            "pattern": run.pattern,
+            "target_users": run.target_users,
+            "duration_seconds": run.duration_seconds,
+            "status": run.status,
+            "total_requests": run.total_requests,
+            "successful_requests": run.successful_requests,
+            "failed_requests": run.failed_requests,
+            "requests_per_second": run.requests_per_second,
+            "error_rate": run.error_rate,
+            "avg_ttft_ms": run.avg_ttft_ms,
+            "p50_latency_ms": run.p50_latency_ms,
+            "p90_latency_ms": run.p90_latency_ms,
+            "p95_latency_ms": run.p95_latency_ms,
+            "p99_latency_ms": run.p99_latency_ms,
+            "avg_generation_tokens_per_second": run.avg_generation_tokens_per_second,
+            "total_prompt_tokens": run.total_prompt_tokens,
+            "total_completion_tokens": run.total_completion_tokens,
+            "tokens_in_per_second": run.tokens_in_per_second,
+            "tokens_out_per_second": run.tokens_out_per_second,
+            "input_token_ratio": run.input_token_ratio,
+            "cost_estimate": run.cost_estimate,
+            "safe_max_concurrency": run.safe_max_concurrency,
+            "created_at": str(run.created_at),
+            "completed_at": str(run.completed_at),
+        },
+        "results": [
+            {
+                "timestamp": str(r.timestamp),
+                "concurrent_users": r.concurrent_users,
+                "ttft_ms": r.ttft_ms,
+                "total_latency_ms": r.total_latency_ms,
+                "prompt_tokens": getattr(r, "prompt_tokens", None),
+                "completion_tokens": r.completion_tokens,
+                "generation_tokens_per_second": r.generation_tokens_per_second,
+                "success": r.success,
+                "error": r.error,
+                "timed_out": r.timed_out,
+            }
+            for r in results
+        ],
+    }
+    return JSONResponse(content=data, headers={"Content-Disposition": f"attachment; filename=load_test_{run_id}.json"})
+
+
+@router.get("/load-tests/{run_id}/jsonl")
+async def export_load_test_jsonl(run_id: str, db: AsyncSession = Depends(get_db)):
+    run_result = await db.execute(select(LoadTestRun).where(LoadTestRun.id == run_id))
+    run = run_result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    r_result = await db.execute(
+        select(LoadTestResult).where(LoadTestResult.run_id == run_id).order_by(LoadTestResult.timestamp).limit(10000)
+    )
+    results = r_result.scalars().all()
+    if not results:
+        raise HTTPException(status_code=404, detail="No results found")
+
+    lines = []
+    for r in results:
+        row = {
+            "run_id": run.id,
+            "model": run.model,
+            "pattern": run.pattern,
+            "timestamp": str(r.timestamp),
+            "concurrent_users": r.concurrent_users,
+            "ttft_ms": r.ttft_ms,
+            "total_latency_ms": r.total_latency_ms,
+            "prompt_tokens": getattr(r, "prompt_tokens", None),
+            "completion_tokens": r.completion_tokens,
+            "generation_tokens_per_second": r.generation_tokens_per_second,
+            "success": r.success,
+            "error": r.error,
+            "timed_out": r.timed_out,
+        }
+        lines.append(json.dumps(row))
+
+    content = "\n".join(lines) + "\n"
+    return StreamingResponse(
+        io.StringIO(content),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": f"attachment; filename=load_test_{run_id}.jsonl"},
+    )

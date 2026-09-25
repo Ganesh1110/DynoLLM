@@ -4,6 +4,7 @@ import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
 import { benchmarksApi, loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
+import { classifyWorkload, calcTokenCosts, formatTokenCount } from '../utils/tokenMetrics'
 
 export function History() {
   const [tab, setTab] = useState('benchmarks') // 'benchmarks' | 'loadtests'
@@ -147,6 +148,8 @@ export function History() {
                     <th className="p-3">Status</th>
                     <th className="p-3">Avg TTFT</th>
                     <th className="p-3">Speed (tok/s)</th>
+                    <th className="p-3">Tokens (In/Out)</th>
+                    <th className="p-3">Cost / 1M</th>
                     <th className="p-3">P95 Latency</th>
                     <th className="p-3 rounded-r-lg text-right">Actions</th>
                   </tr>
@@ -164,10 +167,16 @@ export function History() {
                       </td>
                       <td className="p-3 text-sky-400">{fmtMs(run.avg_ttft_ms)}</td>
                       <td className="p-3 text-emerald-400 font-bold">{fmt(run.avg_generation_tokens_per_second)}</td>
+                      <td className="p-3 text-indigo-300">
+                        {run.avg_prompt_tokens ? Math.round(run.avg_prompt_tokens) : '—'} / {run.avg_completion_tokens ? Math.round(run.avg_completion_tokens) : '—'}
+                      </td>
+                      <td className="p-3 text-rose-400">
+                        ${calcTokenCosts({ promptTokens: run.avg_prompt_tokens || 0, completionTokens: run.avg_completion_tokens || 0 }).effectiveCostPerMillion.toFixed(2)}
+                      </td>
                       <td className="p-3 text-amber-400">{fmtMs(run.p95_latency_ms)}</td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end space-x-1.5 font-sans">
-                          {/* Fix 6b: dynamic export URLs */}
+                          {/* Dynamic export URLs */}
                           <a
                             href={benchmarksApi.exportCsv(run.id)}
                             download
@@ -185,6 +194,15 @@ export function History() {
                           >
                             <Download className="w-3 h-3" />
                             <span>JSON</span>
+                          </a>
+                          <a
+                            href={benchmarksApi.exportJsonl(run.id)}
+                            download
+                            className="btn-secondary text-[11px] py-1 px-2 flex items-center space-x-1"
+                            title="Download raw newline-delimited JSONL"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>JSONL</span>
                           </a>
                           <button
                             onClick={() =>
@@ -230,6 +248,8 @@ export function History() {
                     <th className="p-3">Status</th>
                     <th className="p-3">Requests (OK/Fail)</th>
                     <th className="p-3">RPS</th>
+                    <th className="p-3">Tokens (In/Out)</th>
+                    <th className="p-3">Run Cost</th>
                     <th className="p-3">P95 Latency</th>
                     <th className="p-3 rounded-r-lg text-right">Actions</th>
                   </tr>
@@ -250,10 +270,16 @@ export function History() {
                         <span className="text-emerald-400">{run.successful_requests ?? 0}</span> / <span className={run.failed_requests > 0 ? 'text-red-400' : 'text-gray-500'}>{run.failed_requests ?? 0}</span>
                       </td>
                       <td className="p-3 text-emerald-400 font-bold">{fmt(run.requests_per_second, 2)}</td>
+                      <td className="p-3 text-indigo-300">
+                        {formatTokenCount(run.total_prompt_tokens)} / {formatTokenCount(run.total_completion_tokens)}
+                      </td>
+                      <td className="p-3 text-emerald-400">
+                        {run.cost_estimate != null ? `$${run.cost_estimate.toFixed(4)}` : '—'}
+                      </td>
                       <td className="p-3 text-amber-400">{fmtMs(run.p95_latency_ms)}</td>
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end space-x-1.5 font-sans">
-                          {/* Fix 6b: dynamic load-test export URL */}
+                          {/* Dynamic load-test export URLs */}
                           <a
                             href={loadTestsApi.exportCsv(run.id)}
                             download
@@ -262,6 +288,24 @@ export function History() {
                           >
                             <Download className="w-3 h-3" />
                             <span>CSV</span>
+                          </a>
+                          <a
+                            href={loadTestsApi.exportJson(run.id)}
+                            download
+                            className="btn-secondary text-[11px] py-1 px-2 flex items-center space-x-1"
+                            title="Download JSON"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>JSON</span>
+                          </a>
+                          <a
+                            href={loadTestsApi.exportJsonl(run.id)}
+                            download
+                            className="btn-secondary text-[11px] py-1 px-2 flex items-center space-x-1"
+                            title="Download raw newline-delimited JSONL"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>JSONL</span>
                           </a>
                           <button
                             onClick={() =>
