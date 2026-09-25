@@ -102,3 +102,93 @@ async def test_single_request_captures_prompt_tokens():
         assert res.prompt_tokens == 15
         assert res.completion_tokens == 4
         assert res.success is True
+
+
+@pytest.mark.asyncio
+async def test_compute_aggregates_concurrency_breakdown():
+    t0 = datetime.now(timezone.utc)
+
+    # Concurrency 8: 2 requests, both succeed, fast
+    r_8_1 = LoadTestResult(
+        id="r-8-1",
+        run_id="run-breakdown",
+        timestamp=t0,
+        concurrent_users=8,
+        ttft_ms=30.0,
+        total_latency_ms=250.0,
+        prompt_tokens=200,
+        completion_tokens=50,
+        generation_tokens_per_second=50.0,
+        success=True,
+        quality_valid=True,
+    )
+    r_8_2 = LoadTestResult(
+        id="r-8-2",
+        run_id="run-breakdown",
+        timestamp=t0,
+        concurrent_users=8,
+        ttft_ms=35.0,
+        total_latency_ms=260.0,
+        prompt_tokens=200,
+        completion_tokens=50,
+        generation_tokens_per_second=50.0,
+        success=True,
+        quality_valid=True,
+    )
+
+    # Concurrency 16: 2 requests, 1 fails SLA
+    r_16_1 = LoadTestResult(
+        id="r-16-1",
+        run_id="run-breakdown",
+        timestamp=t0,
+        concurrent_users=16,
+        ttft_ms=120.0,
+        total_latency_ms=800.0,
+        prompt_tokens=200,
+        completion_tokens=50,
+        generation_tokens_per_second=25.0,
+        success=True,
+        quality_valid=True,
+    )
+    r_16_2 = LoadTestResult(
+        id="r-16-2",
+        run_id="run-breakdown",
+        timestamp=t0,
+        concurrent_users=16,
+        ttft_ms=140.0,
+        total_latency_ms=900.0,
+        prompt_tokens=200,
+        completion_tokens=50,
+        generation_tokens_per_second=20.0,
+        success=False, # failure causes 50% error rate
+        quality_valid=False,
+    )
+
+    agg = _compute_aggregates([r_8_1, r_8_2, r_16_1, r_16_2])
+
+    breakdown = agg["concurrency_breakdown"]
+    assert len(breakdown) == 2
+
+    # Tier 8 check
+    tier8 = breakdown[0]
+    assert tier8["concurrency"] == 8
+    assert tier8["total_requests"] == 2
+    assert tier8["error_rate"] == 0.0
+    assert tier8["avg_ttft_ms"] == 32.5
+    # TPOT: 1000 / 50.0 = 20.0 ms/tok
+    assert tier8["avg_tpot_ms"] == 20.0
+    assert tier8["tokens_per_second"] == 50.0
+    assert tier8["aggregate_tokens_per_sec"] == 400.0 # 50 * 8
+    assert tier8["sla_status"] == "PASS"
+    assert tier8["is_safe"] is True
+
+    # Tier 16 check
+    tier16 = breakdown[1]
+    assert tier16["concurrency"] == 16
+    assert tier16["error_rate_pct"] == 50.0
+    assert tier16["sla_status"] == "BREACH"
+    assert tier16["is_safe"] is False
+
+    # Safe max concurrency should halt at 8
+    assert agg["safe_max_concurrency"] == 8
+

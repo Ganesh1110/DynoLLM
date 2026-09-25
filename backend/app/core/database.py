@@ -196,6 +196,7 @@ def _migrate_columns_sync(conn):
         ("total_tokens_per_second", "FLOAT"),
         ("input_token_ratio", "FLOAT"),
         ("cost_estimate", "FLOAT"),
+        ("concurrency_breakdown", "JSON"),
     ]
     for col_name, col_type in lt_run_cols:
         if col_name not in existing_lt_run_cols:

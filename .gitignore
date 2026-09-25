@@ -11,9 +11,12 @@ venv/
 env/
 ENV/
 *.db
+*.db-journal
+*.db-wal
 *.sqlite
 *.sqlite3
 llm_platform.db
+*.db*
 .pytest_cache/
 .coverage
 htmlcov/

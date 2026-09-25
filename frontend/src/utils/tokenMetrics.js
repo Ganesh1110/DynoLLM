@@ -155,3 +155,69 @@ export function calcHardwareCosts({
   }
 }
 
+/**
+ * Compute tiered concurrency breakdown from individual load test results
+ * @param {Array} results - Raw request results from load test
+ * @returns {Array} List of tiered breakdown statistics
+ */
+export function computeBreakdownFromResults(results = []) {
+  if (!Array.isArray(results) || results.length === 0) return []
+  const byTier = {}
+  results.forEach((r) => {
+    const cu = r.concurrent_users || 1
+    if (!byTier[cu]) byTier[cu] = []
+    byTier[cu].push(r)
+  })
+
+  let slaBroken = false
+  const tiers = Object.keys(byTier)
+    .map(Number)
+    .sort((a, b) => a - b)
+
+  return tiers.map((cu) => {
+    const group = byTier[cu]
+    const n = group.length
+    const failedCount = group.filter((r) => !r.success).length
+    const errRate = n > 0 ? failedCount / n : 0
+    const qualityCount = group.filter((r) => r.quality_valid !== false && r.success).length
+    const qualityRate = n > 0 ? qualityCount / n : 1.0
+
+    const validTtfts = group.map((r) => r.ttft_ms).filter((v) => typeof v === 'number' && !isNaN(v))
+    const validLats = group.map((r) => r.total_latency_ms).filter((v) => typeof v === 'number' && !isNaN(v))
+    const validTps = group.map((r) => r.generation_tokens_per_second).filter((v) => typeof v === 'number' && !isNaN(v))
+
+    const avgTtft = validTtfts.length ? validTtfts.reduce((a, b) => a + b, 0) / validTtfts.length : null
+    validTtfts.sort((a, b) => a - b)
+    const p95Ttft = validTtfts.length ? validTtfts[Math.floor(validTtfts.length * 0.95)] : avgTtft
+
+    validLats.sort((a, b) => a - b)
+    const p95Lat = validLats.length ? validLats[Math.floor(validLats.length * 0.95)] : null
+
+    const avgDecodeTps = validTps.length ? validTps.reduce((a, b) => a + b, 0) / validTps.length : null
+    const avgTpotMs = avgDecodeTps && avgDecodeTps > 0 ? 1000.0 / avgDecodeTps : null
+    const aggTokPerSec = avgDecodeTps ? avgDecodeTps * cu : null
+
+    const passesSla = errRate <= 0.05 && qualityRate >= 0.95
+    const isSafe = passesSla && !slaBroken
+    if (!passesSla) slaBroken = true
+
+    return {
+      concurrency: cu,
+      total_requests: n,
+      successful_requests: n - failedCount,
+      failed_requests: failedCount,
+      error_rate: errRate,
+      error_rate_pct: Math.round(errRate * 1000) / 10,
+      quality_integrity_rate: Math.round(qualityRate * 1000) / 1000,
+      avg_ttft_ms: avgTtft != null ? Math.round(avgTtft * 10) / 10 : null,
+      p95_ttft_ms: p95Ttft != null ? Math.round(p95Ttft * 10) / 10 : null,
+      avg_tpot_ms: avgTpotMs != null ? Math.round(avgTpotMs * 100) / 100 : null,
+      tokens_per_second: avgDecodeTps != null ? Math.round(avgDecodeTps * 10) / 10 : null,
+      aggregate_tokens_per_sec: aggTokPerSec != null ? Math.round(aggTokPerSec * 10) / 10 : null,
+      p95_latency_ms: p95Lat != null ? Math.round(p95Lat * 10) / 10 : null,
+      sla_status: passesSla ? 'PASS' : 'BREACH',
+      is_safe: isSafe,
+    }
+  })
+}
+

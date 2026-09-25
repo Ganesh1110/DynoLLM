@@ -61,6 +61,7 @@ class LoadTestRun(Base):
     total_tokens_per_second = Column(Float, nullable=True)
     input_token_ratio = Column(Float, nullable=True)
     cost_estimate = Column(Float, nullable=True)
+    concurrency_breakdown = Column(JSON, nullable=True)
 
 
 class LoadTestResult(Base):

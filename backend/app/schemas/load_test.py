@@ -80,6 +80,7 @@ class LoadTestRunOut(BaseModel):
     total_tokens_per_second: Optional[float] = None
     input_token_ratio: Optional[float] = None
     cost_estimate: Optional[float] = None
+    concurrency_breakdown: Optional[list[dict]] = None
 
     results: Optional[list[LoadTestResultOut]] = None
 

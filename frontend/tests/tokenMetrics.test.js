@@ -6,6 +6,7 @@ import {
   calcHardwareCosts,
   calcTokensPerDollar,
   formatTokenCount,
+  computeBreakdownFromResults,
 } from '../src/utils/tokenMetrics.js'
 
 test('Token Metrics: classifyWorkload identifies prefill-bound workloads', () => {
@@ -83,5 +84,41 @@ test('Token Metrics: calcHardwareCosts computes run cost and cost per million to
   assert.equal(hw.gpuHourlyCost, 0.70)
   assert.equal(hw.runCost, 0.011667)
   assert.equal(hw.costPerMillion, 0.1167)
+})
+
+test('Token Metrics: computeBreakdownFromResults groups tiers and calculates TPOT and SLA', () => {
+  const results = [
+    // Tier 8: 2 successful requests
+    { concurrent_users: 8, ttft_ms: 30, total_latency_ms: 200, generation_tokens_per_second: 50, success: true, quality_valid: true },
+    { concurrent_users: 8, ttft_ms: 40, total_latency_ms: 220, generation_tokens_per_second: 50, success: true, quality_valid: true },
+    // Tier 16: 1 success, 1 failure (50% error rate -> SLA breach)
+    { concurrent_users: 16, ttft_ms: 100, total_latency_ms: 600, generation_tokens_per_second: 25, success: true, quality_valid: true },
+    { concurrent_users: 16, ttft_ms: 120, total_latency_ms: 700, generation_tokens_per_second: 20, success: false, quality_valid: false },
+  ]
+
+  const breakdown = computeBreakdownFromResults(results)
+  assert.equal(breakdown.length, 2)
+
+  // Tier 8
+  assert.equal(breakdown[0].concurrency, 8)
+  assert.equal(breakdown[0].total_requests, 2)
+  assert.equal(breakdown[0].successful_requests, 2)
+  assert.equal(breakdown[0].avg_ttft_ms, 35)
+  // TPOT = 1000 / 50 = 20 ms/tok
+  assert.equal(breakdown[0].avg_tpot_ms, 20)
+  assert.equal(breakdown[0].aggregate_tokens_per_sec, 400) // 50 * 8
+  assert.equal(breakdown[0].error_rate_pct, 0)
+  assert.equal(breakdown[0].sla_status, 'PASS')
+  assert.equal(breakdown[0].is_safe, true)
+
+  // Tier 16
+  assert.equal(breakdown[1].concurrency, 16)
+  assert.equal(breakdown[1].error_rate_pct, 50)
+  assert.equal(breakdown[1].sla_status, 'BREACH')
+  assert.equal(breakdown[1].is_safe, false)
+
+  // Empty input safety
+  assert.deepEqual(computeBreakdownFromResults([]), [])
+  assert.deepEqual(computeBreakdownFromResults(null), [])
 })
 

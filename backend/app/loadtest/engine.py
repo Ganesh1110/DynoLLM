@@ -482,6 +482,7 @@ def _compute_aggregates(
             "total_tokens_per_second": None,
             "input_token_ratio": None,
             "cost_estimate": None,
+            "concurrency_breakdown": None,
         }
 
     latencies = [r.total_latency_ms for r in all_results if getattr(r, "total_latency_ms", None)]
@@ -533,19 +534,21 @@ def _compute_aggregates(
     if avg_gen_tps and avg_power and avg_power > 0:
         tokens_per_watt = float(avg_gen_tps / avg_power)
 
-    # Compute Safe Max Concurrency with Monotonicity Enforcement
+    # Compute Safe Max Concurrency with Monotonicity Enforcement & Tier Breakdown
     # Group results by concurrency level in ascending order.
     # A concurrency tier C is safe if:
     # 1. Error rate <= 0.05 (<= 5%)
     # 2. Quality integrity rate >= 0.95 (>= 95%)
     # Monotonicity rule: Once an intermediate concurrency tier fails SLA, progression halts.
-    # A higher tier cannot mask a lower failing tier (e.g. tier 20 failing cannot be masked by tier 30).
     by_concurrency: dict[int, list] = {}
     for r in all_results:
         cu = r.concurrent_users or 1
         by_concurrency.setdefault(cu, []).append(r)
 
     safe_max_concurrency = 0 if not successful else 1
+    sla_broken = False
+    concurrency_breakdown: list[dict] = []
+
     for cu, group in sorted(by_concurrency.items()):
         if not group:
             continue
@@ -554,11 +557,45 @@ def _compute_aggregates(
         err_rate = failed_count / n
         quality_count = sum(1 for r in group if getattr(r, "quality_valid", True) and r.success)
         quality_rate = quality_count / n
-        if err_rate <= 0.05 and quality_rate >= 0.95:
+
+        # Detailed metrics per concurrency tier
+        tier_ttfts = [r.ttft_ms for r in group if getattr(r, "ttft_ms", None)]
+        tier_latencies = [r.total_latency_ms for r in group if getattr(r, "total_latency_ms", None)]
+        tier_tps = [r.generation_tokens_per_second for r in group if getattr(r, "generation_tokens_per_second", None)]
+
+        avg_ttft = float(np.mean(tier_ttfts)) if tier_ttfts else None
+        p95_ttft = float(np.percentile(tier_ttfts, 95)) if len(tier_ttfts) >= 2 else (avg_ttft if tier_ttfts else None)
+        p95_lat = float(np.percentile(tier_latencies, 95)) if len(tier_latencies) >= 2 else (float(np.mean(tier_latencies)) if tier_latencies else None)
+        avg_decode_tps = float(np.mean(tier_tps)) if tier_tps else None
+
+        # TPOT (Time Per Output Token in ms): 1000 / decode_tps
+        avg_tpot_ms = float(1000.0 / avg_decode_tps) if avg_decode_tps and avg_decode_tps > 0 else None
+        # Aggregate decode throughput across all concurrent workers at this tier
+        aggregate_tokens_per_sec = float(avg_decode_tps * cu) if avg_decode_tps else None
+
+        passes_sla = (err_rate <= 0.05 and quality_rate >= 0.95)
+        if passes_sla and not sla_broken:
             safe_max_concurrency = cu
         else:
-            # Monotonicity boundary: stop at the first tier that violated SLA
-            break
+            sla_broken = True
+
+        concurrency_breakdown.append({
+            "concurrency": cu,
+            "total_requests": n,
+            "successful_requests": n - failed_count,
+            "failed_requests": failed_count,
+            "error_rate": float(err_rate),
+            "error_rate_pct": float(round(err_rate * 100.0, 1)),
+            "quality_integrity_rate": float(round(quality_rate, 3)),
+            "avg_ttft_ms": float(round(avg_ttft, 1)) if avg_ttft is not None else None,
+            "p95_ttft_ms": float(round(p95_ttft, 1)) if p95_ttft is not None else None,
+            "avg_tpot_ms": float(round(avg_tpot_ms, 2)) if avg_tpot_ms is not None else None,
+            "tokens_per_second": float(round(avg_decode_tps, 1)) if avg_decode_tps is not None else None,
+            "aggregate_tokens_per_sec": float(round(aggregate_tokens_per_sec, 1)) if aggregate_tokens_per_sec is not None else None,
+            "p95_latency_ms": float(round(p95_lat, 1)) if p95_lat is not None else None,
+            "sla_status": "PASS" if passes_sla else "BREACH",
+            "is_safe": bool(passes_sla and (cu <= safe_max_concurrency)),
+        })
 
     return {
         "total_requests": len(all_results),
@@ -590,4 +627,5 @@ def _compute_aggregates(
         "total_tokens_per_second": total_tokens_per_second,
         "input_token_ratio": input_token_ratio,
         "cost_estimate": cost_estimate,
+        "concurrency_breakdown": concurrency_breakdown,
     }
