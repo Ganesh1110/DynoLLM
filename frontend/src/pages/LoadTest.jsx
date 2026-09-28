@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight, DollarSign, Layers, Sparkles, Copy, Check, Columns, Table, ShieldCheck, BarChart3 } from 'lucide-react'
+import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight, DollarSign, Layers, Sparkles, Copy, Check, Columns, Table, ShieldCheck, BarChart3, HelpCircle } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
@@ -9,6 +9,13 @@ import { loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
 import { classifyWorkload, calcTokenCosts, calcHardwareCosts, formatTokenCount, computeBreakdownFromResults } from '../utils/tokenMetrics'
+import { TestingGuideModal } from '../components/TestingGuideModal'
+import {
+  getSpeedRating,
+  getErrorRateRating,
+  getLatencyConsistencyRating,
+  getRatingBadgeClasses,
+} from '../utils/ratingUtils'
 
 
 export function LoadTest() {
@@ -25,8 +32,9 @@ export function LoadTest() {
   const currentTelemetry = useMonitoringStore((s) => s.current)
 
   const [availableModels, setAvailableModels] = useState([])
-
   const [loadingModels, setLoadingModels] = useState(false)
+  const [guideModalOpen, setGuideModalOpen] = useState(false)
+  const [guideModalTab, setGuideModalTab] = useState('before')
 
   // Load Test Config
   const [config, setConfig] = useState({
@@ -185,11 +193,47 @@ export function LoadTest() {
     setTimeout(() => setCopiedMarkdown(false), 2000)
   }
 
+  const speedRating = useMemo(
+    () => getSpeedRating(activeRun?.avg_generation_tokens_per_second),
+    [activeRun?.avg_generation_tokens_per_second]
+  )
+
+  const errorRatePct = useMemo(() => {
+    if (activeRun?.error_rate != null) return activeRun.error_rate * 100
+    if (activeRun?.total_requests && activeRun.total_requests > 0) {
+      return ((activeRun.failed_requests || 0) / activeRun.total_requests) * 100
+    }
+    return null
+  }, [activeRun?.error_rate, activeRun?.total_requests, activeRun?.failed_requests])
+
+  const errorRating = useMemo(
+    () => getErrorRateRating(errorRatePct),
+    [errorRatePct]
+  )
+
+  const consistencyRating = useMemo(
+    () => getLatencyConsistencyRating(activeRun?.p95_latency_ms, activeRun?.p50_latency_ms),
+    [activeRun?.p95_latency_ms, activeRun?.p50_latency_ms]
+  )
+
   return (
     <div className="space-y-6">
       <SectionHeader
         title="Concurrent Load & Stress Testing"
         subtitle="Simulate multi-user traffic to determine peak throughput, saturation point, and maximum stable concurrency."
+        action={
+          <button
+            type="button"
+            onClick={() => {
+              setGuideModalTab(activeRun ? 'after' : 'before')
+              setGuideModalOpen(true)
+            }}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center space-x-1.5 transition-colors shadow-sm"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-sky-400" />
+            <span>ⓘ Load Test &amp; SLA Guide</span>
+          </button>
+        }
       />
 
       {error && <Alert type="error">{error}</Alert>}
@@ -476,8 +520,15 @@ export function LoadTest() {
                     <span className="text-[10px] text-gray-500">Virtual Clients</span>
                   </div>
 
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Total Requests</span>
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center relative flex flex-col items-center">
+                    <div className="flex items-center justify-center space-x-1.5 w-full">
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Total Requests</span>
+                      {errorRating && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono ${getRatingBadgeClasses(errorRating.color)}`}>
+                          {errorRating.badge}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-2xl font-black text-white mt-1">
                       {latestLivePoint?.total_requests ?? activeRun.total_requests ?? 0}
                     </div>
@@ -486,8 +537,15 @@ export function LoadTest() {
                     </span>
                   </div>
 
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">P95 Latency</span>
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center relative flex flex-col items-center">
+                    <div className="flex items-center justify-center space-x-1.5 w-full">
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">P95 Latency</span>
+                      {consistencyRating && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono ${getRatingBadgeClasses(consistencyRating.color)}`}>
+                          {consistencyRating.badge}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-2xl font-black text-amber-400 mt-1">
                       {fmtMs(latestLivePoint?.p95_latency_ms ?? activeRun.p95_latency_ms)}
                     </div>
@@ -502,12 +560,19 @@ export function LoadTest() {
                     <span className="text-[10px] text-gray-500">Req / Second</span>
                   </div>
 
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Generation Speed</span>
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center relative flex flex-col items-center">
+                    <div className="flex items-center justify-center space-x-1.5 w-full">
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Generation Speed</span>
+                      {speedRating && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono ${getRatingBadgeClasses(speedRating.color)}`}>
+                          {speedRating.badge}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-2xl font-black text-emerald-400 mt-1">
                       {fmt(activeRun.avg_generation_tokens_per_second)}
                     </div>
-                    <span className="text-[10px] text-gray-500">Tokens / Second</span>
+                    <span className="text-[10px] text-gray-500">{speedRating ? `${speedRating.desc} (tok/s)` : 'Tokens / Second'}</span>
                   </div>
 
                   <div className="bg-gray-800/60 p-3 rounded-xl border border-indigo-700/50 text-center">
@@ -1079,6 +1144,14 @@ export function LoadTest() {
           )}
         </div>
       </div>
+
+      {/* Testing & Rating Guide Modal */}
+      <TestingGuideModal
+        isOpen={guideModalOpen}
+        onClose={() => setGuideModalOpen(false)}
+        initialTab={guideModalTab}
+        pageType="loadtest"
+      />
     </div>
   )
 }

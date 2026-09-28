@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   PlayCircle, StopCircle, RefreshCw, BarChart2, Download,
   CheckCircle2, AlertTriangle, ArrowRight, Zap, ShieldCheck,
-  Cpu, FileText, Plus, Trash2, Layers, TrendingUp, Sparkles, Sliders
+  Cpu, FileText, Plus, Trash2, Layers, TrendingUp, Sparkles, Sliders, HelpCircle
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
@@ -15,6 +15,13 @@ import { useMonitoringStore } from '../stores/monitoringStore'
 import { benchmarksApi, promptTemplatesApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
+import { TestingGuideModal } from '../components/TestingGuideModal'
+import {
+  getTtftRating,
+  getSpeedRating,
+  getLatencyConsistencyRating,
+  getRatingBadgeClasses,
+} from '../utils/ratingUtils'
 
 
 export function Benchmark() {
@@ -32,6 +39,8 @@ export function Benchmark() {
 
   const [availableModels, setAvailableModels] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
+  const [guideModalOpen, setGuideModalOpen] = useState(false)
+  const [guideModalTab, setGuideModalTab] = useState('before')
 
   // Custom Prompt Templates state
   const [templates, setTemplates] = useState([])
@@ -269,11 +278,31 @@ export function Benchmark() {
   const builtinTemplates = templates.filter((t) => t.is_builtin)
   const customTemplates = templates.filter((t) => !t.is_builtin)
 
+  const ttftRating = useMemo(() => getTtftRating(activeRun?.avg_ttft_ms), [activeRun?.avg_ttft_ms])
+  const speedRating = useMemo(() => getSpeedRating(activeRun?.avg_generation_tokens_per_second), [activeRun?.avg_generation_tokens_per_second])
+  const consistencyRating = useMemo(
+    () => getLatencyConsistencyRating(activeRun?.p95_latency_ms, activeRun?.avg_total_latency_ms),
+    [activeRun?.p95_latency_ms, activeRun?.avg_total_latency_ms]
+  )
+
   return (
     <div className="space-y-6">
       <SectionHeader
         title="Single-Request Benchmarking & Context Profiling"
         subtitle="Benchmark baseline TTFT, tokens/second throughput, prompt vs completion token breakdown, and context degradation curves."
+        action={
+          <button
+            type="button"
+            onClick={() => {
+              setGuideModalTab(activeRun ? 'after' : 'before')
+              setGuideModalOpen(true)
+            }}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center space-x-1.5 transition-colors shadow-sm"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-sky-400" />
+            <span>ⓘ Benchmark &amp; Rating Guide</span>
+          </button>
+        }
       />
 
       {error && <Alert type="error">{error}</Alert>}
@@ -655,16 +684,30 @@ export function Benchmark() {
 
                 {/* Key Benchmark Metrics Grid (8 Cards) */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Avg TTFT</span>
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center relative flex flex-col items-center">
+                    <div className="flex items-center justify-center space-x-1.5 w-full">
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Avg TTFT</span>
+                      {ttftRating && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono ${getRatingBadgeClasses(ttftRating.color)}`}>
+                          {ttftRating.badge}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xl font-black text-sky-400 mt-1">{fmtMs(activeRun.avg_ttft_ms)}</div>
-                    <span className="text-[10px] text-gray-500">First Token Latency</span>
+                    <span className="text-[10px] text-gray-500">{ttftRating ? ttftRating.desc : 'First Token Latency'}</span>
                   </div>
 
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Generation Speed</span>
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center relative flex flex-col items-center">
+                    <div className="flex items-center justify-center space-x-1.5 w-full">
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Generation Speed</span>
+                      {speedRating && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono ${getRatingBadgeClasses(speedRating.color)}`}>
+                          {speedRating.badge}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xl font-black text-emerald-400 mt-1">{fmt(activeRun.avg_generation_tokens_per_second)}</div>
-                    <span className="text-[10px] text-gray-500">Tokens / Second</span>
+                    <span className="text-[10px] text-gray-500">{speedRating ? `${speedRating.desc} (tok/s)` : 'Tokens / Second'}</span>
                   </div>
 
                   <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
@@ -673,10 +716,17 @@ export function Benchmark() {
                     <span className="text-[10px] text-gray-500">End-to-End</span>
                   </div>
 
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
-                    <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">P95 Latency</span>
+                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center relative flex flex-col items-center">
+                    <div className="flex items-center justify-center space-x-1.5 w-full">
+                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">P95 Latency</span>
+                      {consistencyRating && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border font-mono ${getRatingBadgeClasses(consistencyRating.color)}`}>
+                          {consistencyRating.badge}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xl font-black text-amber-400 mt-1">{fmtMs(activeRun.p95_latency_ms)}</div>
-                    <span className="text-[10px] text-gray-500">95th Percentile</span>
+                    <span className="text-[10px] text-gray-500">{consistencyRating ? consistencyRating.desc : '95th Percentile'}</span>
                   </div>
 
                   {/* Semantic Output Quality Scoring Card */}
@@ -1105,6 +1155,14 @@ export function Benchmark() {
           </div>
         </div>
       )}
+
+      {/* Testing & Rating Guide Modal */}
+      <TestingGuideModal
+        isOpen={guideModalOpen}
+        onClose={() => setGuideModalOpen(false)}
+        initialTab={guideModalTab}
+        pageType="benchmark"
+      />
     </div>
   )
 }
