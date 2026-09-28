@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import {
   X,
   HelpCircle,
@@ -15,14 +15,41 @@ import {
   ShieldCheck,
   Info,
 } from 'lucide-react'
+import { getOverallEvaluation, getRatingBadgeClasses } from '../utils/ratingUtils'
 
 export function TestingGuideModal({
   isOpen,
   onClose,
   initialTab = 'before',
   pageType = 'benchmark', // 'benchmark' | 'loadtest'
+  activeRun = null,
+  overallEvaluation = null,
 }) {
   const [activeTab, setActiveTab] = useState(initialTab)
+
+  const evalResult = useMemo(() => {
+    if (overallEvaluation) return overallEvaluation
+    if (!activeRun) return null
+    return getOverallEvaluation({
+      ttftMs: activeRun.avg_ttft_ms,
+      speedTokPerSec: activeRun.avg_generation_tokens_per_second,
+      tpotMs: activeRun.avg_tpot_ms,
+      p95Ms: activeRun.p95_latency_ms,
+      avgMs: activeRun.avg_total_latency_ms || activeRun.p50_latency_ms,
+      errorRatePct: activeRun.error_rate != null ? activeRun.error_rate * 100 : (
+        activeRun.total_requests && activeRun.total_requests > 0
+          ? ((activeRun.failed_requests || 0) / activeRun.total_requests) * 100
+          : null
+      ),
+      pageType,
+    })
+  }, [overallEvaluation, activeRun, pageType])
+
+  const ttftItem = evalResult?.items?.find((i) => i.key === 'ttft')
+  const speedItem = evalResult?.items?.find((i) => i.key === 'speed')
+  const tpotItem = evalResult?.items?.find((i) => i.key === 'tpot')
+  const consistencyItem = evalResult?.items?.find((i) => i.key === 'consistency')
+  const errorItem = evalResult?.items?.find((i) => i.key === 'errorRate')
 
   useEffect(() => {
     if (isOpen) {
@@ -200,10 +227,99 @@ export function TestingGuideModal({
           ) : (
             /* TAB 2: AFTER TEST */
             <div className="space-y-5">
+              {/* Live Stage Evaluation Verdict Banner */}
+              {evalResult ? (
+                <div
+                  className={`p-4 rounded-xl border space-y-3 ${
+                    evalResult.stage === 'good'
+                      ? 'bg-emerald-950/25 border-emerald-500/30 text-emerald-200'
+                      : evalResult.stage === 'bad'
+                      ? 'bg-rose-950/25 border-rose-500/30 text-rose-200'
+                      : 'bg-amber-950/25 border-amber-500/30 text-amber-200'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-gray-800/80 pb-3">
+                    <div className="flex items-center space-x-2.5">
+                      <div
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                          evalResult.stage === 'good'
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : evalResult.stage === 'bad'
+                            ? 'bg-rose-500/20 text-rose-400'
+                            : 'bg-amber-500/20 text-amber-400'
+                        }`}
+                      >
+                        {evalResult.stage === 'good' ? (
+                          <CheckCircle2 className="w-5 h-5" />
+                        ) : evalResult.stage === 'bad' ? (
+                          <XCircle className="w-5 h-5" />
+                        ) : (
+                          <AlertTriangle className="w-5 h-5" />
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-gray-400 block font-sans">
+                          After Testing Diagnosis
+                        </span>
+                        <div className="flex items-center space-x-2 mt-0.5">
+                          <span className="text-sm font-black uppercase tracking-wide text-white">
+                            Stage:
+                          </span>
+                          <span
+                            className={`text-xs font-black uppercase px-2 py-0.5 rounded border font-mono ${getRatingBadgeClasses(
+                              evalResult.color
+                            )}`}
+                          >
+                            {evalResult.label}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    {activeRun?.model && (
+                      <span className="text-[11px] font-mono text-gray-400 bg-gray-900/80 px-2.5 py-1 rounded-md border border-gray-800 self-start sm:self-auto">
+                        {activeRun.model}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-gray-300 leading-relaxed font-sans">
+                    {evalResult.summary}
+                  </p>
+
+                  <div className="p-2.5 bg-gray-900/70 rounded-lg border border-gray-800/80 flex items-start space-x-2 text-[11px] text-gray-300">
+                    <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                    <span>
+                      <strong className="text-sky-300">Stage Guidance:</strong> {evalResult.advice}
+                    </span>
+                  </div>
+
+                  {/* Quick Metric Strip */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono">
+                    {evalResult.items.map((item) => (
+                      <div key={item.key} className="bg-gray-950/80 p-2.5 rounded-lg border border-gray-800/80 text-center">
+                        <span className="text-[10px] text-gray-400 font-sans block">{item.name}</span>
+                        <div className="text-xs font-black text-white mt-0.5">{item.display}</div>
+                        <span
+                          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border mt-1 inline-block ${getRatingBadgeClasses(
+                            item.rating.color
+                          )}`}
+                        >
+                          {item.rating.badge}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-gray-900/40 border border-gray-800/80 rounded-xl text-center text-gray-400 text-xs">
+                  <span>💡 <em>No completed test run selected yet. Run a benchmark or load test to see your live stage and placement evaluated here.</em></span>
+                </div>
+              )}
+
               <div className="space-y-1">
-                <h3 className="font-bold text-sm text-white">Result Evaluation Scorecard</h3>
+                <h3 className="font-bold text-sm text-white">Engineering Threshold Matrix</h3>
                 <p className="text-gray-400 text-[11px]">
-                  Use these empirical engineering thresholds to evaluate whether your measured numbers are Good, Average, or Bad:
+                  Compare your numbers against production standards. Your measured metrics are highlighted below with <span className="text-sky-300 font-bold font-mono">📍 You</span>:
                 </p>
               </div>
 
@@ -226,14 +342,29 @@ export function TestingGuideModal({
                         TTFT
                         <span className="text-[10px] block text-gray-500 font-normal font-sans">Time to 1st token</span>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5 ${ttftItem?.grade === 'good' ? 'ring-2 ring-emerald-500/80 bg-emerald-500/20 rounded' : ''}`}>
                         &lt; 300 ms
+                        {ttftItem?.grade === 'good' && (
+                          <span className="block text-[9px] font-sans text-emerald-300 font-bold mt-0.5">
+                            📍 You: {ttftItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5 ${ttftItem?.grade === 'average' ? 'ring-2 ring-amber-500/80 bg-amber-500/20 rounded' : ''}`}>
                         300 – 800 ms
+                        {ttftItem?.grade === 'average' && (
+                          <span className="block text-[9px] font-sans text-amber-300 font-bold mt-0.5">
+                            📍 You: {ttftItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5 ${ttftItem?.grade === 'bad' ? 'ring-2 ring-rose-500/80 bg-rose-500/20 rounded' : ''}`}>
                         &gt; 800 ms (1s+)
+                        {ttftItem?.grade === 'bad' && (
+                          <span className="block text-[9px] font-sans text-rose-300 font-bold mt-0.5">
+                            📍 You: {ttftItem.display}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-400 text-[11px]">
                         Prefill delay. Under 300ms feels instant to humans; above 1s feels sluggish.
@@ -246,14 +377,29 @@ export function TestingGuideModal({
                         Generation Speed
                         <span className="text-[10px] block text-gray-500 font-normal font-sans">Tokens / second</span>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5 ${speedItem?.grade === 'good' ? 'ring-2 ring-emerald-500/80 bg-emerald-500/20 rounded' : ''}`}>
                         &gt; 35 tok/s
+                        {speedItem?.grade === 'good' && (
+                          <span className="block text-[9px] font-sans text-emerald-300 font-bold mt-0.5">
+                            📍 You: {speedItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-sky-300 bg-sky-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-sky-300 bg-sky-500/5 ${speedItem?.grade === 'average' ? 'ring-2 ring-sky-500/80 bg-sky-500/20 rounded' : ''}`}>
                         15 – 35 tok/s
+                        {speedItem?.grade === 'average' && (
+                          <span className="block text-[9px] font-sans text-sky-300 font-bold mt-0.5">
+                            📍 You: {speedItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5 ${speedItem?.grade === 'bad' ? 'ring-2 ring-rose-500/80 bg-rose-500/20 rounded' : ''}`}>
                         &lt; 15 tok/s
+                        {speedItem?.grade === 'bad' && (
+                          <span className="block text-[9px] font-sans text-rose-300 font-bold mt-0.5">
+                            📍 You: {speedItem.display}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-400 text-[11px]">
                         Human reading speed is ~15–20 words/sec. Above 35 tok/s is ideal for automated agent loops.
@@ -266,14 +412,29 @@ export function TestingGuideModal({
                         TPOT
                         <span className="text-[10px] block text-gray-500 font-normal font-sans">Time / token</span>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5 ${tpotItem?.grade === 'good' ? 'ring-2 ring-emerald-500/80 bg-emerald-500/20 rounded' : ''}`}>
                         &lt; 30 ms/tok
+                        {tpotItem?.grade === 'good' && (
+                          <span className="block text-[9px] font-sans text-emerald-300 font-bold mt-0.5">
+                            📍 You: {tpotItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-sky-300 bg-sky-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-sky-300 bg-sky-500/5 ${tpotItem?.grade === 'average' ? 'ring-2 ring-sky-500/80 bg-sky-500/20 rounded' : ''}`}>
                         30 – 65 ms/tok
+                        {tpotItem?.grade === 'average' && (
+                          <span className="block text-[9px] font-sans text-sky-300 font-bold mt-0.5">
+                            📍 You: {tpotItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5 ${tpotItem?.grade === 'bad' ? 'ring-2 ring-rose-500/80 bg-rose-500/20 rounded' : ''}`}>
                         &gt; 65 ms/tok
+                        {tpotItem?.grade === 'bad' && (
+                          <span className="block text-[9px] font-sans text-rose-300 font-bold mt-0.5">
+                            📍 You: {tpotItem.display}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-400 text-[11px]">
                         Inverse of generation speed (1000 / tok/s). Measures smooth, lag-free streaming cadence.
@@ -286,14 +447,29 @@ export function TestingGuideModal({
                         Latency Jitter
                         <span className="text-[10px] block text-gray-500 font-normal font-sans">P95 vs Average</span>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5 ${consistencyItem?.grade === 'good' ? 'ring-2 ring-emerald-500/80 bg-emerald-500/20 rounded' : ''}`}>
                         P95 &le; 1.5&times; Avg
+                        {consistencyItem?.grade === 'good' && (
+                          <span className="block text-[9px] font-sans text-emerald-300 font-bold mt-0.5">
+                            📍 You: {consistencyItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5 ${consistencyItem?.grade === 'average' ? 'ring-2 ring-amber-500/80 bg-amber-500/20 rounded' : ''}`}>
                         P95 &le; 2.5&times; Avg
+                        {consistencyItem?.grade === 'average' && (
+                          <span className="block text-[9px] font-sans text-amber-300 font-bold mt-0.5">
+                            📍 You: {consistencyItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5 ${consistencyItem?.grade === 'bad' ? 'ring-2 ring-rose-500/80 bg-rose-500/20 rounded' : ''}`}>
                         P95 &gt; 2.5&times; Avg
+                        {consistencyItem?.grade === 'bad' && (
+                          <span className="block text-[9px] font-sans text-rose-300 font-bold mt-0.5">
+                            📍 You: {consistencyItem.display}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-400 text-[11px]">
                         Measures predictability. Ratios above 2.5&times; indicate severe head-of-line queuing spikes.
@@ -306,14 +482,29 @@ export function TestingGuideModal({
                         Error Rate
                         <span className="text-[10px] block text-gray-500 font-normal font-sans">Failures / Timeouts</span>
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5 ${errorItem?.grade === 'good' ? 'ring-2 ring-emerald-500/80 bg-emerald-500/20 rounded' : ''}`}>
                         0.0%
+                        {errorItem?.grade === 'good' && (
+                          <span className="block text-[9px] font-sans text-emerald-300 font-bold mt-0.5">
+                            📍 You: {errorItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5 ${errorItem?.grade === 'average' ? 'ring-2 ring-amber-500/80 bg-amber-500/20 rounded' : ''}`}>
                         &le; 5.0%
+                        {errorItem?.grade === 'average' && (
+                          <span className="block text-[9px] font-sans text-amber-300 font-bold mt-0.5">
+                            📍 You: {errorItem.display}
+                          </span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5">
+                      <td className={`py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5 ${errorItem?.grade === 'bad' ? 'ring-2 ring-rose-500/80 bg-rose-500/20 rounded' : ''}`}>
                         &gt; 5.0%
+                        {errorItem?.grade === 'bad' && (
+                          <span className="block text-[9px] font-sans text-rose-300 font-bold mt-0.5">
+                            📍 You: {errorItem.display}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-400 text-[11px]">
                         Production SLA gate. Over 5% marks the capacity limit where request concurrency must be capped.

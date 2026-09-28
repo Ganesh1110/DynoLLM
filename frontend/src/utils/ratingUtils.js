@@ -203,3 +203,136 @@ export function getRatingBadgeClasses(color = 'gray') {
       return 'bg-gray-800 text-gray-400 border-gray-700'
   }
 }
+
+/**
+ * Evaluates overall test execution stage: Good / Average / Bad
+ * @param {object} params
+ * @param {number|null} [params.ttftMs]
+ * @param {number|null} [params.speedTokPerSec]
+ * @param {number|null} [params.tpotMs]
+ * @param {number|null} [params.p95Ms]
+ * @param {number|null} [params.avgMs]
+ * @param {number|null} [params.errorRatePct]
+ * @param {string} [params.pageType] - 'benchmark' | 'loadtest'
+ * @returns {object|null} Overall evaluation summary with stage, label, summary, advice, and items
+ */
+export function getOverallEvaluation({
+  ttftMs,
+  speedTokPerSec,
+  tpotMs,
+  p95Ms,
+  avgMs,
+  errorRatePct,
+  pageType = 'benchmark',
+} = {}) {
+  const ttftRating = getTtftRating(ttftMs)
+  const speedRating = getSpeedRating(speedTokPerSec)
+  const tpotRating = getTpotRating(tpotMs)
+  const consistencyRating = getLatencyConsistencyRating(p95Ms, avgMs)
+  const errorRating = getErrorRateRating(errorRatePct)
+
+  const items = []
+  if (ttftRating) {
+    items.push({
+      key: 'ttft',
+      name: 'Avg TTFT',
+      raw: ttftMs,
+      display: `${Math.round(ttftMs)} ms`,
+      rating: ttftRating,
+      grade: ttftRating.grade,
+    })
+  }
+  if (speedRating) {
+    items.push({
+      key: 'speed',
+      name: 'Generation Speed',
+      raw: speedTokPerSec,
+      display: `${typeof speedTokPerSec === 'number' ? speedTokPerSec.toFixed(1) : speedTokPerSec} tok/s`,
+      rating: speedRating,
+      grade: speedRating.grade,
+    })
+  }
+  if (tpotRating) {
+    items.push({
+      key: 'tpot',
+      name: 'TPOT',
+      raw: tpotMs,
+      display: `${Math.round(tpotMs)} ms/tok`,
+      rating: tpotRating,
+      grade: tpotRating.grade,
+    })
+  }
+  if (consistencyRating) {
+    items.push({
+      key: 'consistency',
+      name: 'Latency Consistency',
+      raw: p95Ms && avgMs ? p95Ms / avgMs : null,
+      display: p95Ms && avgMs ? `${(p95Ms / avgMs).toFixed(1)}x Avg` : '—',
+      rating: consistencyRating,
+      grade: consistencyRating.grade,
+    })
+  }
+  if (errorRating) {
+    items.push({
+      key: 'errorRate',
+      name: 'Error Rate',
+      raw: errorRatePct,
+      display: `${typeof errorRatePct === 'number' ? errorRatePct.toFixed(1) : errorRatePct}%`,
+      rating: errorRating,
+      grade: errorRating.grade,
+    })
+  }
+
+  if (items.length === 0) return null
+
+  const badCount = items.filter((i) => i.grade === 'bad').length
+  const avgCount = items.filter((i) => i.grade === 'average').length
+  const goodCount = items.filter((i) => i.grade === 'good').length
+
+  let stage = 'good'
+  let label = 'Good (Production Ready)'
+  let color = 'emerald'
+  let summary = 'Your inference metrics meet production standards with fast TTFT and high decode throughput.'
+  let advice = 'Serving configuration is healthy and ready for production scaling.'
+
+  if (errorRating && errorRating.grade === 'bad') {
+    stage = 'bad'
+    label = 'Bad (SLA Breached)'
+    color = 'rose'
+    summary = `High failure rate (${errorRating.badge}) detected. Requests are timing out or crashing under load.`
+    advice = 'Reduce concurrency, lower --max-num-seqs, or allocate additional VRAM for the KV cache.'
+  } else if (badCount >= 2 || (badCount === 1 && items.length <= 2)) {
+    stage = 'bad'
+    label = 'Bad (Bottleneck Detected)'
+    color = 'rose'
+    const badItems = items.filter((i) => i.grade === 'bad').map((i) => i.name).join(' & ')
+    summary = `Sub-optimal performance detected in ${badItems}. Inference is constrained.`
+    advice = 'Check model quantization (FP8/AWQ), enable chunked prefill, or scale GPU compute.'
+  } else if (badCount === 1 || avgCount >= 2 || (avgCount >= 1 && goodCount === 0)) {
+    stage = 'average'
+    label = 'Average (Acceptable / Tuning Recommended)'
+    color = 'amber'
+    const targetItems = items.filter((i) => i.grade !== 'good').map((i) => i.name).join(' & ')
+    summary = `Performance is functional, but ${targetItems || 'some metrics'} could be tuned for lower latency.`
+    advice = 'Optimization recommended before scaling to high concurrent traffic.'
+  } else {
+    stage = 'good'
+    label = 'Good (Optimal / Production Ready)'
+    color = 'emerald'
+    summary = 'All measured metrics are within optimal engineering thresholds.'
+    advice = 'Configuration is well-balanced for production deployment.'
+  }
+
+  return {
+    stage,
+    label,
+    color,
+    summary,
+    advice,
+    badCount,
+    avgCount,
+    goodCount,
+    items,
+  }
+}
+

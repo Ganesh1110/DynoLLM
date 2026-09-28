@@ -21,6 +21,7 @@ import {
   getSpeedRating,
   getLatencyConsistencyRating,
   getRatingBadgeClasses,
+  getOverallEvaluation,
 } from '../utils/ratingUtils'
 
 
@@ -284,6 +285,18 @@ export function Benchmark() {
     () => getLatencyConsistencyRating(activeRun?.p95_latency_ms, activeRun?.avg_total_latency_ms),
     [activeRun?.p95_latency_ms, activeRun?.avg_total_latency_ms]
   )
+
+  const overallEvaluation = useMemo(() => {
+    if (!activeRun) return null
+    return getOverallEvaluation({
+      ttftMs: activeRun.avg_ttft_ms,
+      speedTokPerSec: activeRun.avg_generation_tokens_per_second,
+      tpotMs: activeRun.avg_tpot_ms,
+      p95Ms: activeRun.p95_latency_ms,
+      avgMs: activeRun.avg_total_latency_ms,
+      pageType: 'benchmark',
+    })
+  }, [activeRun])
 
   return (
     <div className="space-y-6">
@@ -679,6 +692,51 @@ export function Benchmark() {
                         style={{ width: `${(liveProgress.completed / liveProgress.total) * 100}%` }}
                       />
                     </div>
+                  </div>
+                )}
+
+                {/* Result Evaluation Stage Banner */}
+                {overallEvaluation && (
+                  <div
+                    className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${
+                      overallEvaluation.stage === 'good'
+                        ? 'bg-emerald-950/25 border-emerald-500/30'
+                        : overallEvaluation.stage === 'bad'
+                        ? 'bg-rose-950/25 border-rose-500/30'
+                        : 'bg-amber-950/25 border-amber-500/30'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-xl shrink-0">
+                        {overallEvaluation.stage === 'good' ? '🟢' : overallEvaluation.stage === 'bad' ? '🔴' : '🟡'}
+                      </span>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                            After Testing Verdict:
+                          </span>
+                          <span
+                            className={`text-xs font-black uppercase px-2 py-0.5 rounded border font-mono ${getRatingBadgeClasses(
+                              overallEvaluation.color
+                            )}`}
+                          >
+                            {overallEvaluation.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-300 mt-0.5 leading-snug">{overallEvaluation.summary}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuideModalTab('after')
+                        setGuideModalOpen(true)
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-800 hover:bg-gray-700 text-sky-400 border border-gray-700 hover:border-sky-500/40 flex items-center space-x-1.5 transition-all shadow-sm shrink-0 self-start sm:self-auto"
+                    >
+                      <span>View Stage Diagnosis</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 )}
 
@@ -1162,6 +1220,8 @@ export function Benchmark() {
         onClose={() => setGuideModalOpen(false)}
         initialTab={guideModalTab}
         pageType="benchmark"
+        activeRun={activeRun}
+        overallEvaluation={overallEvaluation}
       />
     </div>
   )

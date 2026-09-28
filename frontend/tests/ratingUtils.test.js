@@ -7,6 +7,7 @@ import {
   getErrorRateRating,
   getLatencyConsistencyRating,
   getRatingBadgeClasses,
+  getOverallEvaluation,
 } from '../src/utils/ratingUtils.js'
 
 test('Rating Utils: getTtftRating classifies instant, interactive, and high latency', () => {
@@ -92,3 +93,56 @@ test('Rating Utils: getRatingBadgeClasses provides correct CSS strings', () => {
   assert.match(getRatingBadgeClasses('sky'), /text-sky-400/)
   assert.match(getRatingBadgeClasses('unknown'), /text-gray-400/)
 })
+
+test('Rating Utils: getOverallEvaluation classifies Good, Average, and Bad stages', () => {
+  // All good metrics
+  const goodRun = getOverallEvaluation({
+    ttftMs: 180,
+    speedTokPerSec: 45,
+    p95Ms: 120,
+    avgMs: 100,
+    errorRatePct: 0,
+  })
+  assert.equal(goodRun?.stage, 'good')
+  assert.equal(goodRun?.color, 'emerald')
+  assert.match(goodRun?.label, /Good/)
+  assert.equal(goodRun?.goodCount, 4)
+
+  // Average performance
+  const avgRun = getOverallEvaluation({
+    ttftMs: 450,
+    speedTokPerSec: 22,
+    p95Ms: 180,
+    avgMs: 100,
+    errorRatePct: 2.0,
+  })
+  assert.equal(avgRun?.stage, 'average')
+  assert.equal(avgRun?.color, 'amber')
+  assert.match(avgRun?.label, /Average/)
+
+  // Bad performance: SLA breach
+  const badRunSla = getOverallEvaluation({
+    ttftMs: 150,
+    speedTokPerSec: 50,
+    p95Ms: 120,
+    avgMs: 100,
+    errorRatePct: 15.0,
+  })
+  assert.equal(badRunSla?.stage, 'bad')
+  assert.equal(badRunSla?.color, 'rose')
+  assert.match(badRunSla?.label, /Bad/)
+
+  // Bad performance: Multiple bottlenecks
+  const badRunBottleneck = getOverallEvaluation({
+    ttftMs: 1200,
+    speedTokPerSec: 8,
+    p95Ms: 3000,
+    avgMs: 1000,
+  })
+  assert.equal(badRunBottleneck?.stage, 'bad')
+  assert.equal(badRunBottleneck?.color, 'rose')
+
+  // Empty / unmeasured
+  assert.equal(getOverallEvaluation({}), null)
+})
+
