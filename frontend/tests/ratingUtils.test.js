@@ -32,9 +32,11 @@ test('Rating Utils: getTtftRating classifies instant, interactive, and high late
 test('Rating Utils: getSpeedRating classifies blazing, reading speed, and sluggish', () => {
   assert.equal(getSpeedRating(45)?.grade, 'good')
   assert.equal(getSpeedRating(45)?.badge, 'Blazing')
+  assert.equal(getSpeedRating(33)?.grade, 'good')   // exact good boundary
 
   assert.equal(getSpeedRating(20)?.grade, 'average')
   assert.equal(getSpeedRating(20)?.badge, 'Reading Speed')
+  assert.equal(getSpeedRating(20)?.color, 'amber')   // was sky, now amber
 
   assert.equal(getSpeedRating(8)?.grade, 'bad')
   assert.equal(getSpeedRating(8)?.badge, 'Sluggish')
@@ -49,6 +51,7 @@ test('Rating Utils: getTpotRating classifies snappy, human speed, and slow typin
 
   assert.equal(getTpotRating(45)?.grade, 'average')
   assert.equal(getTpotRating(45)?.badge, 'Human Speed')
+  assert.equal(getTpotRating(45)?.color, 'amber')  // was sky, now amber
 
   assert.equal(getTpotRating(90)?.grade, 'bad')
   assert.equal(getTpotRating(90)?.badge, 'Slow Typing')

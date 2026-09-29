@@ -1317,9 +1317,12 @@ export function VllmOptimizer() {
             <input
               type="number"
               min={1}
-              max={512}
+              placeholder="e.g. 16, 64, 512"
               value={concurrency}
-              onChange={(e) => setConcurrency(Math.max(1, parseInt(e.target.value) || 1))}
+              onChange={(e) => setConcurrency(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
+              onBlur={() => {
+                if (!concurrency || concurrency < 1) setConcurrency(1)
+              }}
               className="input font-mono text-xs py-1.5 px-3 w-28 text-white font-bold"
             />
             <div className="flex items-center gap-1 flex-wrap">
@@ -2931,9 +2934,14 @@ vLLM version 0.8.2`
                       </div>
                       <input
                         type="number"
+                        min={1}
+                        placeholder="e.g. 4096, 32768"
                         value={flags.maxModelLen}
-                        onChange={(e) => updateFlag('maxModelLen', parseInt(e.target.value) || 2048)}
-                        className="input font-mono text-xs py-0.5 px-1.5 w-16 text-right"
+                        onChange={(e) => updateFlag('maxModelLen', e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
+                        onBlur={() => {
+                          if (!flags.maxModelLen || flags.maxModelLen < 1) updateFlag('maxModelLen', 2048)
+                        }}
+                        className="input font-mono text-xs py-0.5 px-2 w-24 text-right"
                       />
                     </div>
                   </div>

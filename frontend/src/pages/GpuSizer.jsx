@@ -293,8 +293,12 @@ export function GpuSizer() {
             type="number"
             step="0.1"
             min="0.1"
+            placeholder="e.g. 7, 14, 70"
             value={params}
-            onChange={(e) => setParams(parseFloat(e.target.value) || 0)}
+            onChange={(e) => setParams(e.target.value === '' ? '' : parseFloat(e.target.value) || 0)}
+            onBlur={() => {
+              if (!params || params < 0.1) setParams(7)
+            }}
             className="input font-mono text-sm"
           />
           <span className="text-[10px] text-gray-500 block">
@@ -345,9 +349,12 @@ export function GpuSizer() {
           <input
             type="number"
             min="1"
-            max="256"
+            placeholder="e.g. 1, 16, 64, 512"
             value={targetUsers}
-            onChange={(e) => setTargetUsers(parseInt(e.target.value) || 1)}
+            onChange={(e) => setTargetUsers(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
+            onBlur={() => {
+              if (!targetUsers || targetUsers < 1) setTargetUsers(1)
+            }}
             className="input font-mono text-sm border-sky-500/40"
           />
           <span className="text-[10px] text-sky-400 block font-mono">

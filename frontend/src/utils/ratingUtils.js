@@ -48,10 +48,11 @@ export function getSpeedRating(tokPerSec) {
   if (tokPerSec == null || isNaN(tokPerSec) || tokPerSec <= 0) return null
   const tps = Number(tokPerSec)
 
-  if (tps >= 35) {
+  // Good threshold aligned with TPOT good boundary (< 30ms ≈ 33.3 tok/s)
+  if (tps >= 33) {
     return {
       grade: 'good',
-      label: 'Blazing (>35 tok/s)',
+      label: 'Blazing (≥33 tok/s)',
       badge: 'Blazing',
       color: 'emerald',
       description: 'Extremely fast streaming. Ideal for code generation, agentic loops, and summarization.',
@@ -60,10 +61,10 @@ export function getSpeedRating(tokPerSec) {
   if (tps >= 15) {
     return {
       grade: 'average',
-      label: 'Reading Speed (15-35 tok/s)',
+      label: 'Reading Speed (15–33 tok/s)',
       badge: 'Reading Speed',
-      color: 'sky',
-      description: 'Comfortable human reading cadence (~15-20 words/sec). Good for interactive reading.',
+      color: 'amber',
+      description: 'Comfortable human reading cadence (~15–20 words/sec). Good for interactive reading.',
     }
   }
   return {
@@ -98,7 +99,7 @@ export function getTpotRating(tpotMs) {
       grade: 'average',
       label: 'Human Speed (30-65ms)',
       badge: 'Human Speed',
-      color: 'sky',
+      color: 'amber',
       description: 'Normal streaming cadence matching typical reading flow.',
     }
   }
@@ -227,6 +228,9 @@ export function getOverallEvaluation({
 } = {}) {
   const ttftRating = getTtftRating(ttftMs)
   const speedRating = getSpeedRating(speedTokPerSec)
+  // tpotRating is computed for reference display only — NOT added to items[]
+  // because TPOT ≈ 1000/tok/s is the same signal as speed; including both
+  // would double-count one slow decode and unfairly trigger the "Bad" verdict.
   const tpotRating = getTpotRating(tpotMs)
   const consistencyRating = getLatencyConsistencyRating(p95Ms, avgMs)
   const errorRating = getErrorRateRating(errorRatePct)
@@ -252,16 +256,8 @@ export function getOverallEvaluation({
       grade: speedRating.grade,
     })
   }
-  if (tpotRating) {
-    items.push({
-      key: 'tpot',
-      name: 'TPOT',
-      raw: tpotMs,
-      display: `${Math.round(tpotMs)} ms/tok`,
-      rating: tpotRating,
-      grade: tpotRating.grade,
-    })
-  }
+  // tpot is intentionally excluded from items[] — it shares the same
+  // decode-throughput signal as speed and would cause double-counting.
   if (consistencyRating) {
     items.push({
       key: 'consistency',
@@ -333,6 +329,7 @@ export function getOverallEvaluation({
     avgCount,
     goodCount,
     items,
+    tpotRating, // reference-only — not included in verdict scoring
   }
 }
 

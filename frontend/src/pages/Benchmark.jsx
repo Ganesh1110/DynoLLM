@@ -516,11 +516,16 @@ export function Benchmark() {
                     <label className="label">Max Tokens</label>
                     <input
                       type="number"
-                      min="32"
-                      max="4096"
+                      min="1"
                       className="input"
+                      placeholder="e.g. 512, 2048, 4096"
                       value={config.max_tokens}
-                      onChange={(e) => setConfig({ ...config, max_tokens: parseInt(e.target.value) || 512 })}
+                      onChange={(e) => setConfig({ ...config, max_tokens: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                      onBlur={() => {
+                        if (!config.max_tokens || config.max_tokens < 1) {
+                          setConfig((prev) => ({ ...prev, max_tokens: 512 }))
+                        }
+                      }}
                     />
                   </div>
 
@@ -529,10 +534,15 @@ export function Benchmark() {
                     <input
                       type="number"
                       min="1"
-                      max="20"
                       className="input"
+                      placeholder="e.g. 3, 10, 50"
                       value={config.num_runs}
-                      onChange={(e) => setConfig({ ...config, num_runs: parseInt(e.target.value) || 3 })}
+                      onChange={(e) => setConfig({ ...config, num_runs: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                      onBlur={() => {
+                        if (!config.num_runs || config.num_runs < 1) {
+                          setConfig((prev) => ({ ...prev, num_runs: 3 }))
+                        }
+                      }}
                     />
                   </div>
                 </div>
@@ -589,11 +599,16 @@ export function Benchmark() {
                   <label className="label text-xs">Max Tokens (Per Step Response)</label>
                   <input
                     type="number"
-                    min="32"
-                    max="1024"
-                    className="input"
+                    min="1"
+                    className="input text-xs"
+                    placeholder="e.g. 256, 1024, 4096"
                     value={config.max_tokens}
-                    onChange={(e) => setConfig({ ...config, max_tokens: parseInt(e.target.value) || 256 })}
+                    onChange={(e) => setConfig({ ...config, max_tokens: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                    onBlur={() => {
+                      if (!config.max_tokens || config.max_tokens < 1) {
+                        setConfig((prev) => ({ ...prev, max_tokens: 256 }))
+                      }
+                    }}
                   />
                 </div>
               </div>

@@ -47,7 +47,15 @@ export function TestingGuideModal({
 
   const ttftItem = evalResult?.items?.find((i) => i.key === 'ttft')
   const speedItem = evalResult?.items?.find((i) => i.key === 'speed')
-  const tpotItem = evalResult?.items?.find((i) => i.key === 'tpot')
+  // TPOT is excluded from verdict items[] to avoid double-counting decode signal.
+  // We reconstruct a display object from the tpotRating reference field.
+  const tpotItem = evalResult?.tpotRating
+    ? {
+        grade: evalResult.tpotRating.grade,
+        display: activeRun?.avg_tpot_ms != null ? `${Math.round(activeRun.avg_tpot_ms)} ms/tok` : null,
+        rating: evalResult.tpotRating,
+      }
+    : null
   const consistencyItem = evalResult?.items?.find((i) => i.key === 'consistency')
   const errorItem = evalResult?.items?.find((i) => i.key === 'errorRate')
 
@@ -168,7 +176,7 @@ export function TestingGuideModal({
                   <div className="bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
                     <span className="font-bold text-sky-300 block mb-0.5">Temperature (0.0 to 1.0)</span>
                     <span className="text-[11px] text-gray-400">
-                      Controls sampling randomness. Use <code className="text-sky-200">0.0–0.2</code> for deterministic coding/math, <code className="text-sky-200">0.7</code> for balanced benchmark repeatability.
+                      Controls sampling randomness. Use <code className="text-sky-200">0</code> (greedy, deterministic) for repeatable benchmark comparisons. Use <code className="text-sky-200">0.7</code> only when evaluating generation quality variation, not latency.
                     </span>
                   </div>
                   <div className="bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
@@ -197,7 +205,7 @@ export function TestingGuideModal({
                       <div className="bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
                         <span className="font-bold text-sky-300 block mb-0.5">Number of Iterations</span>
                         <span className="text-[11px] text-gray-400">
-                          Runs 3–5 repeated queries to average out cold-start latency and measure stable P95 response consistency.
+                          More iterations produce more reliable P95 estimates. With only 3–5 runs, P95 is essentially the worst sample — use <strong className="text-white">20+ iterations</strong> for stable tail-latency numbers.
                         </span>
                       </div>
                       <div className="bg-gray-900/60 p-2.5 rounded-lg border border-gray-800">
@@ -293,6 +301,16 @@ export function TestingGuideModal({
                     </span>
                   </div>
 
+                  {/* Verdict logic footnote */}
+                  <div className="p-2 bg-gray-900/50 rounded-lg border border-gray-700/60 text-[10px] text-gray-500 leading-relaxed">
+                    <strong className="text-gray-400">How the stage is decided:</strong>{' '}
+                    Error rate &gt;5% → <span className="text-rose-400">Bad</span> immediately &nbsp;|&nbsp;
+                    2+ metrics in Bad tier → <span className="text-rose-400">Bad (Bottleneck)</span> &nbsp;|&nbsp;
+                    2+ metrics in Average tier → <span className="text-amber-400">Average</span> &nbsp;|&nbsp;
+                    otherwise → <span className="text-emerald-400">Good</span>.{' '}
+                    TPOT is shown for reference but not counted separately (it mirrors Generation Speed).
+                  </div>
+
                   {/* Quick Metric Strip */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 font-mono">
                     {evalResult.items.map((item) => (
@@ -367,7 +385,7 @@ export function TestingGuideModal({
                         )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-400 text-[11px]">
-                        Prefill delay. Under 300ms feels instant to humans; above 1s feels sluggish.
+                        Prefill delay. Under 300ms feels instant; above 1s feels sluggish. <em className="text-gray-500">These thresholds assume 7–13B models with ~512-token prompts — larger models or longer prompts will always have higher TTFT.</em>
                       </td>
                     </tr>
 
@@ -378,17 +396,17 @@ export function TestingGuideModal({
                         <span className="text-[10px] block text-gray-500 font-normal font-sans">Tokens / second</span>
                       </td>
                       <td className={`py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5 ${speedItem?.grade === 'good' ? 'ring-2 ring-emerald-500/80 bg-emerald-500/20 rounded' : ''}`}>
-                        &gt; 35 tok/s
+                        &#x2265; 33 tok/s
                         {speedItem?.grade === 'good' && (
                           <span className="block text-[9px] font-sans text-emerald-300 font-bold mt-0.5">
                             📍 You: {speedItem.display}
                           </span>
                         )}
                       </td>
-                      <td className={`py-2.5 px-3 font-mono text-sky-300 bg-sky-500/5 ${speedItem?.grade === 'average' ? 'ring-2 ring-sky-500/80 bg-sky-500/20 rounded' : ''}`}>
-                        15 – 35 tok/s
+                      <td className={`py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5 ${speedItem?.grade === 'average' ? 'ring-2 ring-amber-500/80 bg-amber-500/20 rounded' : ''}`}>
+                        15 – 33 tok/s
                         {speedItem?.grade === 'average' && (
-                          <span className="block text-[9px] font-sans text-sky-300 font-bold mt-0.5">
+                          <span className="block text-[9px] font-sans text-amber-300 font-bold mt-0.5">
                             📍 You: {speedItem.display}
                           </span>
                         )}
@@ -402,7 +420,7 @@ export function TestingGuideModal({
                         )}
                       </td>
                       <td className="py-2.5 px-3 text-gray-400 text-[11px]">
-                        Human reading speed is ~15–20 words/sec. Above 35 tok/s is ideal for automated agent loops.
+                        Human reading speed is ~15–20 words/sec. Above 33 tok/s is ideal for automated agent loops.
                       </td>
                     </tr>
 
@@ -420,10 +438,10 @@ export function TestingGuideModal({
                           </span>
                         )}
                       </td>
-                      <td className={`py-2.5 px-3 font-mono text-sky-300 bg-sky-500/5 ${tpotItem?.grade === 'average' ? 'ring-2 ring-sky-500/80 bg-sky-500/20 rounded' : ''}`}>
+                      <td className={`py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5 ${tpotItem?.grade === 'average' ? 'ring-2 ring-amber-500/80 bg-amber-500/20 rounded' : ''}`}>
                         30 – 65 ms/tok
                         {tpotItem?.grade === 'average' && (
-                          <span className="block text-[9px] font-sans text-sky-300 font-bold mt-0.5">
+                          <span className="block text-[9px] font-sans text-amber-300 font-bold mt-0.5">
                             📍 You: {tpotItem.display}
                           </span>
                         )}
@@ -510,26 +528,83 @@ export function TestingGuideModal({
                         Production SLA gate. Over 5% marks the capacity limit where request concurrency must be capped.
                       </td>
                     </tr>
+
+                    {/* Throughput & Concurrency — load-test only */}
+                    {pageType === 'loadtest' && (
+                      <>
+                        <tr className="hover:bg-gray-800/30 transition-colors">
+                          <td className="py-2.5 px-3 font-bold text-white font-mono">
+                            Throughput
+                            <span className="text-[10px] block text-gray-500 font-normal font-sans">Requests / second</span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5">
+                            Scales linearly with users
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5">
+                            Plateaus (knee point)
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5">
+                            Drops or flat-lines
+                          </td>
+                          <td className="py-2.5 px-3 text-gray-400 text-[11px]">
+                            At saturation, adding more users yields no extra throughput — only more errors and higher latency.
+                          </td>
+                        </tr>
+                        <tr className="hover:bg-gray-800/30 transition-colors">
+                          <td className="py-2.5 px-3 font-bold text-white font-mono">
+                            Peak Concurrency
+                            <span className="text-[10px] block text-gray-500 font-normal font-sans">Simultaneous requests</span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-emerald-300 font-bold bg-emerald-500/5">
+                            At or below --max-num-seqs
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-amber-300 bg-amber-500/5">
+                            Near limit, queuing starts
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-rose-300 font-bold bg-rose-500/5">
+                            Exceeds GPU budget
+                          </td>
+                          <td className="py-2.5 px-3 text-gray-400 text-[11px]">
+                            Once concurrency exceeds the KV-cache budget, vLLM preempts sequences — P95 spikes and errors rise.
+                          </td>
+                        </tr>
+                      </>
+                    )}
                   </tbody>
                 </table>
               </div>
 
-              {/* Actionable Tuning Tips if Red */}
-              <div className="p-3.5 bg-gray-900/90 border border-gray-800 rounded-xl space-y-2">
+              {/* Actionable Tuning Tips */}
+              <div className="p-3.5 bg-gray-900/90 border border-gray-800 rounded-xl space-y-3">
                 <h4 className="font-bold text-xs text-white flex items-center space-x-1.5">
                   <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
-                  <span>How to Tune if Results are in the Red (Bad):</span>
+                  <span>Tuning Tips by Stage</span>
                 </h4>
-                <div className="space-y-1.5 text-[11px] text-gray-300">
-                  <p>
-                    • <strong>If TTFT is too high (&gt;800ms)</strong>: Turn on <code className="text-sky-300">--enable-chunked-prefill</code> in vLLM to split long prefill prompts across iterations, or enable Prefix Caching to reuse KV blocks.
-                  </p>
-                  <p>
-                    • <strong>If Decode Speed is sluggish (&lt;15 tok/s)</strong>: Quantize weights with FP8 or AWQ to cut memory bandwidth demands in half, or use Tensor Parallelism (<code className="text-sky-300">-tp 2</code>) across dual GPUs.
-                  </p>
-                  <p>
-                    • <strong>If Error Rate &gt; 5% under load</strong>: Reduce <code className="text-sky-300">--max-num-seqs</code> to prevent memory preemption/swapping, and ensure <code className="text-sky-300">--gpu-memory-utilization 0.90</code> is set.
-                  </p>
+
+                {/* Average tips */}
+                <div className="space-y-1 text-[11px]">
+                  <p className="font-semibold text-amber-300">🟡 If results are Average — try these quick wins:</p>
+                  <div className="space-y-1 text-gray-300 pl-2">
+                    <p>• <strong>Warm up first</strong>: The first request is always slower (CUDA graph compilation). Run one warm-up query before benchmarking.</p>
+                    <p>• <strong>Increase batch size</strong>: Under multi-user load, larger <code className="text-sky-300">--max-num-seqs</code> can improve GPU utilization and throughput.</p>
+                    <p>• <strong>Check network proximity</strong>: High round-trip time between client and GPU server inflates TTFT independently of the model.</p>
+                  </div>
+                </div>
+
+                {/* Bad tips */}
+                <div className="space-y-1 text-[11px] border-t border-gray-800/80 pt-2">
+                  <p className="font-semibold text-rose-400">🔴 If results are Bad — deeper fixes needed:</p>
+                  <div className="space-y-1 text-gray-300 pl-2">
+                    <p>
+                      • <strong>If TTFT is too high (&gt;800ms)</strong>: For high-concurrency mixed load, try <code className="text-sky-300">--enable-chunked-prefill</code> to prevent long prefills from blocking short requests. Note: this helps latency under concurrent load, not necessarily single-request TTFT. Prefix caching only helps when prompts share a common prefix.
+                    </p>
+                    <p>
+                      • <strong>If Decode Speed is sluggish (&lt;15 tok/s)</strong>: Quantize weights with FP8 or AWQ to cut memory-bandwidth demands, or use Tensor Parallelism (<code className="text-sky-300">--tensor-parallel-size 2</code>) across dual GPUs.
+                    </p>
+                    <p>
+                      • <strong>If Error Rate &gt; 5% under load</strong>: Reduce <code className="text-sky-300">--max-num-seqs</code> to prevent KV-cache preemption/swapping. If hitting OOM, <em>lower</em> <code className="text-sky-300">--gpu-memory-utilization</code> to 0.80–0.85 (0.90 is already the default; raising it further rarely helps and can cause OOM).
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>

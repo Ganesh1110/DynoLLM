@@ -356,10 +356,15 @@ export function LoadTest() {
                 <input
                   type="number"
                   min="1"
-                  max="200"
                   className="input"
+                  placeholder="e.g. 10, 50, 500"
                   value={config.target_users}
-                  onChange={(e) => setConfig({ ...config, target_users: parseInt(e.target.value) || 10 })}
+                  onChange={(e) => setConfig({ ...config, target_users: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                  onBlur={() => {
+                    if (!config.target_users || config.target_users < 1) {
+                      setConfig((prev) => ({ ...prev, target_users: 10 }))
+                    }
+                  }}
                 />
               </div>
 
@@ -367,11 +372,16 @@ export function LoadTest() {
                 <label className="label">Duration (sec)</label>
                 <input
                   type="number"
-                  min="10"
-                  max="3600"
+                  min="1"
                   className="input"
+                  placeholder="e.g. 60, 300, 3600"
                   value={config.duration_seconds}
-                  onChange={(e) => setConfig({ ...config, duration_seconds: parseInt(e.target.value) || 60 })}
+                  onChange={(e) => setConfig({ ...config, duration_seconds: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                  onBlur={() => {
+                    if (!config.duration_seconds || config.duration_seconds < 1) {
+                      setConfig((prev) => ({ ...prev, duration_seconds: 60 }))
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -384,18 +394,30 @@ export function LoadTest() {
                     type="number"
                     min="1"
                     className="input text-xs"
+                    placeholder="e.g. 2, 5, 20"
                     value={config.rampup_step_users}
-                    onChange={(e) => setConfig({ ...config, rampup_step_users: parseInt(e.target.value) || 2 })}
+                    onChange={(e) => setConfig({ ...config, rampup_step_users: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                    onBlur={() => {
+                      if (!config.rampup_step_users || config.rampup_step_users < 1) {
+                        setConfig((prev) => ({ ...prev, rampup_step_users: 2 }))
+                      }
+                    }}
                   />
                 </div>
                 <div>
                   <label className="label text-[11px]">Step Interval (sec)</label>
                   <input
                     type="number"
-                    min="5"
+                    min="1"
                     className="input text-xs"
+                    placeholder="e.g. 10, 30, 60"
                     value={config.rampup_step_seconds}
-                    onChange={(e) => setConfig({ ...config, rampup_step_seconds: parseInt(e.target.value) || 10 })}
+                    onChange={(e) => setConfig({ ...config, rampup_step_seconds: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                    onBlur={() => {
+                      if (!config.rampup_step_seconds || config.rampup_step_seconds < 1) {
+                        setConfig((prev) => ({ ...prev, rampup_step_seconds: 10 }))
+                      }
+                    }}
                   />
                 </div>
               </div>
@@ -406,11 +428,16 @@ export function LoadTest() {
                 <label className="label">Max Output Tokens</label>
                 <input
                   type="number"
-                  min="32"
-                  max="2048"
+                  min="1"
                   className="input"
+                  placeholder="e.g. 256, 2048, 4096"
                   value={config.max_tokens}
-                  onChange={(e) => setConfig({ ...config, max_tokens: parseInt(e.target.value) || 256 })}
+                  onChange={(e) => setConfig({ ...config, max_tokens: e.target.value === '' ? '' : parseInt(e.target.value) || 0 })}
+                  onBlur={() => {
+                    if (!config.max_tokens || config.max_tokens < 1) {
+                      setConfig((prev) => ({ ...prev, max_tokens: 256 }))
+                    }
+                  }}
                 />
               </div>
 
@@ -418,11 +445,16 @@ export function LoadTest() {
                 <label className="label">Timeout (sec)</label>
                 <input
                   type="number"
-                  min="5"
-                  max="300"
+                  min="1"
                   className="input"
+                  placeholder="e.g. 120, 300, 600"
                   value={config.request_timeout}
-                  onChange={(e) => setConfig({ ...config, request_timeout: parseFloat(e.target.value) || 120 })}
+                  onChange={(e) => setConfig({ ...config, request_timeout: e.target.value === '' ? '' : parseFloat(e.target.value) || 0 })}
+                  onBlur={() => {
+                    if (!config.request_timeout || config.request_timeout < 1) {
+                      setConfig((prev) => ({ ...prev, request_timeout: 120 }))
+                    }
+                  }}
                 />
               </div>
             </div>
