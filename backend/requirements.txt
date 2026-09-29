@@ -8,9 +8,6 @@ aiosqlite==0.20.0
 psutil==6.0.0
 pynvml==11.5.0
 structlog==24.4.0
-python-multipart==0.0.12
-aiofiles==24.1.0
 numpy==2.1.1
-scipy==1.14.1
 python-dotenv==1.0.1
 greenlet==3.1.1

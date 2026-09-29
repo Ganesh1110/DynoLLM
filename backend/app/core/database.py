@@ -10,7 +10,12 @@ class Base(DeclarativeBase):
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    connect_args={"check_same_thread": False},
+    connect_args={
+        "check_same_thread": False,
+        # WAL mode: allows one writer + concurrent readers.
+        # Prevents read queries from blocking the per-tier bulk insert during load tests.
+        "timeout": 30,
+    },
 )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -145,6 +150,10 @@ BUILTIN_TEMPLATES = [
 
 def _migrate_columns_sync(conn):
     """Safely check and add any missing columns in SQLite database."""
+    # Enable WAL mode for better concurrency: one writer, concurrent readers.
+    conn.execute(text("PRAGMA journal_mode=WAL"))
+    conn.execute(text("PRAGMA synchronous=NORMAL"))  # safe with WAL; faster than FULL
+
     # Columns for benchmark_runs
     cur = conn.execute(text("PRAGMA table_info(benchmark_runs)"))
     existing_cols = {row[1] for row in cur.fetchall()}
@@ -197,6 +206,9 @@ def _migrate_columns_sync(conn):
         ("input_token_ratio", "FLOAT"),
         ("cost_estimate", "FLOAT"),
         ("concurrency_breakdown", "JSON"),
+        # New columns (Issues 5 & 6)
+        ("safe_max_concurrency_is_ceiling", "BOOLEAN"),
+        ("rampup_budget_warning", "TEXT"),
     ]
     for col_name, col_type in lt_run_cols:
         if col_name not in existing_lt_run_cols:

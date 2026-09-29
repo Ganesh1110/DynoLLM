@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.database import create_tables
-from app.core.auth import verify_api_key
+from app.core.auth import verify_api_key, verify_export_api_key
 import app.models  # noqa: F401 — ensure all models are registered
 
 from app.api.runtimes import router as runtimes_router
@@ -21,6 +21,11 @@ log = structlog.get_logger()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not settings.API_KEY:
+        log.warning(
+            "security_notice",
+            warning="API_KEY is not set — all endpoints are unauthenticated. Set API_KEY for production/remote deployments.",
+        )
     log.info("Starting up — creating database tables")
     await create_tables()
     log.info("Database ready")
@@ -47,7 +52,7 @@ app.include_router(benchmarks_router, dependencies=[Depends(verify_api_key)])
 app.include_router(prompt_templates_router, dependencies=[Depends(verify_api_key)])
 app.include_router(load_tests_router, dependencies=[Depends(verify_api_key)])
 app.include_router(monitoring_router)
-app.include_router(export_router, dependencies=[Depends(verify_api_key)])
+app.include_router(export_router, dependencies=[Depends(verify_export_api_key)])
 
 
 @app.get("/api/health")

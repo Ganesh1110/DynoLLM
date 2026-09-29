@@ -50,6 +50,12 @@ class LoadTestRun(Base):
     tokens_per_watt = Column(Float, nullable=True)
     abort_reason = Column(Text, nullable=True)
     safe_max_concurrency = Column(Integer, nullable=True)
+    # True only when a tier actually breached SLA during this run — i.e. the value is a
+    # measured ceiling. False means nothing breached and the value equals the highest tier
+    # tested (not a true capacity limit).
+    safe_max_concurrency_is_ceiling = Column(Boolean, nullable=True)
+    # Non-null when rampup target_users is unreachable given duration_seconds/rampup_step_seconds.
+    rampup_budget_warning = Column(Text, nullable=True)
 
     # Token aggregates & capacity metrics
     total_prompt_tokens = Column(Integer, nullable=True)

@@ -77,6 +77,7 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
         payload = self._build_payload(request, stream=True)
         is_first = True
         chunk_count = 0  # Fix 4: fallback token count when runtime omits usage
+        usage_received = False
         async with self.get_client(client, default_timeout=300.0) as http_client:
             async with http_client.stream(
                 "POST",
@@ -87,8 +88,8 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line or line == "data: [DONE]":
-                        if line == "data: [DONE]":
-                            # Fix 4: If runtime never sent usage, use chunk count as fallback
+                        if line == "data: [DONE]" and not usage_received:
+                            # Fallback only if runtime never sent usage
                             yield StreamChunk(delta="", is_last=True, completion_tokens=chunk_count or None)
                         continue
                     if line.startswith("data: "):
@@ -98,7 +99,20 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                     except json.JSONDecodeError:
                         continue
                     choices = chunk.get("choices", [])
+                    # Issue 1 fix: vLLM (and some other runtimes) may send a trailing
+                    # chunk with choices=[] that carries only the usage field.
+                    # Previously this was silently skipped, causing prompt_tokens=NULL.
+                    # Now we extract usage before continuing so it is never lost.
                     if not choices:
+                        usage = chunk.get("usage", {})
+                        if usage:
+                            usage_received = True
+                            yield StreamChunk(
+                                delta="",
+                                is_last=True,
+                                prompt_tokens=usage.get("prompt_tokens"),
+                                completion_tokens=usage.get("completion_tokens") or (chunk_count or None),
+                            )
                         continue
                     delta_obj = choices[0].get("delta", {})
                     delta = delta_obj.get("content", "")
@@ -106,6 +120,8 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                         chunk_count += 1  # Fix 4: count non-empty content chunks
                     finish = choices[0].get("finish_reason")
                     usage = chunk.get("usage", {})
+                    if usage:
+                        usage_received = True
                     # Fix 4: prefer reported completion_tokens; fall back to chunk_count
                     ct = usage.get("completion_tokens") or (chunk_count if finish else None)
                     yield StreamChunk(

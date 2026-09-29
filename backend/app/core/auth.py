@@ -5,6 +5,13 @@ If `settings.API_KEY` is not set (default), all requests pass through without au
 If `settings.API_KEY` is set, requests must supply either:
   - Header: `X-API-Key: <key>`
   - Header: `Authorization: Bearer <key>`
+
+Security Notice (Issue 14):
+Standard REST endpoints do NOT accept authentication via URL query parameters
+(?token=), preventing credentials from leaking into server access logs, web proxies,
+and browser history.
+Only file export downloads (where browser <a href> cannot send custom headers) and
+WebSockets (where browser WebSocket API does not allow custom headers) permit query tokens.
 """
 from typing import Optional
 from fastapi import Security, HTTPException, status, WebSocket, WebSocketDisconnect, Query
@@ -18,16 +25,15 @@ http_bearer = HTTPBearer(auto_error=False)
 async def verify_api_key(
     header_key: Optional[str] = Security(api_key_header),
     bearer_creds: Optional[HTTPAuthorizationCredentials] = Security(http_bearer),
-    # Fix 7b: also accept ?token= query param so browser anchor downloads work
-    token: Optional[str] = Query(None),
 ) -> Optional[str]:
+    """Verify API key from HTTP headers only (X-API-Key or Bearer token).
+
+    Issue 14 fix: Query parameters (?token=) are removed from standard REST routes to
+    prevent credentials from leaking via URLs into server access logs and browser history.
+    """
     # If no API key is configured on the server, auth is disabled (zero-config local dev)
     if not settings.API_KEY:
         return None
-
-    # Check query-param token (used by browser downloads where headers can't be set)
-    if token and token == settings.API_KEY:
-        return token
 
     # Check X-API-Key header
     if header_key and header_key == settings.API_KEY:
@@ -44,6 +50,38 @@ async def verify_api_key(
     )
 
 
+async def verify_export_api_key(
+    header_key: Optional[str] = Security(api_key_header),
+    bearer_creds: Optional[HTTPAuthorizationCredentials] = Security(http_bearer),
+    token: Optional[str] = Query(None),
+) -> Optional[str]:
+    """Verify API key for file export download endpoints.
+
+    Prefers request headers, but accepts ?token= query parameter strictly for
+    browser anchor downloads (<a href>) where client cannot set request headers.
+    """
+    if not settings.API_KEY:
+        return None
+
+    # Check query-param token (strictly for browser anchor downloads)
+    if token and token == settings.API_KEY:
+        return token
+
+    # Check X-API-Key header
+    if header_key and header_key == settings.API_KEY:
+        return header_key
+
+    # Check Bearer token
+    if bearer_creds and bearer_creds.credentials == settings.API_KEY:
+        return bearer_creds.credentials
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing API key. Supply 'X-API-Key', 'Authorization: Bearer <key>', or '?token='.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 async def verify_ws_api_key(
     websocket: WebSocket,
     token: Optional[str] = Query(None),
@@ -53,9 +91,9 @@ async def verify_ws_api_key(
 
     Allows connection if settings.API_KEY is not set.
     If set, checks:
-      - Query param: `token` or `api_key`
       - Header: `X-API-Key`
       - Header: `Authorization: Bearer <key>`
+      - Query param fallback: `token` or `api_key` (browser WS API does not allow headers)
     """
     if not settings.API_KEY:
         return None
@@ -71,4 +109,3 @@ async def verify_ws_api_key(
 
     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
     raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
-

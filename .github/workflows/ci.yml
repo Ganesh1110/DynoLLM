@@ -34,7 +34,7 @@ jobs:
           PYTHONPATH=. pytest tests/ -v
 
   frontend-build:
-    name: Frontend Build & Typecheck
+    name: Frontend Build & Lint
     runs-on: ubuntu-latest
 
     steps:
@@ -52,6 +52,11 @@ jobs:
         run: |
           cd frontend
           npm ci || npm install
+
+      - name: Lint Frontend (oxlint)
+        run: |
+          cd frontend
+          npx --yes oxlint --config .oxlintrc.json src/
 
       - name: Build Frontend Production Bundle
         run: |

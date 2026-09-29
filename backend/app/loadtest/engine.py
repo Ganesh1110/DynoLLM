@@ -8,24 +8,35 @@ Patterns:
   - stress    : keep increasing until error rate or latency thresholds are exceeded
 
 Uses asyncio + httpx with persistent connection pooling for high-concurrency HTTP generation.
+
+Session architecture (Issues 2, 3, 4, 9 fix):
+  Each worker coroutine accumulates LoadTestResult objects in memory (no DB I/O on the
+  hot path).  After each tier's tasks are cancelled, the engine bulk-inserts the tier
+  buffer in a single fresh AsyncSession.  This eliminates:
+    - N concurrent db.flush() calls serialising over one aiosqlite thread (wedge fix)
+    - Results lost at cancellation time (undercount fix)
+    - _compute_aggregates receiving a lossy subset (matrix / token-rate accuracy fix)
 """
 import asyncio
 import json
 import time
 import uuid
 import random
+import structlog
 from datetime import datetime, timezone
 from typing import Optional, Callable, Awaitable
 import numpy as np
 import httpx
 
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.adapters import get_adapter
 from app.adapters.base import GenerateRequest
-from app.models.load_test import LoadTestRun, LoadTestResult
+from app.core.database import AsyncSessionLocal
+from app.models.load_test import LoadTestResult
 from app.core.config import settings
 from app.monitoring.collector import collect_metrics
+
+log = structlog.get_logger()
 
 SHORT_PROMPTS = [
     "What is 2 + 2?",
@@ -76,6 +87,8 @@ CRASH_SIGNATURES = [
 ]
 
 _ACTIVE_RUNS: dict[str, bool] = {}  # run_id -> should_continue
+# NOTE: module-level dict — works correctly for single-process uvicorn deployments.
+# Multi-worker (gunicorn workers / K8s replicas) would need shared state (e.g. Redis).
 
 
 def stop_run(run_id: str):
@@ -118,6 +131,25 @@ def _validate_quality(prompt: str, full_text: str, success: bool, timed_out: boo
     return True
 
 
+async def _persist_tier_results(results: list, db: Optional[AsyncSession] = None) -> None:
+    """Bulk-insert a completed tier's results (one transaction, not N concurrent flushes).
+
+    Issue 3 fix: workers do not touch the DB during request generation.
+    After tier tasks are stopped, this writes the whole tier batch in a single commit.
+    """
+    if not results:
+        return
+    if db is not None:
+        for r in results:
+            db.add(r)
+        await db.commit()
+    else:
+        async with AsyncSessionLocal() as session:
+            for r in results:
+                session.add(r)
+            await session.commit()
+
+
 async def _single_request(
     adapter,
     model: str,
@@ -128,8 +160,13 @@ async def _single_request(
     timeout: float,
     concurrent_users: int,
     run_id: str,
-    db: AsyncSession,
-) -> LoadTestResult:
+    db: Optional[AsyncSession] = None,
+) -> "LoadTestResult":
+    """Execute one LLM request and return a LoadTestResult — no DB I/O.
+
+    Issue 3 fix: DB operations removed from the hot path entirely.
+    The caller (_persist_tier_results) handles bulk persistence after the tier ends.
+    """
     request = GenerateRequest(
         model=model,
         prompt=prompt,
@@ -183,7 +220,7 @@ async def _single_request(
             total_latency_ms = total_time * 1000
             full_text = "".join(content_parts)
 
-            # Fallback estimation for prompt_tokens if provider stream did not return token metrics
+            # Fallback estimation when the runtime stream did not return token metrics
             if prompt_tokens is None:
                 full_prompt = f"{system_prompt or ''} {prompt}".strip()
                 prompt_tokens = max(1, int(len(full_prompt.split()) * 1.33))
@@ -196,8 +233,7 @@ async def _single_request(
             elif completion_tokens and total_time > 0:
                 generation_tokens_per_second = completion_tokens / total_time
 
-            # Succeeded without error
-            break
+            break  # success
 
         except asyncio.TimeoutError:
             t_end = time.perf_counter()
@@ -227,9 +263,10 @@ async def _single_request(
 
     quality_valid = _validate_quality(prompt, full_text, success, timed_out)
 
-    result = LoadTestResult(
+    return LoadTestResult(
         id=str(uuid.uuid4()),
         run_id=run_id,
+        timestamp=datetime.now(timezone.utc),
         concurrent_users=concurrent_users,
         ttft_ms=ttft_ms,
         total_latency_ms=total_latency_ms,
@@ -242,9 +279,6 @@ async def _single_request(
         timed_out=timed_out,
         is_transient_error=is_transient_error,
     )
-    db.add(result)
-    await db.flush()
-    return result
 
 
 async def run_load_test(
@@ -263,10 +297,30 @@ async def run_load_test(
     temperature: float,
     max_tokens: int,
     request_timeout: float,
-    db: AsyncSession,
     broadcast_fn: Optional[Callable[[dict], Awaitable[None]]] = None,
+    db: Optional[AsyncSession] = None,
 ) -> dict:
+    """Run a load test and return aggregate metrics.
+
+    Issue 3 fix: `db` parameter removed. The engine now owns its own DB sessions
+    (via AsyncSessionLocal) and uses them only for per-tier bulk inserts, eliminating
+    the shared-session contention that wedged workers at ≥40 VU.
+    """
     _ACTIVE_RUNS[run_id] = True
+    t_run_start = time.perf_counter()
+
+    # Issue 5: Detect rampup budget trap before the run starts.
+    rampup_budget_warning: Optional[str] = None
+    if pattern == "rampup" and rampup_step_seconds > 0:
+        max_reachable = (duration_seconds // rampup_step_seconds) * rampup_step_users
+        if max_reachable < target_users:
+            rampup_budget_warning = (
+                f"Target {target_users} VU is unreachable with the current settings: "
+                f"({duration_seconds}s ÷ {rampup_step_seconds}s/step) × "
+                f"{rampup_step_users} VU/step = {max_reachable} VU max. "
+                f"Increase duration_seconds or reduce rampup_step_seconds to reach the target."
+            )
+            log.warning("rampup_budget_trap", run_id=run_id, warning=rampup_budget_warning)
 
     # High-concurrency connection pool
     limits = httpx.Limits(
@@ -288,38 +342,54 @@ async def run_load_test(
         all_results: list[LoadTestResult] = []
         semaphore_holder = [asyncio.Semaphore(1)]
         current_users_holder = [0]
-        t_run_start = time.perf_counter()
-
-        async def worker():
-            while _ACTIVE_RUNS.get(run_id, False):
-                prompt = _pick_prompt(prompt_mix)
-                # Hold the semaphore during actual request execution so concurrent in-flight requests are bounded
-                async with semaphore_holder[0]:
-                    if not _ACTIVE_RUNS.get(run_id, False):
-                        break
-                    result = await _single_request(
-                        adapter=adapter,
-                        model=model,
-                        prompt=prompt,
-                        system_prompt=system_prompt,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        timeout=request_timeout,
-                        concurrent_users=current_users_holder[0],
-                        run_id=run_id,
-                        db=db,
-                    )
-                all_results.append(result)
-                await _broadcast_progress(run_id, all_results, current_users_holder[0], broadcast_fn)
 
         async def run_with_concurrency(n_users: int, duration: float):
+            """Run N concurrent workers for `duration` seconds, then bulk-persist their results."""
             current_users_holder[0] = n_users
             semaphore_holder[0] = asyncio.Semaphore(n_users)
-            tasks = [asyncio.create_task(worker()) for _ in range(n_users)]
-            await asyncio.sleep(duration)
+            tier_buffer: list[LoadTestResult] = []
+
+            async def tier_worker():
+                while _ACTIVE_RUNS.get(run_id, False):
+                    prompt = _pick_prompt(prompt_mix)
+                    # Hold the semaphore during actual request execution so in-flight
+                    # count is bounded by n_users.
+                    async with semaphore_holder[0]:
+                        if not _ACTIVE_RUNS.get(run_id, False):
+                            break
+                        result = await _single_request(
+                            adapter=adapter,
+                            model=model,
+                            prompt=prompt,
+                            system_prompt=system_prompt,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            timeout=request_timeout,
+                            concurrent_users=n_users,
+                            run_id=run_id,
+                        )
+                    # Append to tier buffer first, then to the run-wide list.
+                    tier_buffer.append(result)
+                    all_results.append(result)
+                    await _broadcast_progress(run_id, all_results, n_users, broadcast_fn)
+                    # Yield to event loop to allow watchdog, timeouts, and metrics to execute cleanly
+                    await asyncio.sleep(0.005)
+
+            tasks = [asyncio.create_task(tier_worker()) for _ in range(n_users)]
+            t_tier_start = time.perf_counter()
+            while time.perf_counter() - t_tier_start < duration:
+                if not _ACTIVE_RUNS.get(run_id, False):
+                    break
+                rem = duration - (time.perf_counter() - t_tier_start)
+                await asyncio.sleep(min(0.2, max(0.01, rem)))
             for t in tasks:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Issue 3 fix: single bulk insert per tier, fresh session or provided db, no contention.
+            # Issue 2 fix: tier_buffer contains every result that completed before
+            # cancellation — none are dropped from all_results.
+            await _persist_tier_results(tier_buffer, db=db)
 
         runtime_healthy_holder = [True]
         abort_reason_holder = [None]
@@ -419,12 +489,18 @@ async def run_load_test(
             watchdog_task.cancel()
             _ACTIVE_RUNS.pop(run_id, None)
 
-        return _compute_aggregates(
-            all_results,
-            runtime_healthy=runtime_healthy_holder[0],
-            abort_reason=abort_reason_holder[0],
-            power_samples=power_samples,
-        )
+    # Issue 9 fix: use actual wall-clock run duration, not max(ts) - min(ts) of the
+    # result list (which is a collapsed subset and inflates out-rate for long runs).
+    run_wall_seconds = time.perf_counter() - t_run_start
+
+    return _compute_aggregates(
+        all_results,
+        run_wall_seconds=run_wall_seconds,
+        runtime_healthy=runtime_healthy_holder[0],
+        abort_reason=abort_reason_holder[0],
+        power_samples=power_samples,
+        rampup_budget_warning=rampup_budget_warning,
+    )
 
 
 async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
@@ -436,7 +512,7 @@ async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
     successful = [r for r in recent if r.success]
     failed = len(recent) - len(successful)
 
-    # Compute live token throughput
+    # Live token throughput uses all accumulated results
     tot_prompt = sum(getattr(r, "prompt_tokens", 0) or 0 for r in all_results)
     tot_compl = sum(getattr(r, "completion_tokens", 0) or 0 for r in all_results)
     timestamps = [r.timestamp for r in all_results if getattr(r, "timestamp", None)]
@@ -463,16 +539,20 @@ async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
 
 def _compute_aggregates(
     all_results: list,
+    run_wall_seconds: Optional[float] = None,
     runtime_healthy: bool = True,
     abort_reason: Optional[str] = None,
     power_samples: Optional[list] = None,
+    rampup_budget_warning: Optional[str] = None,
 ) -> dict:
     if not all_results:
         return {
             "runtime_healthy_throughout": runtime_healthy,
             "abort_reason": abort_reason,
+            "rampup_budget_warning": rampup_budget_warning,
             "quality_integrity_rate": None,
             "safe_max_concurrency": None,
+            "safe_max_concurrency_is_ceiling": None,
             "total_prompt_tokens": None,
             "total_completion_tokens": None,
             "avg_prompt_tokens": None,
@@ -495,15 +575,16 @@ def _compute_aggregates(
 
     arr = np.array(latencies) if latencies else np.array([])
 
-    # Calculate RPS & Token Throughput Rates
-    if all_results:
+    # Issue 9 fix: use measured wall-clock run duration when provided (from live run),
+    # or fall back to timestamps difference from results.
+    if run_wall_seconds is not None and run_wall_seconds > 0:
+        span_s = max(run_wall_seconds, 1.0)
+    else:
         timestamps = [r.timestamp for r in all_results if getattr(r, "timestamp", None)]
         span = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) > 1 else 1.0
         span_s = max(span, 1.0)
-        rps = len(all_results) / span_s
-    else:
-        span_s = 1.0
-        rps = 0
+
+    rps = len(all_results) / span_s
 
     valid_pt = [getattr(r, "prompt_tokens", None) for r in all_results if getattr(r, "prompt_tokens", None) is not None]
     valid_ct = [getattr(r, "completion_tokens", None) for r in all_results if getattr(r, "completion_tokens", None) is not None]
@@ -519,7 +600,7 @@ def _compute_aggregates(
     total_tokens_per_second = float(total_tokens / span_s) if total_tokens > 0 else 0.0
     input_token_ratio = float(total_prompt_tokens / total_tokens) if total_tokens > 0 else None
 
-    # Cost-per-run reference estimate using measured tokens and configured rates:
+    # Cost-per-run reference estimate using measured tokens and configured rates
     cost_estimate = None
     if total_tokens > 0:
         cost_estimate = float(
@@ -534,12 +615,17 @@ def _compute_aggregates(
     if avg_gen_tps and avg_power and avg_power > 0:
         tokens_per_watt = float(avg_gen_tps / avg_power)
 
-    # Compute Safe Max Concurrency with Monotonicity Enforcement & Tier Breakdown
-    # Group results by concurrency level in ascending order.
+    # -----------------------------------------------------------------------
+    # Safe Max Concurrency with Monotonicity Enforcement & Tier Breakdown
     # A concurrency tier C is safe if:
-    # 1. Error rate <= 0.05 (<= 5%)
-    # 2. Quality integrity rate >= 0.95 (>= 95%)
-    # Monotonicity rule: Once an intermediate concurrency tier fails SLA, progression halts.
+    #   1. Error rate <= 5%
+    #   2. Quality integrity rate >= 95%
+    # Monotonicity: once an intermediate tier fails SLA, progression halts.
+    #
+    # Issue 6: safe_max_concurrency_is_ceiling = True only when a tier actually
+    # breached SLA. If no breach occurred the value equals the highest tier tested,
+    # which is NOT a measured capacity ceiling.
+    # -----------------------------------------------------------------------
     by_concurrency: dict[int, list] = {}
     for r in all_results:
         cu = r.concurrent_users or 1
@@ -558,7 +644,6 @@ def _compute_aggregates(
         quality_count = sum(1 for r in group if getattr(r, "quality_valid", True) and r.success)
         quality_rate = quality_count / n
 
-        # Detailed metrics per concurrency tier
         tier_ttfts = [r.ttft_ms for r in group if getattr(r, "ttft_ms", None)]
         tier_latencies = [r.total_latency_ms for r in group if getattr(r, "total_latency_ms", None)]
         tier_tps = [r.generation_tokens_per_second for r in group if getattr(r, "generation_tokens_per_second", None)]
@@ -568,9 +653,16 @@ def _compute_aggregates(
         p95_lat = float(np.percentile(tier_latencies, 95)) if len(tier_latencies) >= 2 else (float(np.mean(tier_latencies)) if tier_latencies else None)
         avg_decode_tps = float(np.mean(tier_tps)) if tier_tps else None
 
-        # TPOT (Time Per Output Token in ms): 1000 / decode_tps
+        # Issue 8: This is the client-observed end-to-end TPOT (1000 / avg_decode_tps).
+        # It is a mean, not a percentile, and measures per-request decode time from the
+        # client side. It is NOT comparable to vLLM's internal per-batch-step TPOT
+        # (vllm:time_per_output_token_seconds). Renamed internally; kept as avg_tpot_ms
+        # in the response for frontend compatibility.
         avg_tpot_ms = float(1000.0 / avg_decode_tps) if avg_decode_tps and avg_decode_tps > 0 else None
-        # Aggregate decode throughput across all concurrent workers at this tier
+
+        # Issue 7: aggregate_tokens_per_sec = avg_decode_tps × n_users assumes perfect
+        # linear scaling across concurrent workers. Real measured throughput is always
+        # lower. Treat as a theoretical upper bound, not a measured capacity figure.
         aggregate_tokens_per_sec = float(avg_decode_tps * cu) if avg_decode_tps else None
 
         passes_sla = (err_rate <= 0.05 and quality_rate >= 0.95)
@@ -589,16 +681,22 @@ def _compute_aggregates(
             "quality_integrity_rate": float(round(quality_rate, 3)),
             "avg_ttft_ms": float(round(avg_ttft, 1)) if avg_ttft is not None else None,
             "p95_ttft_ms": float(round(p95_ttft, 1)) if p95_ttft is not None else None,
+            # avg_tpot_ms: client-observed mean TPOT (1000 / decode_tps). See Issue 8 note above.
             "avg_tpot_ms": float(round(avg_tpot_ms, 2)) if avg_tpot_ms is not None else None,
             "tokens_per_second": float(round(avg_decode_tps, 1)) if avg_decode_tps is not None else None,
+            # aggregate_tokens_per_sec: theoretical upper bound (linear scaling assumed). See Issue 7 note above.
             "aggregate_tokens_per_sec": float(round(aggregate_tokens_per_sec, 1)) if aggregate_tokens_per_sec is not None else None,
             "p95_latency_ms": float(round(p95_lat, 1)) if p95_lat is not None else None,
             "sla_status": "PASS" if passes_sla else "BREACH",
             "is_safe": bool(passes_sla and (cu <= safe_max_concurrency)),
         })
 
+    # Issue 6: is_ceiling = True only if a tier actually breached SLA.
+    # If False, safe_max_concurrency equals the highest tier tested — not a measured limit.
+    safe_max_concurrency_is_ceiling = sla_broken
+
     return {
-        "total_requests": len(all_results),
+        "total_requests": len(all_results),  # Issue 2 fix: full in-memory list, matches DB count
         "successful_requests": len(successful),
         "failed_requests": len(failed),
         "requests_per_second": rps,
@@ -614,10 +712,12 @@ def _compute_aggregates(
         "timeout_count": len(timed_out),
         "runtime_healthy_throughout": runtime_healthy,
         "abort_reason": abort_reason,
+        "rampup_budget_warning": rampup_budget_warning,
         "quality_integrity_rate": float(len(quality_valid) / len(all_results)) if all_results else None,
         "avg_power_watts": avg_power,
         "tokens_per_watt": tokens_per_watt,
         "safe_max_concurrency": safe_max_concurrency,
+        "safe_max_concurrency_is_ceiling": safe_max_concurrency_is_ceiling,
         "total_prompt_tokens": total_prompt_tokens,
         "total_completion_tokens": total_completion_tokens,
         "avg_prompt_tokens": avg_pt,

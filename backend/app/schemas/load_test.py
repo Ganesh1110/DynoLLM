@@ -69,6 +69,8 @@ class LoadTestRunOut(BaseModel):
     tokens_per_watt: Optional[float] = None
     abort_reason: Optional[str] = None
     safe_max_concurrency: Optional[int] = None
+    safe_max_concurrency_is_ceiling: Optional[bool] = None
+    rampup_budget_warning: Optional[str] = None
 
     # Token aggregates & capacity metrics
     total_prompt_tokens: Optional[int] = None
