@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight, DollarSign, Layers, Sparkles, Copy, Check, Columns, Table, ShieldCheck, BarChart3, HelpCircle } from 'lucide-react'
+import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight, DollarSign, Layers, Sparkles, Copy, Check, Columns, Table, ShieldCheck, BarChart3, HelpCircle, Clock } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
@@ -27,6 +27,7 @@ export function LoadTest() {
   const activeRun = useLoadTestStore((s) => s.activeRun)
   const fetchRuns = useLoadTestStore((s) => s.fetchRuns)
   const liveData = useLoadTestStore((s) => s.liveData)
+  const liveProgress = useLoadTestStore((s) => s.liveProgress)
   const stopRun = useLoadTestStore((s) => s.stopRun)
   const loading = useLoadTestStore((s) => s.loading)
   const error = useLoadTestStore((s) => s.error)
@@ -150,6 +151,47 @@ export function LoadTest() {
       setFetchedResults([])
     }
   }, [activeRun?.id, activeRun?.concurrency_breakdown])
+
+  // Local ticker for smooth 1s updates while running
+  const [localSeconds, setLocalSeconds] = useState(0)
+
+  useEffect(() => {
+    if (!activeRun) {
+      setLocalSeconds(0)
+      return
+    }
+
+    if (activeRun.status === 'running') {
+      if (liveProgress?.elapsed_seconds != null) {
+        setLocalSeconds((prev) => Math.max(prev, Math.round(liveProgress.elapsed_seconds)))
+      }
+      const timer = setInterval(() => {
+        setLocalSeconds((prev) => {
+          const maxDur = activeRun.duration_seconds || 60
+          return prev < maxDur ? prev + 1 : prev
+        })
+      }, 1000)
+      return () => clearInterval(timer)
+    } else if (activeRun.status === 'completed') {
+      setLocalSeconds(activeRun.duration_seconds || 60)
+    } else if (activeRun.status === 'pending') {
+      setLocalSeconds(0)
+    }
+  }, [activeRun?.status, activeRun?.id, liveProgress?.elapsed_seconds, activeRun?.duration_seconds])
+
+  const totalDuration = activeRun?.duration_seconds || 60
+  const elapsedSeconds = activeRun?.status === 'completed'
+    ? totalDuration
+    : Math.min(totalDuration, Math.max(localSeconds, Math.round(liveProgress?.elapsed_seconds || 0)))
+  const remainingSeconds = Math.max(0, totalDuration - elapsedSeconds)
+  const progressPercent = activeRun?.status === 'completed'
+    ? 100
+    : Math.min(100, Math.max(0, Math.round((elapsedSeconds / totalDuration) * 100)))
+
+  const activeConcurrentUsers = liveProgress?.concurrent_users ?? latestLivePoint?.concurrent_users ?? 0
+  const totalCompletedRequests = activeRun?.total_requests ?? liveProgress?.total_requests ?? latestLivePoint?.total_requests ?? 0
+  const successfulRequests = activeRun?.successful_requests ?? liveProgress?.successful_requests ?? latestLivePoint?.successful_requests ?? 0
+  const failedRequests = activeRun?.failed_requests ?? liveProgress?.failed_requests ?? latestLivePoint?.failed_requests ?? 0
 
   const concurrencyBreakdown = useMemo(() => {
     if (activeRun?.concurrency_breakdown && activeRun.concurrency_breakdown.length > 0) {
@@ -542,6 +584,132 @@ export function LoadTest() {
                         </Link>
                       </>
                     )}
+                  </div>
+                </div>
+
+                {/* Active Progress & Execution Status Bar */}
+                <div
+                  className={`p-4 rounded-xl border transition-all ${
+                    activeRun.status === 'running'
+                      ? 'bg-sky-950/20 border-sky-500/30 shadow-lg shadow-sky-950/20'
+                      : activeRun.status === 'pending'
+                      ? 'bg-amber-950/20 border-amber-500/30'
+                      : activeRun.status === 'completed'
+                      ? 'bg-emerald-950/20 border-emerald-500/30'
+                      : activeRun.status === 'stopped'
+                      ? 'bg-gray-800/40 border-gray-700/50'
+                      : 'bg-red-950/20 border-red-500/30'
+                  }`}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
+                    <div className="flex items-center space-x-2.5">
+                      {activeRun.status === 'running' && (
+                        <div className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
+                        </div>
+                      )}
+                      {activeRun.status === 'pending' && (
+                        <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+                      )}
+                      {activeRun.status === 'completed' && (
+                        <CheckCircle className="w-4 h-4 text-emerald-400" />
+                      )}
+                      {activeRun.status === 'stopped' && (
+                        <StopCircle className="w-4 h-4 text-gray-400" />
+                      )}
+                      {activeRun.status === 'failed' && (
+                        <AlertCircle className="w-4 h-4 text-red-400" />
+                      )}
+
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-bold text-white tracking-wide">
+                          {activeRun.status === 'pending' && 'Initializing Load Test...'}
+                          {activeRun.status === 'running' && 'Load Test In Progress'}
+                          {activeRun.status === 'completed' && 'Load Test Completed'}
+                          {activeRun.status === 'stopped' && 'Load Test Stopped Early'}
+                          {activeRun.status === 'failed' && 'Load Test Failed'}
+                        </span>
+                        <span className="text-xs font-mono px-2 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
+                          {activeRun.status === 'running'
+                            ? `${elapsedSeconds}s / ${totalDuration}s (${progressPercent}%)`
+                            : activeRun.status === 'completed'
+                            ? `${totalDuration}s total duration`
+                            : activeRun.status === 'stopped'
+                            ? `Stopped at ${elapsedSeconds}s`
+                            : `${totalDuration}s duration`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="text-xs font-medium text-gray-400 flex items-center space-x-3">
+                      {activeRun.status === 'running' && (
+                        <span className="flex items-center space-x-1 text-sky-400 font-mono">
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>{remainingSeconds}s remaining</span>
+                        </span>
+                      )}
+                      {activeRun.status === 'completed' && (
+                        <span className="text-emerald-400 font-medium">
+                          100% complete • {totalCompletedRequests} requests executed
+                        </span>
+                      )}
+                      {activeRun.status === 'pending' && (
+                        <span className="text-amber-400 animate-pulse">
+                          Connecting to model & warming up concurrency...
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Progress Bar track */}
+                  <div className="relative w-full h-3 bg-gray-900 rounded-full overflow-hidden border border-gray-700/60 p-[1px]">
+                    {activeRun.status === 'pending' ? (
+                      <div className="h-full bg-gradient-to-r from-amber-500 via-sky-500 to-amber-500 rounded-full animate-pulse w-full opacity-70" />
+                    ) : (
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ease-out shadow-sm ${
+                          activeRun.status === 'completed'
+                            ? 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                            : activeRun.status === 'stopped'
+                            ? 'bg-gray-600'
+                            : activeRun.status === 'failed'
+                            ? 'bg-rose-500'
+                            : 'bg-gradient-to-r from-sky-500 via-blue-500 to-indigo-500 shadow-[0_0_12px_rgba(56,189,248,0.5)]'
+                        }`}
+                        style={{ width: `${progressPercent}%` }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Progress Subtext Stats Bar */}
+                  <div className="flex flex-wrap items-center justify-between text-[11px] text-gray-400 mt-2.5 pt-2 border-t border-gray-800/80 gap-2">
+                    <div className="flex items-center space-x-4">
+                      <span>
+                        Active Concurrency:{' '}
+                        <strong className="text-sky-300 font-mono">
+                          {activeConcurrentUsers} / {activeRun.target_users} users
+                        </strong>
+                      </span>
+                      <span>
+                        Pattern:{' '}
+                        <strong className="text-gray-200 capitalize font-mono">{activeRun.pattern}</strong>
+                      </span>
+                    </div>
+                    <div className="flex items-center space-x-3 font-mono">
+                      <span>
+                        Requests:{' '}
+                        <strong className="text-emerald-400">{successfulRequests} ok</strong>
+                        {failedRequests > 0 && (
+                          <strong className="text-rose-400 ml-1">/ {failedRequests} err</strong>
+                        )}
+                      </span>
+                      {latestLivePoint?.requests_per_second != null && activeRun.status === 'running' && (
+                        <span className="text-gray-500">
+                          • <strong className="text-sky-400">{fmt(latestLivePoint.requests_per_second, 1)} req/s</strong>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 

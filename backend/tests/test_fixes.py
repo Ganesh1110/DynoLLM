@@ -131,3 +131,30 @@ async def test_issue_14_security_rest_vs_export_auth(monkeypatch):
     with pytest.raises(HTTPException) as exc_info2:
         await verify_export_api_key(header_key=None, bearer_creds=None, token="wrong-key")
     assert exc_info2.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_load_test_progress_broadcast():
+    """Verify _broadcast_progress broadcasts elapsed_seconds and duration_seconds even with 0 results."""
+    from app.loadtest.engine import _broadcast_progress
+    broadcasted = []
+
+    async def mock_broadcast(data):
+        broadcasted.append(data)
+
+    # Empty results at start
+    await _broadcast_progress(
+        run_id="run-progress-test",
+        all_results=[],
+        current_users=5,
+        broadcast_fn=mock_broadcast,
+        elapsed_seconds=0.0,
+        duration_seconds=60,
+    )
+
+    assert len(broadcasted) == 1
+    assert broadcasted[0]["type"] == "load_test_progress"
+    assert broadcasted[0]["elapsed_seconds"] == 0.0
+    assert broadcasted[0]["duration_seconds"] == 60
+    assert broadcasted[0]["concurrent_users"] == 5
+    assert broadcasted[0]["total_requests"] == 0

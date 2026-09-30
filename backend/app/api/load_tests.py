@@ -23,6 +23,16 @@ async def _execute_load_test(run_id: str, runtime_type: str, endpoint: str, api_
             run.status = "running"
             await db.commit()
 
+            await manager.broadcast({
+                "type": "load_test_started",
+                "run_id": run_id,
+                "status": "running",
+                "duration_seconds": run_data.get("duration_seconds", 60),
+                "target_users": run_data.get("target_users", 10),
+                "pattern": run_data.get("pattern", "rampup"),
+                "model": run_data.get("model", ""),
+            })
+
             aggregates = await run_load_test(
                 run_id=run_id,
                 runtime_type=runtime_type,

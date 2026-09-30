@@ -371,7 +371,15 @@ async def run_load_test(
                     # Append to tier buffer first, then to the run-wide list.
                     tier_buffer.append(result)
                     all_results.append(result)
-                    await _broadcast_progress(run_id, all_results, n_users, broadcast_fn)
+                    elapsed = min(float(duration_seconds), time.perf_counter() - t_run_start)
+                    await _broadcast_progress(
+                        run_id=run_id,
+                        all_results=all_results,
+                        current_users=n_users,
+                        broadcast_fn=broadcast_fn,
+                        elapsed_seconds=elapsed,
+                        duration_seconds=duration_seconds,
+                    )
                     # Yield to event loop to allow watchdog, timeouts, and metrics to execute cleanly
                     await asyncio.sleep(0.005)
 
@@ -439,6 +447,35 @@ async def run_load_test(
 
         watchdog_task = asyncio.create_task(watchdog())
 
+        async def progress_ticker():
+            while _ACTIVE_RUNS.get(run_id, False):
+                await asyncio.sleep(1.0)
+                if not _ACTIVE_RUNS.get(run_id, False):
+                    break
+                elapsed = min(float(duration_seconds), time.perf_counter() - t_run_start)
+                await _broadcast_progress(
+                    run_id=run_id,
+                    all_results=all_results,
+                    current_users=current_users_holder[0],
+                    broadcast_fn=broadcast_fn,
+                    elapsed_seconds=elapsed,
+                    duration_seconds=duration_seconds,
+                )
+
+        ticker_task = asyncio.create_task(progress_ticker())
+
+        # Immediate broadcast at 0s so frontend receives initial running state immediately
+        initial_users = rampup_step_users if pattern in ("rampup", "stress") else target_users
+        current_users_holder[0] = initial_users
+        await _broadcast_progress(
+            run_id=run_id,
+            all_results=all_results,
+            current_users=initial_users,
+            broadcast_fn=broadcast_fn,
+            elapsed_seconds=0.0,
+            duration_seconds=duration_seconds,
+        )
+
         try:
             if pattern == "constant":
                 await run_with_concurrency(target_users, duration_seconds)
@@ -487,6 +524,7 @@ async def run_load_test(
 
         finally:
             watchdog_task.cancel()
+            ticker_task.cancel()
             _ACTIVE_RUNS.pop(run_id, None)
 
     # Issue 9 fix: use actual wall-clock run duration, not max(ts) - min(ts) of the
@@ -503,38 +541,51 @@ async def run_load_test(
     )
 
 
-async def _broadcast_progress(run_id, all_results, current_users, broadcast_fn):
-    if not broadcast_fn or not all_results:
+async def _broadcast_progress(
+    run_id,
+    all_results,
+    current_users,
+    broadcast_fn,
+    elapsed_seconds: Optional[float] = None,
+    duration_seconds: Optional[int] = None,
+):
+    if not broadcast_fn:
         return
-    recent = all_results[-50:]  # last 50 for live stats
+    recent = all_results[-50:] if all_results else []
     latencies = [r.total_latency_ms for r in recent if r.total_latency_ms]
     ttfts = [r.ttft_ms for r in recent if r.ttft_ms]
     successful = [r for r in recent if r.success]
     failed = len(recent) - len(successful)
 
     # Live token throughput uses all accumulated results
-    tot_prompt = sum(getattr(r, "prompt_tokens", 0) or 0 for r in all_results)
-    tot_compl = sum(getattr(r, "completion_tokens", 0) or 0 for r in all_results)
+    tot_prompt = sum(getattr(r, "prompt_tokens", 0) or 0 for r in all_results) if all_results else 0
+    tot_compl = sum(getattr(r, "completion_tokens", 0) or 0 for r in all_results) if all_results else 0
     timestamps = [r.timestamp for r in all_results if getattr(r, "timestamp", None)]
     span = (max(timestamps) - min(timestamps)).total_seconds() if len(timestamps) > 1 else 1.0
     span_s = max(span, 1.0)
 
-    await broadcast_fn({
+    payload = {
         "type": "load_test_progress",
         "run_id": run_id,
         "concurrent_users": current_users,
-        "total_requests": len(all_results),
-        "successful_requests": sum(1 for r in all_results if r.success),
-        "failed_requests": sum(1 for r in all_results if not r.success),
+        "total_requests": len(all_results) if all_results else 0,
+        "successful_requests": sum(1 for r in all_results if r.success) if all_results else 0,
+        "failed_requests": sum(1 for r in all_results if not r.success) if all_results else 0,
         "avg_latency_ms": float(np.mean(latencies)) if latencies else 0,
         "p95_latency_ms": float(np.percentile(latencies, 95)) if len(latencies) >= 2 else None,
         "avg_ttft_ms": float(np.mean(ttfts)) if ttfts else None,
-        "error_rate": failed / len(recent) if recent else 0,
+        "error_rate": (failed / len(recent)) if recent else 0,
         "total_prompt_tokens": tot_prompt,
         "total_completion_tokens": tot_compl,
         "tokens_in_per_second": float(tot_prompt / span_s),
         "tokens_out_per_second": float(tot_compl / span_s),
-    })
+    }
+    if elapsed_seconds is not None:
+        payload["elapsed_seconds"] = round(elapsed_seconds, 1)
+    if duration_seconds is not None:
+        payload["duration_seconds"] = duration_seconds
+
+    await broadcast_fn(payload)
 
 
 def _compute_aggregates(
