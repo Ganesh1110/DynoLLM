@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
 const WS_BASE = BASE_URL.replace(/^http/, 'ws')
 
 function getApiKey() {

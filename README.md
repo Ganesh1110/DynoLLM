@@ -204,26 +204,45 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 - Node.js 18+ and npm
 - A running local LLM engine (e.g., [Ollama](https://ollama.com), [vLLM](https://github.com/vllm-project/vllm), [LM Studio](https://lmstudio.ai), or [llama.cpp](https://github.com/ggerganov/llama.cpp))
 
-### 1. Clone & Setup Backend
+### 🚀 Quick Run Scripts (AWS GPU / Linux / macOS)
+
+After cloning the repository, you can launch the backend and frontend separately in two terminal tabs or tmux windows:
+
+**Terminal 1 — Backend:**
+```bash
+./run_backend.sh
+```
+- Auto-detects Python 3.11+, sets up virtualenv, installs `requirements.txt`, and checks NVIDIA GPU/CUDA via `nvidia-smi`.
+- Starts FastAPI on `0.0.0.0:8000`.
+
+**Terminal 2 — Frontend:**
+```bash
+./run_frontend.sh
+```
+- Checks Node.js 18+, installs `node_modules`, and launches Vite on `0.0.0.0:5173`.
+- Auto-detects host IP/domain for seamless remote access from your laptop browser.
+
+---
+
+### Manual Setup
+
+#### 1. Setup Backend
 
 ```bash
-git clone https://github.com/Ganesh1110/DynoLLM.git
-cd DynoLLM/backend
-
+cd backend
 python3 -m venv venv
 source venv/bin/activate       # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
 python run.py
 ```
 
 - **Backend API**: `http://localhost:8000`
 - **Interactive Swagger Docs**: `http://localhost:8000/docs`
 
-### 2. Setup Frontend
+#### 2. Setup Frontend
 
 ```bash
-cd ../frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -247,18 +266,18 @@ All backend settings are in `backend/app/core/config.py` and can be overridden v
 
 ### Backend Variables
 
-| Variable                      | Type            | Default                                                                       | Description                                                                                                                                                                                                                                                                                                                              |
-| ----------------------------- | --------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `APP_NAME`                    | `str`           | `DynoLLM`                                                                     | Application name displayed in UI and API responses.                                                                                                                                                                                                                                                                                      |
-| `APP_VERSION`                 | `str`           | `1.0.0`                                                                       | Application version, returned by health check and root endpoint.                                                                                                                                                                                                                                                                         |
-| `DEBUG`                       | `bool`          | `True`                                                                        | Enables debug mode. When `True`, enables verbose SQL logging via SQLAlchemy engine echo. Set to `False` in production.                                                                                                                                                                                                                   |
-| `API_KEY`                     | `Optional[str]` | `None`                                                                        | Optional API key for protecting endpoints on shared/remote instances. If set, every request to `/api/runtimes`, `/api/benchmarks`, `/api/load-tests`, and `/api/export` must include the key via one of: `X-API-Key` header, `Authorization: Bearer <key>` header, or `?token=<key>` query parameter. If `None`, all endpoints are open. |
-| `DATABASE_URL`                | `str`           | `sqlite+aiosqlite:///./llm_platform.db`                                       | Async SQLite database connection string. All benchmark runs, load test runs, and results are persisted here. Override to use a different path or database backend.                                                                                                                                                                       |
-| `CORS_ORIGINS`                | `list[str]`     | `["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"]` | Allowed CORS origins for the FastAPI server. Add your production domain here when deploying remotely.                                                                                                                                                                                                                                    |
-| `MONITORING_INTERVAL_SECONDS` | `float`         | `1.0`                                                                         | Hardware telemetry polling interval in seconds. Controls how often CPU, RAM, GPU, and Disk metrics are collected and pushed to the WebSocket stream. Lower values give smoother graphs but increase overhead.                                                                                                                            |
-| `MAX_CONCURRENT_USERS`        | `int`           | `200`                                                                         | Hard cap on the number of concurrent virtual users allowed in `stress` load-test pattern. Prevents runaway memory usage on the backend server. Increase if your machine can handle more.                                                                                                                                                 |
-| `REQUEST_TIMEOUT_SECONDS`     | `float`         | `120.0`                                                                       | Default HTTP request timeout in seconds for load test requests. If a single LLM inference call takes longer than this, the request is marked as timed out. Override per-request via the `request_timeout` field in the load test API.                                                                                                    |
-| `DEFAULT_OLLAMA_ENDPOINT`     | `str`           | `http://localhost:11434`                                                      | Default Ollama API endpoint used when registering the initial runtime. Change if Ollama runs on a different host or port.                                                                                                                                                                                                                |
+| Variable                      | Type            | Default                                                                     | Description                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------- | --------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_NAME`                    | `str`           | `DynoLLM`                                                                   | Application name displayed in UI and API responses.                                                                                                                                                                                                                                                                                      |
+| `APP_VERSION`                 | `str`           | `1.0.0`                                                                     | Application version, returned by health check and root endpoint.                                                                                                                                                                                                                                                                         |
+| `DEBUG`                       | `bool`          | `True`                                                                      | Enables debug mode. When `True`, enables verbose SQL logging via SQLAlchemy engine echo. Set to `False` in production.                                                                                                                                                                                                                   |
+| `API_KEY`                     | `Optional[str]` | `None`                                                                      | Optional API key for protecting endpoints on shared/remote instances. If set, every request to `/api/runtimes`, `/api/benchmarks`, `/api/load-tests`, and `/api/export` must include the key via one of: `X-API-Key` header, `Authorization: Bearer <key>` header, or `?token=<key>` query parameter. If `None`, all endpoints are open. |
+| `DATABASE_URL`                | `str`           | `sqlite+aiosqlite:///./llm_platform.db`                                     | Async SQLite database connection string. All benchmark runs, load test runs, and results are persisted here. Override to use a different path or database backend.                                                                                                                                                                       |
+| `CORS_ORIGINS`                | `list[str]`     | `["http://localhost:5173", "http://localhost:3000", "http://0.0.0.1:5173"]` | Allowed CORS origins for the FastAPI server. Add your production domain here when deploying remotely.                                                                                                                                                                                                                                    |
+| `MONITORING_INTERVAL_SECONDS` | `float`         | `1.0`                                                                       | Hardware telemetry polling interval in seconds. Controls how often CPU, RAM, GPU, and Disk metrics are collected and pushed to the WebSocket stream. Lower values give smoother graphs but increase overhead.                                                                                                                            |
+| `MAX_CONCURRENT_USERS`        | `int`           | `200`                                                                       | Hard cap on the number of concurrent virtual users allowed in `stress` load-test pattern. Prevents runaway memory usage on the backend server. Increase if your machine can handle more.                                                                                                                                                 |
+| `REQUEST_TIMEOUT_SECONDS`     | `float`         | `120.0`                                                                     | Default HTTP request timeout in seconds for load test requests. If a single LLM inference call takes longer than this, the request is marked as timed out. Override per-request via the `request_timeout` field in the load test API.                                                                                                    |
+| `DEFAULT_OLLAMA_ENDPOINT`     | `str`           | `http://localhost:11434`                                                    | Default Ollama API endpoint used when registering the initial runtime. Change if Ollama runs on a different host or port.                                                                                                                                                                                                                |
 
 **Frontend environment variables** (set via `frontend/.env` or `frontend/.env.local`):
 
@@ -319,30 +338,30 @@ DynoLLM/
 
 ## 📡 API Reference Summary
 
-| Method   | Endpoint                              | Description                                                                       |
-| -------- | ------------------------------------- | --------------------------------------------------------------------------------- |
-| `GET`    | `/api/runtimes`                       | List all configured LLM runtime endpoints                                         |
-| `POST`   | `/api/runtimes`                       | Register a new LLM runtime                                                        |
-| `GET`    | `/api/runtimes/{id}`                  | Get a single runtime configuration                                                |
-| `PUT`    | `/api/runtimes/{id}`                  | Update a runtime configuration                                                    |
-| `DELETE` | `/api/runtimes/{id}`                  | Delete a runtime configuration                                                    |
-| `POST`   | `/api/runtimes/{id}/health`           | Ping runtime and return latency / status                                          |
-| `GET`    | `/api/runtimes/{id}/models`           | Discover models and metadata from runtime                                         |
-| `POST`   | `/api/benchmarks`                     | Trigger a single-request benchmark run                                            |
-| `GET`    | `/api/benchmarks?limit=50`            | List recent benchmark runs (supports `?limit=` pagination, default 50)           |
-| `GET`    | `/api/benchmarks/{id}`                | Get benchmark results and aggregate percentiles                                   |
-| `POST`   | `/api/benchmarks/{id}/stop`           | Cooperatively cancel an active benchmark run                                      |
-| `GET`    | `/api/load-tests?limit=50`            | List recent load test runs (supports `?limit=` pagination, default 50)            |
-| `POST`   | `/api/load-tests`                     | Launch an async multi-user load test                                              |
-| `GET`    | `/api/load-tests/{id}`                | Get load test status and aggregate results                                        |
-| `POST`   | `/api/load-tests/{id}/stop`           | Immediately halt an active load test                                              |
+| Method   | Endpoint                              | Description                                                                           |
+| -------- | ------------------------------------- | ------------------------------------------------------------------------------------- |
+| `GET`    | `/api/runtimes`                       | List all configured LLM runtime endpoints                                             |
+| `POST`   | `/api/runtimes`                       | Register a new LLM runtime                                                            |
+| `GET`    | `/api/runtimes/{id}`                  | Get a single runtime configuration                                                    |
+| `PUT`    | `/api/runtimes/{id}`                  | Update a runtime configuration                                                        |
+| `DELETE` | `/api/runtimes/{id}`                  | Delete a runtime configuration                                                        |
+| `POST`   | `/api/runtimes/{id}/health`           | Ping runtime and return latency / status                                              |
+| `GET`    | `/api/runtimes/{id}/models`           | Discover models and metadata from runtime                                             |
+| `POST`   | `/api/benchmarks`                     | Trigger a single-request benchmark run                                                |
+| `GET`    | `/api/benchmarks?limit=50`            | List recent benchmark runs (supports `?limit=` pagination, default 50)                |
+| `GET`    | `/api/benchmarks/{id}`                | Get benchmark results and aggregate percentiles                                       |
+| `POST`   | `/api/benchmarks/{id}/stop`           | Cooperatively cancel an active benchmark run                                          |
+| `GET`    | `/api/load-tests?limit=50`            | List recent load test runs (supports `?limit=` pagination, default 50)                |
+| `POST`   | `/api/load-tests`                     | Launch an async multi-user load test                                                  |
+| `GET`    | `/api/load-tests/{id}`                | Get load test status and aggregate results                                            |
+| `POST`   | `/api/load-tests/{id}/stop`           | Immediately halt an active load test                                                  |
 | `GET`    | `/api/load-tests/{id}/results?limit=` | Fetch raw per-request load test results (supports `?limit=` pagination, default 1000) |
-| `GET`    | `/api/monitoring/current`             | Snapshot of current CPU/RAM/GPU/Disk telemetry                                    |
-| `WS`     | `/api/monitoring/stream`              | 1Hz real-time hardware telemetry WebSocket stream                                 |
-| `WS`     | `/api/monitoring/events`              | Live benchmark & load test event broadcast channel                                |
-| `GET`    | `/api/export/benchmarks/{id}/csv`     | Export benchmark data to CSV                                                      |
-| `GET`    | `/api/export/benchmarks/{id}/json`    | Export benchmark data to JSON                                                     |
-| `GET`    | `/api/export/load-tests/{id}/csv`     | Export load test data to CSV                                                      |
+| `GET`    | `/api/monitoring/current`             | Snapshot of current CPU/RAM/GPU/Disk telemetry                                        |
+| `WS`     | `/api/monitoring/stream`              | 1Hz real-time hardware telemetry WebSocket stream                                     |
+| `WS`     | `/api/monitoring/events`              | Live benchmark & load test event broadcast channel                                    |
+| `GET`    | `/api/export/benchmarks/{id}/csv`     | Export benchmark data to CSV                                                          |
+| `GET`    | `/api/export/benchmarks/{id}/json`    | Export benchmark data to JSON                                                         |
+| `GET`    | `/api/export/load-tests/{id}/csv`     | Export load test data to CSV                                                          |
 
 ---
 
@@ -359,7 +378,7 @@ The benchmark profiler measures single-request LLM performance. Post a request t
 | `system_prompt` | `Optional[str]` | `None`           | any string                                                            | System prompt prepended to the request (e.g. instruction-following guidance).                                              |
 | `temperature`   | `float`         | `0.7`            | 0.0 – 2.0                                                             | Sampling temperature. Lower = more deterministic; higher = more creative.                                                  |
 | `max_tokens`    | `int`           | `512`            | 32 – 4096 (UI)                                                        | Maximum number of tokens to generate per response.                                                                         |
-| `num_runs`      | `int`           | `3`              | 1 – 20 (UI)                                                           | Number of iterations to run. Aggregates (`P50`, `P90`, `P95`, `P99`) are computed across all runs.                          |
+| `num_runs`      | `int`           | `3`              | 1 – 20 (UI)                                                           | Number of iterations to run. Aggregates (`P50`, `P90`, `P95`, `P99`) are computed across all runs.                         |
 | `use_streaming` | `bool`          | `True`           | `true` / `false`                                                      | When `True`, streams the response and measures **Time-To-First-Token (TTFT)**. Disable to measure end-to-end latency only. |
 
 ### Predefined Scenarios
@@ -460,8 +479,8 @@ Connect to `/api/monitoring/events` (benchmark/load-test events) or `/api/monito
 | `benchmark_stopped`    | `events`, `stream` | `{run_id}` — user-initiated cancellation                                                                                                                                      |
 | `load_test_progress`   | `events`, `stream` | `{run_id, concurrent_users, total_requests, successful_requests, failed_requests, avg_latency_ms, p95_latency_ms, avg_ttft_ms, error_rate}` — stats over the last 50 requests |
 | `load_test_completed`  | `events`, `stream` | `{run_id, aggregates}` — aggregates contain RPS, percentiles, `safe_max_concurrency`, power, and quality metrics                                                              |
-| `load_test_stopped`    | `events`, `stream` | `{run_id}` — user-initiated cancellation (status: `stopped`)                                                                                                                   |
-| `load_test_failed`     | `events`, `stream` | `{run_id, error}` — test terminated due to runtime crash or unrecoverable failure (status: `failed`)                                                                           |
+| `load_test_stopped`    | `events`, `stream` | `{run_id}` — user-initiated cancellation (status: `stopped`)                                                                                                                  |
+| `load_test_failed`     | `events`, `stream` | `{run_id, error}` — test terminated due to runtime crash or unrecoverable failure (status: `failed`)                                                                          |
 | `runtime_health_alert` | `events`, `stream` | `{run_id, status: "unhealthy"\|"crashed", message}` — emitted when the watchdog detects a runtime health failure or crash (e.g. OOM)                                          |
 | `hardware`             | `stream` only      | CPU, RAM, GPU, and Disk metrics — pushed every `MONITORING_INTERVAL_SECONDS` (default 1s)                                                                                     |
 | `ping`                 | `events` only      | `{}` keepalive sent every 30s on the events channel                                                                                                                           |
@@ -471,7 +490,6 @@ The `events` channel does **not** poll hardware — connect to `stream` for hard
 > **Resilient Auto-Reconnection:** The React frontend (`hooks/useWebSocket.js`) incorporates an automatic 3-second backoff loop for both `/stream` and `/events` channels. If the backend server restarts, reloads, or experiences a temporary network hiccup, client connections automatically reconnect and restore live telemetry without requiring a page refresh.
 
 **Auth:** when `API_KEY` is set, pass `?token=<key>` or `?api_key=<key>` as a query parameter when connecting.
-
 
 ---
 
