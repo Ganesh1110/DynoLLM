@@ -243,6 +243,13 @@ function CheatSheetModal({ isOpen, onClose }) {
       desc: "P50 is the median response time (50% of requests were faster). P95 is the 95th percentile, representing the worst-case delay experienced by users under heavy traffic.",
       rule: "When P95 spikes above 3 seconds, your server is congested and queuing incoming requests.",
     },
+    {
+      term: "KV Cache (Context Memory)",
+      badge: "GPU VRAM Limit",
+      badgeColor: "text-sky-400 bg-sky-950/80 border-sky-800",
+      desc: "Stores attention keys and values for all past prompt tokens and generated output. Without it, the model would recompute the entire conversation history at every word. It grows directly with context length and number of active users.",
+      rule: "When KV Cache fills up (95–100%), the engine runs out of VRAM (OOM) or must pause/preempt users.",
+    },
   ];
 
   return (
@@ -523,93 +530,24 @@ export function Dashboard() {
     { time: "17:47", live_tok_per_sec: 32, peak_baseline: 58 },
   ];
 
-  // Middle Left: Inference Request Concurrency by Runtime Engine
-  const serverRequestsData = [
-    {
-      time: "16:50",
-      ollama_engine: 15,
-      vllm_worker: 24,
-      batch_pipeline: 28,
-      health_watchdog: 25,
-    },
-    {
-      time: "16:55",
-      ollama_engine: 18,
-      vllm_worker: 26,
-      batch_pipeline: 31,
-      health_watchdog: 27,
-    },
-    {
-      time: "17:00",
-      ollama_engine: 17,
-      vllm_worker: 25,
-      batch_pipeline: 32,
-      health_watchdog: 26,
-    },
-    {
-      time: "17:05",
-      ollama_engine: 19,
-      vllm_worker: 27,
-      batch_pipeline: 34,
-      health_watchdog: 29,
-    },
-    {
-      time: "17:10",
-      ollama_engine: 16,
-      vllm_worker: 26,
-      batch_pipeline: 30,
-      health_watchdog: 28,
-    },
-    {
-      time: "17:15",
-      ollama_engine: 18,
-      vllm_worker: 28,
-      batch_pipeline: 33,
-      health_watchdog: 31,
-    },
-    {
-      time: "17:20",
-      ollama_engine: 19,
-      vllm_worker: 29,
-      batch_pipeline: 35,
-      health_watchdog: 30,
-    },
-    {
-      time: "17:25",
-      ollama_engine: 17,
-      vllm_worker: 27,
-      batch_pipeline: 32,
-      health_watchdog: 29,
-    },
-    {
-      time: "17:30",
-      ollama_engine: 18,
-      vllm_worker: 26,
-      batch_pipeline: 33,
-      health_watchdog: 28,
-    },
-    {
-      time: "17:35",
-      ollama_engine: 19,
-      vllm_worker: 27,
-      batch_pipeline: 35,
-      health_watchdog: 30,
-    },
-    {
-      time: "17:40",
-      ollama_engine: 26,
-      vllm_worker: 36,
-      batch_pipeline: 42,
-      health_watchdog: 36,
-    },
-    {
-      time: "17:45",
-      ollama_engine: 22,
-      vllm_worker: 31,
-      batch_pipeline: 36,
-      health_watchdog: 32,
-    },
-  ];
+  // Middle Left: KV Cache Occupancy & VRAM Allocation Stream (in GB)
+  // Shows how memory is split across Static Model Weights, CUDA Workspaces, Active KV Cache, and Free KV Pool
+  const kvCacheMemoryData = useMemo(() => {
+    return [
+      { time: '16:50', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.1, kv_cache_reserved: 4.8 },
+      { time: '16:55', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.5, kv_cache_reserved: 4.4 },
+      { time: '17:00', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.8, kv_cache_reserved: 4.1 },
+      { time: '17:05', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.2, kv_cache_reserved: 3.7 },
+      { time: '17:10', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.9, kv_cache_reserved: 4.0 },
+      { time: '17:15', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.5, kv_cache_reserved: 3.4 },
+      { time: '17:20', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.8, kv_cache_reserved: 3.1 },
+      { time: '17:25', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.4, kv_cache_reserved: 3.5 },
+      { time: '17:30', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.6, kv_cache_reserved: 3.3 },
+      { time: '17:35', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.1, kv_cache_reserved: 2.8 },
+      { time: '17:40', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.8, kv_cache_reserved: 2.1 },
+      { time: '17:45', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.2, kv_cache_reserved: 2.7 },
+    ]
+  }, [])
 
   // Middle Right: Throughput by Quantization
   const quantizationBarData = [
@@ -1018,24 +956,34 @@ export function Dashboard() {
           MIDDLE ROW: [server requests (Stacked Area: 65%)] | [Throughput by Quantization (35%)]
           ======================================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        {/* Left: Inference Request Concurrency by Runtime Engine */}
+        {/* Left: KV Cache Occupancy & VRAM Memory Allocation Stream */}
         <div className="lg:col-span-8 bg-gray-900 border border-[#22252b] rounded-sm p-3.5 flex flex-col justify-between min-h-[260px]">
           <div>
-            <div className="flex items-center justify-center">
-              <span className="text-[13px] text-[#d8d9da] font-medium tracking-tight">
-                Inference Request Concurrency by Engine
-              </span>
-              <InfoTooltip text="Simultaneous user streams being handled. Shows how incoming traffic is distributed across workers." />
+            <div className="flex items-center justify-between pb-0.5">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-[13px] text-[#d8d9da] font-medium tracking-tight">
+                  KV Cache Occupancy &amp; VRAM Memory Allocation
+                </span>
+                <InfoTooltip text="The Key-Value (KV) Cache stores attention states for past context tokens so the model doesn't recompute them at every step. As context lengths grow and users stream, KV Cache expands. If it reaches 100%, the engine runs out of VRAM (OOM) or preempts queries." />
+              </div>
+              <div className="flex items-center space-x-2 text-[10px] font-mono">
+                <span className="px-1.5 py-0.5 rounded bg-sky-950/80 text-sky-400 border border-sky-800/60">
+                  Active Cache: ~14.8k tokens
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-[#20252e] text-emerald-400 border border-[#2c323e]">
+                  Pool: 68% Used
+                </span>
+              </div>
             </div>
-            <div className="text-center text-[10px] text-[#717885]">
-              Active concurrent inference streams distributed across workers
+            <div className="text-left text-[10px] text-[#717885]">
+              Dynamic context memory consumption vs model weights and pre-allocated KV cache pool (in GB)
             </div>
           </div>
 
           <div className="h-56 w-full pt-1">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart
-                data={serverRequestsData}
+                data={kvCacheMemoryData}
                 margin={{ top: 8, right: 10, left: -25, bottom: 0 }}
               >
                 <CartesianGrid
@@ -1051,93 +999,104 @@ export function Dashboard() {
                   axisLine={{ stroke: "#2b303a" }}
                 />
                 <YAxis
-                  domain={[0, 150]}
-                  ticks={[0, 50, 100, 150]}
+                  domain={[0, 16]}
+                  ticks={[0, 4, 8, 12, 16]}
                   stroke="#5d636f"
                   fontSize={10}
                   tickLine={false}
                   axisLine={{ stroke: "#2b303a" }}
+                  tickFormatter={(v) => `${v} GB`}
                 />
                 <Tooltip
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
+                    const d = payload[0]?.payload || {}
+                    const totalVram = ((d.model_weights || 0) + (d.cuda_overhead || 0) + (d.kv_cache_active || 0) + (d.kv_cache_reserved || 0)).toFixed(1)
                     return (
-                      <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1">
-                        <div className="text-[#8e94a0] border-b border-[#2b303a] pb-1 font-mono">
-                          {label}
+                      <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1.5 min-w-[210px]">
+                        <div className="flex justify-between border-b border-[#2b303a] pb-1 font-mono text-[#8e94a0]">
+                          <span>{label}</span>
+                          <span className="text-sky-300 font-bold">Total: {totalVram} GB</span>
                         </div>
-                        {payload.map((p, idx) => (
-                          <div
-                            key={idx}
-                            className="flex justify-between space-x-4"
-                            style={{ color: p.color }}
-                          >
-                            <span>{p.name}:</span>
-                            <span className="font-bold font-mono">
-                              {p.value} streams
-                            </span>
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-[#5c95c8]">
+                            <span>Reserved KV Pool:</span>
+                            <span className="font-mono font-bold">{d.kv_cache_reserved} GB (Free)</span>
                           </div>
-                        ))}
+                          <div className="flex justify-between text-[#3d84be]">
+                            <span>Active KV Cache:</span>
+                            <span className="font-mono font-bold">{d.kv_cache_active} GB (Tokens)</span>
+                          </div>
+                          <div className="flex justify-between text-[#2b699c]">
+                            <span>CUDA Overhead:</span>
+                            <span className="font-mono font-bold">{d.cuda_overhead} GB</span>
+                          </div>
+                          <div className="flex justify-between text-[#8e94a0]">
+                            <span>Model Weights:</span>
+                            <span className="font-mono font-bold">{d.model_weights} GB (Static)</span>
+                          </div>
+                        </div>
                       </div>
                     );
                   }}
                 />
+                {/* 4 Layered Memory Streams from Static to Active Cache */}
                 <Area
                   type="monotone"
                   stackId="1"
-                  dataKey="ollama_engine"
-                  stroke="#5c95c8"
-                  fill="#4682b4"
-                  fillOpacity={0.85}
-                  name="ollama_engine"
-                />
-                <Area
-                  type="monotone"
-                  stackId="1"
-                  dataKey="vllm_worker"
-                  stroke="#3d84be"
-                  fill="#2e6b9e"
-                  fillOpacity={0.85}
-                  name="vllm_worker"
-                />
-                <Area
-                  type="monotone"
-                  stackId="1"
-                  dataKey="batch_pipeline"
-                  stroke="#2b699c"
-                  fill="#1f5077"
-                  fillOpacity={0.85}
-                  name="batch_pipeline"
-                />
-                <Area
-                  type="monotone"
-                  stackId="1"
-                  dataKey="health_watchdog"
+                  dataKey="model_weights"
                   stroke="#1b476f"
                   fill="#133857"
                   fillOpacity={0.9}
-                  name="health_watchdog"
+                  name="Model Weights (Static)"
+                />
+                <Area
+                  type="monotone"
+                  stackId="1"
+                  dataKey="cuda_overhead"
+                  stroke="#2b699c"
+                  fill="#1f5077"
+                  fillOpacity={0.85}
+                  name="CUDA & Activations"
+                />
+                <Area
+                  type="monotone"
+                  stackId="1"
+                  dataKey="kv_cache_active"
+                  stroke="#3d84be"
+                  fill="#2e6b9e"
+                  fillOpacity={0.85}
+                  name="Active KV Cache (Context)"
+                />
+                <Area
+                  type="monotone"
+                  stackId="1"
+                  dataKey="kv_cache_reserved"
+                  stroke="#5c95c8"
+                  fill="#4682b4"
+                  fillOpacity={0.85}
+                  name="Reserved KV Pool (Free Blocks)"
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
-          <div className="flex flex-wrap items-center justify-start space-x-6 text-[11px] pt-1 text-[#8e94a0] pl-4">
+          <div className="flex flex-wrap items-center justify-start space-x-6 text-[11px] pt-1 text-[#8e94a0] pl-2">
             <span className="flex items-center space-x-1.5">
-              <span className="w-3 h-0.5 bg-[#5c95c8] inline-block" />
-              <span>ollama_engine</span>
-            </span>
-            <span className="flex items-center space-x-1.5">
-              <span className="w-3 h-0.5 bg-[#3d84be] inline-block" />
-              <span>vllm_worker</span>
+              <span className="w-3 h-0.5 bg-[#1b476f] inline-block" />
+              <span>Model Weights (5.2 GB)</span>
             </span>
             <span className="flex items-center space-x-1.5">
               <span className="w-3 h-0.5 bg-[#2b699c] inline-block" />
-              <span>batch_pipeline</span>
+              <span>CUDA Activations (1.2 GB)</span>
             </span>
             <span className="flex items-center space-x-1.5">
-              <span className="w-3 h-0.5 bg-[#1b476f] inline-block" />
-              <span>health_watchdog</span>
+              <span className="w-3 h-0.5 bg-[#3d84be] inline-block" />
+              <span>Active KV Cache (Context)</span>
+            </span>
+            <span className="flex items-center space-x-1.5">
+              <span className="w-3 h-0.5 bg-[#5c95c8] inline-block" />
+              <span>Reserved KV Pool (Available)</span>
             </span>
           </div>
         </div>
