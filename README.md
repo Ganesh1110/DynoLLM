@@ -216,7 +216,7 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 
 **Management Commands:**
 ```bash
-./status.sh     # Check if Backend (8000) and Frontend (5173) are running
+./status.sh     # Check if Backend (8080) and Frontend (5173) are running
 ./stop.sh       # Stop both background services cleanly
 ./restart.sh    # Restart both services
 tail -f logs/backend.log    # View live backend logs
@@ -229,7 +229,7 @@ tail -f logs/frontend.log   # View live frontend logs
 ./run_backend.sh
 ```
 - Auto-detects Python, sets up virtualenv, installs dependencies, and checks NVIDIA GPU/CUDA via `nvidia-smi`.
-- Starts FastAPI on `0.0.0.0:8000`.
+- Starts FastAPI on `0.0.0.0:8080`.
 
 **Terminal 2 — Frontend:**
 ```bash
@@ -252,8 +252,8 @@ pip install -r requirements.txt
 python run.py
 ```
 
-- **Backend API**: `http://localhost:8000`
-- **Interactive Swagger Docs**: `http://localhost:8000/docs`
+- **Backend API**: `http://localhost:8080`
+- **Interactive Swagger Docs**: `http://localhost:8080/docs`
 
 #### 2. Setup Frontend
 
@@ -271,7 +271,7 @@ npm run dev
 docker-compose up --build
 ```
 
-- **Backend API**: `http://localhost:8000`
+- **Backend API**: `http://localhost:8080`
 - **Web Dashboard**: `http://localhost:5173`
 
 ---
@@ -299,7 +299,7 @@ All backend settings are in `backend/app/core/config.py` and can be overridden v
 
 | Variable       | Type            | Default                 | Description                                                                                                                                                      |
 | -------------- | --------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VITE_API_URL` | `str`           | `http://localhost:8000` | Backend API base URL. Set this to your backend address when deploying frontend and backend on separate hosts.                                                    |
+| `VITE_API_URL` | `str`           | `http://localhost:8080` | Backend API base URL. Set this to your backend address when deploying frontend and backend on separate hosts.                                                    |
 | `VITE_API_KEY` | `Optional[str]` | _(none)_                | API key for authenticated backend instances. Sent as `X-API-Key` header on all API calls and appended as `?token=` for file downloads and WebSocket connections. |
 
 > **Tip:** The `API_KEY` can also be stored in `localStorage` under the key `dynollm_api_key` and it will be picked up by the frontend. This is useful for quick testing without modifying environment files.
@@ -514,7 +514,7 @@ The `events` channel does **not** poll hardware — connect to `stream` for hard
 ### 1. Register a Runtime
 
 ```bash
-curl -X POST http://localhost:8000/api/runtimes \
+curl -X POST http://localhost:8080/api/runtimes \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Local Ollama",
@@ -530,14 +530,14 @@ curl -X POST http://localhost:8000/api/runtimes \
 
 ```bash
 # Replace {id} with the runtime ID returned above
-curl -X POST http://localhost:8000/api/runtimes/{id}/health
-curl http://localhost:8000/api/runtimes/{id}/models
+curl -X POST http://localhost:8080/api/runtimes/{id}/health
+curl http://localhost:8080/api/runtimes/{id}/models
 ```
 
 ### 3. Run a Single-Request Benchmark
 
 ```bash
-curl -X POST http://localhost:8000/api/benchmarks \
+curl -X POST http://localhost:8080/api/benchmarks \
   -H "Content-Type: application/json" \
   -d '{
     "runtime_id": "{id}",
@@ -550,13 +550,13 @@ curl -X POST http://localhost:8000/api/benchmarks \
   }'
 
 # Fetch the aggregate results
-curl http://localhost:8000/api/benchmarks/{run_id}
+curl http://localhost:8080/api/benchmarks/{run_id}
 ```
 
 ### 4. Launch a Load Test
 
 ```bash
-curl -X POST http://localhost:8000/api/load-tests \
+curl -X POST http://localhost:8080/api/load-tests \
   -H "Content-Type: application/json" \
   -d '{
     "runtime_id": "{id}",
@@ -570,18 +570,18 @@ curl -X POST http://localhost:8000/api/load-tests \
   }'
 
 # Stop an active test early
-curl -X POST http://localhost:8000/api/load-tests/{run_id}/stop
+curl -X POST http://localhost:8080/api/load-tests/{run_id}/stop
 
 # Fetch the safe concurrency verdict + aggregates
-curl http://localhost:8000/api/load-tests/{run_id}
+curl http://localhost:8080/api/load-tests/{run_id}
 ```
 
 ### 5. Export Results
 
 ```bash
-curl -o benchmark.csv http://localhost:8000/api/export/benchmarks/{run_id}/csv
-curl -o benchmark.json http://localhost:8000/api/export/benchmarks/{run_id}/json
-curl -o load_test.csv http://localhost:8000/api/export/load-tests/{run_id}/csv
+curl -o benchmark.csv http://localhost:8080/api/export/benchmarks/{run_id}/csv
+curl -o benchmark.json http://localhost:8080/api/export/benchmarks/{run_id}/json
+curl -o load_test.csv http://localhost:8080/api/export/load-tests/{run_id}/csv
 ```
 
 > **Authenticated instances:** when `API_KEY` is set, append `?token=<key>` to every request above (or use the `X-API-Key` / `Authorization: Bearer <key>` headers). Browser downloads and WebSocket connections can only use the `?token=` form.

@@ -65,7 +65,7 @@ echo "   • Port: ${PORT}"
 if [ -n "$VITE_API_URL" ]; then
   echo "   • Explicit API URL: ${VITE_API_URL}"
 else
-  echo "   • Backend API URL: Auto-detected from browser hostname (default port 8000)"
+  echo "   • Backend API URL: Auto-detected from browser hostname (default port 8080)"
 fi
 
 echo "------------------------------------------------------------"
@@ -78,7 +78,7 @@ echo "------------------------------------------------------------"
 echo "⚠️  AWS Security Group Reminder:"
 echo "   Ensure Inbound Rules allow TCP traffic on:"
 echo "   - Port 5173 (DynoLLM Frontend Dashboard)"
-echo "   - Port 8000 (DynoLLM Backend API)"
+echo "   - Port 8080 (DynoLLM Backend API)"
 echo "   - Port 11434 (Ollama, if hosting Ollama on this instance)"
 echo "============================================================"
 echo "🚀 Launching Vite Dev Server..."

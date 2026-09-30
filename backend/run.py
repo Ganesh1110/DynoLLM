@@ -8,10 +8,12 @@ if __name__ == "__main__":
     # Set DEV=true in your local environment to re-enable file-watching during development.
     dev_mode = os.getenv("DEV", "false").lower() == "true"
 
+    port = int(os.getenv("PORT", 8080))
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=dev_mode,
         log_level="info",
     )

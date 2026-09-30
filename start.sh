@@ -77,7 +77,7 @@ echo "👉 Access the Web Dashboard:"
 echo "   • Local URL:   http://localhost:5173"
 if [ -n "$PUBLIC_IP" ]; then
   echo "   • AWS Web UI:  http://${PUBLIC_IP}:5173"
-  echo "   • Backend API: http://${PUBLIC_IP}:8000/docs"
+  echo "   • Backend API: http://${PUBLIC_IP}:8080/docs"
 fi
 echo "------------------------------------------------------------"
 echo "🛠️  Management Commands:"

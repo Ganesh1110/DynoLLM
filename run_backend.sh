@@ -144,7 +144,7 @@ fi
 
 # 5. Environment Defaults for AWS Deployment
 export HOST="${HOST:-0.0.0.0}"
-export PORT="${PORT:-8000}"
+export PORT="${PORT:-8080}"
 export CORS_ORIGINS="${CORS_ORIGINS:-[\"*\"]}"
 
 echo "🌐 Backend Configuration:"

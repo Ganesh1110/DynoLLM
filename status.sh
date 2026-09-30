@@ -15,14 +15,14 @@ echo "📊 DynoLLM Service Status"
 echo "============================================================"
 
 # 1. Backend Status
-echo "🔹 [Backend - Port 8000]:"
+echo "🔹 [Backend - Port 8080]:"
 if [ -f "${BACKEND_PID_FILE}" ]; then
   BE_PID=$(cat "${BACKEND_PID_FILE}")
   if kill -0 "${BE_PID}" 2>/dev/null; then
     echo "   • Status:  🟢 RUNNING (PID: ${BE_PID})"
     # Check health API
     if command -v curl >/dev/null 2>&1; then
-      HEALTH=$(curl -s -m 2 http://localhost:8000/api/health 2>/dev/null || true)
+      HEALTH=$(curl -s -m 2 http://localhost:8080/api/health 2>/dev/null || true)
       if [ -n "$HEALTH" ]; then
         echo "   • Health:  $HEALTH"
       fi

@@ -49,12 +49,12 @@ stop_pid() {
 stop_pid "Frontend" "${FRONTEND_PID_FILE}"
 stop_pid "Backend"  "${BACKEND_PID_FILE}"
 
-# Fallback: clean up any remaining processes bound to ports 8000 and 5173
+# Fallback: clean up any remaining processes bound to ports 8080, 8000 and 5173
 if command -v lsof >/dev/null 2>&1; then
-  BE_PORT_PID=$(lsof -ti:8000 2>/dev/null || true)
+  BE_PORT_PID=$(lsof -ti:8080,8000 2>/dev/null || true)
   if [ -n "$BE_PORT_PID" ]; then
-    echo "Cleaning up process on port 8000 (PID: ${BE_PORT_PID})..."
-    kill -9 "$BE_PORT_PID" 2>/dev/null || true
+    echo "Cleaning up process on port 8080/8000 (PID: ${BE_PORT_PID})..."
+    kill -9 $BE_PORT_PID 2>/dev/null || true
   fi
 
   FE_PORT_PID=$(lsof -ti:5173 2>/dev/null || true)
@@ -63,6 +63,7 @@ if command -v lsof >/dev/null 2>&1; then
     kill -9 "$FE_PORT_PID" 2>/dev/null || true
   fi
 elif command -v fuser >/dev/null 2>&1; then
+  fuser -k 8080/tcp 2>/dev/null || true
   fuser -k 8000/tcp 2>/dev/null || true
   fuser -k 5173/tcp 2>/dev/null || true
 fi
