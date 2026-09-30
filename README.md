@@ -206,13 +206,29 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 
 ### 🚀 Quick Run Scripts (AWS GPU / Linux / macOS)
 
-After cloning the repository, you can launch the backend and frontend separately in two terminal tabs or tmux windows:
+#### Option A: Run in Background (Safe to close terminal / SSH session)
+```bash
+./start.sh
+```
+- Starts both Backend and Frontend as background daemons (`nohup` + PID tracking).
+- Logs are streamed to `logs/backend.log` and `logs/frontend.log`.
+- **Safe to close terminal or disconnect SSH** without terminating the application!
 
+**Management Commands:**
+```bash
+./status.sh     # Check if Backend (8000) and Frontend (5173) are running
+./stop.sh       # Stop both background services cleanly
+./restart.sh    # Restart both services
+tail -f logs/backend.log    # View live backend logs
+tail -f logs/frontend.log   # View live frontend logs
+```
+
+#### Option B: Run in Separate Foreground Terminals
 **Terminal 1 — Backend:**
 ```bash
 ./run_backend.sh
 ```
-- Auto-detects Python 3.11+, sets up virtualenv, installs `requirements.txt`, and checks NVIDIA GPU/CUDA via `nvidia-smi`.
+- Auto-detects Python, sets up virtualenv, installs dependencies, and checks NVIDIA GPU/CUDA via `nvidia-smi`.
 - Starts FastAPI on `0.0.0.0:8000`.
 
 **Terminal 2 — Frontend:**

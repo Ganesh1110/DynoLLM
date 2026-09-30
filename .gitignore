@@ -52,6 +52,7 @@ Thumbs.db
 
 # Logs & Temporary files
 *.log
+*.pid
 logs/
 reports/*.pdf
 reports/*.csv
