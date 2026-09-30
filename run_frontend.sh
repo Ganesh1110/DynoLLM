@@ -59,13 +59,23 @@ fi
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-5173}"
 
+DEBUG_LOWER=$(echo "${DEBUG:-false}" | tr '[:upper:]' '[:lower:]')
+if [ "$DEBUG_LOWER" = "true" ] || [ "$DEBUG_LOWER" = "1" ] || [ "$DEBUG_LOWER" = "yes" ]; then
+  export VITE_DEBUG="true"
+  DEFAULT_BE_PORT="${BACKEND_PORT:-${PORT_BE:-8000}}"
+else
+  export VITE_DEBUG="false"
+  DEFAULT_BE_PORT="${BACKEND_PORT:-${PORT_BE:-8080}}"
+fi
+export VITE_API_PORT="${VITE_API_PORT:-${DEFAULT_BE_PORT}}"
+
 echo "🌐 Frontend Configuration:"
 echo "   • Host: ${HOST} (Listening on all interfaces for AWS remote access)"
 echo "   • Port: ${PORT}"
 if [ -n "$VITE_API_URL" ]; then
   echo "   • Explicit API URL: ${VITE_API_URL}"
 else
-  echo "   • Backend API URL: Auto-detected from browser hostname (default port 8080)"
+  echo "   • Backend API Target: Port ${VITE_API_PORT} (Debug: ${VITE_DEBUG})"
 fi
 
 echo "------------------------------------------------------------"
@@ -78,7 +88,7 @@ echo "------------------------------------------------------------"
 echo "⚠️  AWS Security Group Reminder:"
 echo "   Ensure Inbound Rules allow TCP traffic on:"
 echo "   - Port 5173 (DynoLLM Frontend Dashboard)"
-echo "   - Port 8080 (DynoLLM Backend API)"
+echo "   - Port ${VITE_API_PORT} (DynoLLM Backend API)"
 echo "   - Port 11434 (Ollama, if hosting Ollama on this instance)"
 echo "============================================================"
 echo "🚀 Launching Vite Dev Server..."

@@ -216,12 +216,20 @@ Generic HTTP load testers (like k6, Locust, or Apache Bench) measure raw request
 
 **Management Commands:**
 ```bash
-./status.sh     # Check if Backend (8080) and Frontend (5173) are running
+./status.sh     # Check if Backend (8080/8000) and Frontend (5173) are running
 ./stop.sh       # Stop both background services cleanly
 ./restart.sh    # Restart both services
 tail -f logs/backend.log    # View live backend logs
 tail -f logs/frontend.log   # View live frontend logs
 ```
+
+> 💡 **Debug Mode vs Production Mode:**
+> - **Default (`DEBUG=false`):** Backend runs on **Port 8080** (avoids conflicts with vLLM on port 8000).
+> - **Debug Mode (`DEBUG=true`):** Backend runs on **Port 8000** with verbose logging:
+>   ```bash
+>   DEBUG=true ./start.sh      # Background mode on port 8000
+>   DEBUG=true ./run_backend.sh  # Foreground mode on port 8000
+>   ```
 
 #### Option B: Run in Separate Foreground Terminals
 **Terminal 1 — Backend:**
@@ -286,7 +294,8 @@ All backend settings are in `backend/app/core/config.py` and can be overridden v
 | ----------------------------- | --------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `APP_NAME`                    | `str`           | `DynoLLM`                                                                   | Application name displayed in UI and API responses.                                                                                                                                                                                                                                                                                      |
 | `APP_VERSION`                 | `str`           | `1.0.0`                                                                     | Application version, returned by health check and root endpoint.                                                                                                                                                                                                                                                                         |
-| `DEBUG`                       | `bool`          | `True`                                                                      | Enables debug mode. When `True`, enables verbose SQL logging via SQLAlchemy engine echo. Set to `False` in production.                                                                                                                                                                                                                   |
+| `DEBUG`                       | `bool`          | `False`                                                                     | Controls debug mode and default port. When `False` (production/AWS default), the backend runs on port **8080** (preventing collisions with vLLM on 8000). When `True` (`DEBUG=true`), enables verbose SQL logging and runs the backend on port **8000**. |
+| `PORT`                        | `int`           | `8000` (if `DEBUG=True`), `8080` (if `DEBUG=False`)                         | Explicit port override for the FastAPI backend server.                                                                                                                                                                                                                   |
 | `API_KEY`                     | `Optional[str]` | `None`                                                                      | Optional API key for protecting endpoints on shared/remote instances. If set, every request to `/api/runtimes`, `/api/benchmarks`, `/api/load-tests`, and `/api/export` must include the key via one of: `X-API-Key` header, `Authorization: Bearer <key>` header, or `?token=<key>` query parameter. If `None`, all endpoints are open. |
 | `DATABASE_URL`                | `str`           | `sqlite+aiosqlite:///./llm_platform.db`                                     | Async SQLite database connection string. All benchmark runs, load test runs, and results are persisted here. Override to use a different path or database backend.                                                                                                                                                                       |
 | `CORS_ORIGINS`                | `list[str]`     | `["http://localhost:5173", "http://localhost:3000", "http://0.0.0.1:5173"]` | Allowed CORS origins for the FastAPI server. Add your production domain here when deploying remotely.                                                                                                                                                                                                                                    |

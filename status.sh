@@ -15,17 +15,30 @@ echo "📊 DynoLLM Service Status"
 echo "============================================================"
 
 # 1. Backend Status
-echo "🔹 [Backend - Port 8080]:"
+ACTIVE_PORT="8080"
+HEALTH=""
+if command -v curl >/dev/null 2>&1; then
+  # Probe 8080 first (production/default)
+  HEALTH=$(curl -s -m 2 http://localhost:8080/api/health 2>/dev/null || true)
+  if [ -n "$HEALTH" ]; then
+    ACTIVE_PORT="8080"
+  else
+    # Fallback probe 8000 (debug mode)
+    DEBUG_HEALTH=$(curl -s -m 2 http://localhost:8000/api/health 2>/dev/null || true)
+    if [ -n "$DEBUG_HEALTH" ]; then
+      HEALTH="${DEBUG_HEALTH}"
+      ACTIVE_PORT="8000"
+    fi
+  fi
+fi
+
+echo "🔹 [Backend - Port ${ACTIVE_PORT}]:"
 if [ -f "${BACKEND_PID_FILE}" ]; then
   BE_PID=$(cat "${BACKEND_PID_FILE}")
   if kill -0 "${BE_PID}" 2>/dev/null; then
     echo "   • Status:  🟢 RUNNING (PID: ${BE_PID})"
-    # Check health API
-    if command -v curl >/dev/null 2>&1; then
-      HEALTH=$(curl -s -m 2 http://localhost:8080/api/health 2>/dev/null || true)
-      if [ -n "$HEALTH" ]; then
-        echo "   • Health:  $HEALTH"
-      fi
+    if [ -n "$HEALTH" ]; then
+      echo "   • Health:  $HEALTH"
     fi
   else
     echo "   • Status:  🔴 DEAD (PID file exists with ${BE_PID}, but process is not alive)"

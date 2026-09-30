@@ -15,8 +15,18 @@ FRONTEND_PID_FILE="${LOGS_DIR}/frontend.pid"
 BACKEND_LOG="${LOGS_DIR}/backend.log"
 FRONTEND_LOG="${LOGS_DIR}/frontend.log"
 
+DEBUG_LOWER=$(echo "${DEBUG:-false}" | tr '[:upper:]' '[:lower:]')
+if [ "$DEBUG_LOWER" = "true" ] || [ "$DEBUG_LOWER" = "1" ] || [ "$DEBUG_LOWER" = "yes" ]; then
+  BE_PORT="${PORT:-8000}"
+  DEBUG_LABEL="ENABLED (Port 8000)"
+else
+  BE_PORT="${PORT:-8080}"
+  DEBUG_LABEL="DISABLED (Port 8080)"
+fi
+
 echo "============================================================"
 echo "⚡ Starting DynoLLM in Background Mode..."
+echo "   • Mode: Debug ${DEBUG_LABEL}"
 echo "============================================================"
 
 # Helper: check if PID is running
@@ -77,7 +87,7 @@ echo "👉 Access the Web Dashboard:"
 echo "   • Local URL:   http://localhost:5173"
 if [ -n "$PUBLIC_IP" ]; then
   echo "   • AWS Web UI:  http://${PUBLIC_IP}:5173"
-  echo "   • Backend API: http://${PUBLIC_IP}:8080/docs"
+  echo "   • Backend API: http://${PUBLIC_IP}:${BE_PORT}/docs"
 fi
 echo "------------------------------------------------------------"
 echo "🛠️  Management Commands:"

@@ -144,12 +144,27 @@ fi
 
 # 5. Environment Defaults for AWS Deployment
 export HOST="${HOST:-0.0.0.0}"
-export PORT="${PORT:-8080}"
+
+# DEBUG Mode & Port Selection:
+# When DEBUG is true (1/true/yes): run on port 8000 in debug mode.
+# When DEBUG is false (default): run on port 8080 (avoids collision with vLLM on port 8000).
+DEBUG_LOWER=$(echo "${DEBUG:-false}" | tr '[:upper:]' '[:lower:]')
+if [ "$DEBUG_LOWER" = "true" ] || [ "$DEBUG_LOWER" = "1" ] || [ "$DEBUG_LOWER" = "yes" ]; then
+  export DEBUG="True"
+  export PORT="${PORT:-8000}"
+  DEBUG_LABEL="ENABLED (Port 8000)"
+else
+  export DEBUG="False"
+  export PORT="${PORT:-8080}"
+  DEBUG_LABEL="DISABLED (Port 8080)"
+fi
+
 export CORS_ORIGINS="${CORS_ORIGINS:-[\"*\"]}"
 
 echo "🌐 Backend Configuration:"
 echo "   • Host: ${HOST}"
 echo "   • Port: ${PORT}"
+echo "   • Debug Mode: ${DEBUG_LABEL}"
 echo "   • CORS: ${CORS_ORIGINS}"
 echo "   • Swagger Docs: http://${HOST}:${PORT}/docs"
 echo "============================================================"

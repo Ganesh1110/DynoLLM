@@ -1,4 +1,42 @@
-const BASE_URL = import.meta.env.VITE_API_URL || (typeof window !== 'undefined' && window.location.hostname ? `${window.location.protocol}//${window.location.hostname}:8080` : 'http://localhost:8080')
+function resolveBackendBaseUrl() {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL
+  }
+
+  const isDebug = import.meta.env.VITE_DEBUG === 'true' || import.meta.env.VITE_DEBUG === '1'
+  let defaultPort = isDebug ? '8000' : '8080'
+
+  if (import.meta.env.VITE_API_PORT) {
+    defaultPort = String(import.meta.env.VITE_API_PORT)
+  }
+
+  let port = defaultPort
+  if (typeof window !== 'undefined') {
+    try {
+      const urlParams = new URLSearchParams(window.location.search)
+      const qPort = urlParams.get('api_port') || urlParams.get('port')
+      if (qPort === 'reset' || qPort === 'default') {
+        localStorage.removeItem('dynollm_api_port')
+      } else if (qPort) {
+        localStorage.setItem('dynollm_api_port', qPort)
+        port = qPort
+      } else {
+        const storedPort = localStorage.getItem('dynollm_api_port')
+        if (storedPort) {
+          port = storedPort
+        }
+      }
+    } catch {}
+
+    if (window.location.hostname) {
+      return `${window.location.protocol}//${window.location.hostname}:${port}`
+    }
+  }
+
+  return `http://localhost:${port}`
+}
+
+const BASE_URL = resolveBackendBaseUrl()
 const WS_BASE = BASE_URL.replace(/^http/, 'ws')
 
 function getApiKey() {

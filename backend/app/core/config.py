@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     # App
     APP_NAME: str = "DynoLLM"
     APP_VERSION: str = "1.0.0"
-    DEBUG: bool = True
+    DEBUG: bool = False
     API_KEY: Optional[str] = None  # Optional API authentication for shared/remote instances
 
     # Database
