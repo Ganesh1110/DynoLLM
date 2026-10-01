@@ -127,6 +127,8 @@ export const loadTestsApi = {
 export const monitoringApi = {
   current: () => request('/api/monitoring/current'),
   engineStats: () => request('/api/monitoring/engine-stats'),
+  engineStatsHistory: (runtimeId, window = '15m') =>
+    request(`/api/monitoring/engine-stats/history?runtime_id=${encodeURIComponent(runtimeId)}&window=${encodeURIComponent(window)}`),
 }
 
 export function createMonitoringWS(onMessage, onClose) {

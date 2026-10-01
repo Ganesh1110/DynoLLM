@@ -48,6 +48,7 @@ import { fmt, fmtBytes } from '../components/ui'
 import { monitoringApi } from '../services/api'
 import { parseModelName, calcDetailedKvSpecs, BYTES_PER_GIB } from '../utils/gpuSizer'
 import { rateSingleRun } from '../utils/ratingUtils'
+import { TelemetryGrid } from '../components/telemetry'
 
 // ==============================================================================
 // 1. Badges & Interactive Info Tooltip
@@ -904,6 +905,7 @@ export function Dashboard() {
   const fetchLoadTests = useLoadTestStore((s) => s.fetchRuns)
 
   const [cheatSheetOpen, setCheatSheetOpen] = useState(false)
+  const [dashboardView, setDashboardView] = useState('telemetry') // 'telemetry' | 'overview'
   // Phase 3: Real engine stats (KV cache, loaded models, vLLM queue)
   const [engineStats, setEngineStats] = useState([])
 
@@ -1247,6 +1249,50 @@ export function Dashboard() {
           ======================================================================== */}
       <FresherWorkflowGuide onOpenCheatSheet={() => setCheatSheetOpen(true)} />
 
+      {/* ========================================================================
+          View Switcher: Engine Telemetry Grid vs System Overview
+          ======================================================================== */}
+      <div className="flex flex-wrap items-center justify-between border-b border-[#22252b] pb-2.5 gap-2">
+        <div className="flex items-center space-x-1.5 bg-[#14161a] border border-[#22252b] p-1 rounded">
+          <button
+            type="button"
+            onClick={() => setDashboardView('telemetry')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+              dashboardView === 'telemetry'
+                ? 'bg-sky-600 text-white shadow-sm'
+                : 'text-[#8e94a0] hover:text-white'
+            }`}
+          >
+            <Activity className="w-3.5 h-3.5" />
+            <span>Engine Telemetry Grid</span>
+            <span className="hidden sm:inline-block ml-1 px-1.5 py-0.2 rounded bg-sky-950 text-[10px] text-sky-300 font-mono border border-sky-800/50">
+              Live Flow
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setDashboardView('overview')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+              dashboardView === 'overview'
+                ? 'bg-[#22252b] text-white shadow-sm'
+                : 'text-[#8e94a0] hover:text-white'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>System Overview &amp; Quantization</span>
+          </button>
+        </div>
+
+        <div className="text-[11px] text-gray-500 hidden md:flex items-center space-x-1.5 font-mono">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span>Real-Time Engine Metric Stream</span>
+        </div>
+      </div>
+
+      {dashboardView === 'telemetry' ? (
+        <TelemetryGrid runtimes={runtimes} currentHardware={current} />
+      ) : (
+        <>
       {/* ========================================================================
           PHASE 2: Real NVIDIA GPU Telemetry Strip (When GPU is Present)
           ======================================================================== */}
@@ -1966,6 +2012,8 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       {/* ========================================================================
           BOTTOM ROW: Configured Runtimes & Recent Runs Quick Links
