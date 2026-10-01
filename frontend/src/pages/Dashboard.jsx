@@ -17,6 +17,13 @@ import {
   Info,
   BookOpen,
   Cpu,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Pin,
+  Award,
+  Users,
+  CheckCircle,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -39,6 +46,7 @@ import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
 import { fmt, fmtBytes } from '../components/ui'
 import { monitoringApi } from '../services/api'
+import { parseModelName, calcDetailedKvSpecs, BYTES_PER_GIB } from '../utils/gpuSizer'
 
 // ==============================================================================
 // 1. Badges & Interactive Info Tooltip
@@ -454,7 +462,399 @@ function SparklineCard({ title, subtitle, value, unit, color, data, tooltipText,
 }
 
 // ==============================================================================
-// 6. Main Dashboard Component
+// 6. Phase 4 — Pure Bottleneck Analysis Functions
+// ==============================================================================
+
+/**
+ * computeBottlenecks — evaluates 10 alert rules from live hardware + engine stats.
+ * Returns { alerts: [{id, label, detail, severity}], allClear: bool }
+ */
+function computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats }) {
+  const alerts = []
+
+  // KV Cache pressure
+  const kvPct = kvCacheSummary?.vllmKvPct ?? (
+    kvCacheSummary?.source === 'ollama' && primaryGpu
+      ? parseFloat(kvCacheSummary.activeTokensCached) || 0
+      : null
+  )
+  if (kvPct !== null && kvPct > 90) {
+    alerts.push({ id: 'kv-critical', label: 'KV Cache Critical', detail: `${kvPct}% occupied — OOM risk`, severity: 'danger' })
+  } else if (kvPct !== null && kvPct > 70) {
+    alerts.push({ id: 'kv-high', label: 'KV Cache High', detail: `${kvPct}% — headroom shrinking`, severity: 'warning' })
+  }
+
+  // Temperature
+  const temp = primaryGpu?.temperature_celsius
+  if (temp != null && temp > 83) {
+    alerts.push({ id: 'temp-critical', label: 'Thermal Throttle Risk', detail: `${temp}°C — throttle imminent`, severity: 'danger' })
+  } else if (temp != null && temp > 75) {
+    alerts.push({ id: 'temp-high', label: 'Temp Elevated', detail: `${temp}°C — monitor closely`, severity: 'warning' })
+  }
+
+  // Memory Bandwidth
+  const bw = primaryGpu?.memory_bandwidth_percent
+  if (bw != null && bw > 90) {
+    alerts.push({ id: 'bw-saturated', label: 'Mem BW Saturated', detail: `${bw}% — generation speed capped`, severity: 'danger' })
+  } else if (bw != null && bw > 70) {
+    alerts.push({ id: 'bw-high', label: 'Mem BW High', detail: `${bw}% — decode-bound`, severity: 'warning' })
+  }
+
+  // VRAM
+  const vramPct = primaryGpu?.vram_percent
+  if (vramPct != null && vramPct > 95) {
+    alerts.push({ id: 'vram-critical', label: 'VRAM Critical', detail: `${vramPct.toFixed(0)}% used — imminent OOM`, severity: 'danger' })
+  }
+
+  // vLLM queue building
+  const waiting = kvCacheSummary?.vllmWaiting
+  const gpuUtil = primaryGpu?.utilization_percent
+  if (waiting != null && waiting > 3) {
+    alerts.push({ id: 'queue-building', label: 'Request Queue Building', detail: `${waiting} requests waiting`, severity: 'warning' })
+  }
+  // Decode stall: GPU idle but requests queued
+  if (gpuUtil != null && gpuUtil < 30 && waiting != null && waiting > 0) {
+    alerts.push({ id: 'decode-stall', label: 'Decode Stall', detail: `GPU ${gpuUtil}% util with ${waiting} waiting — check batch config`, severity: 'warning' })
+  }
+
+  // CPU Offload
+  if (kvCacheSummary?.isCpuOffloaded) {
+    alerts.push({ id: 'cpu-offload', label: 'CPU Offload Active', detail: `${kvCacheSummary.cpuOffloadGb} GB in RAM — latency ×3–10x slower`, severity: 'warning' })
+  }
+
+  // Power cap throttle
+  const throttle = primaryGpu?.throttle_reasons
+  if (throttle && throttle !== 'None' && throttle !== null) {
+    alerts.push({ id: 'throttle', label: `GPU Throttling: ${throttle}`, detail: 'Clock speed reduced by hardware protection', severity: 'danger' })
+  }
+
+  return { alerts, allClear: alerts.length === 0 }
+}
+
+/**
+ * computeCapacityHeadroom — given live GPU state + loaded model, estimates
+ * how many additional concurrent users fit at standard context lengths.
+ */
+function computeCapacityHeadroom({ primaryGpu, kvCacheSummary }) {
+  if (!primaryGpu) return null
+
+  const totalVramGib = primaryGpu.vram_total_bytes / BYTES_PER_GIB
+  const usedVramGib = primaryGpu.vram_used_bytes / BYTES_PER_GIB
+  const freeVramGib = Math.max(0, totalVramGib - usedVramGib)
+
+  // Need at least 0.5 GB free to meaningfully add users
+  if (freeVramGib < 0.5) return { freeVramGib: 0, slots: [] }
+
+  // Determine model architecture from loaded model name (Ollama) or fallback
+  const modelName = kvCacheSummary?.modelName || ''
+  const arch = parseModelName(modelName)
+  const params = arch.params || 8
+
+  const slots = [2048, 4096, 8192, 16384].map((ctx) => {
+    const spec = calcDetailedKvSpecs(params, ctx, arch)
+    // Each concurrent user needs one KV cache slot of spec.kvGiB
+    const additionalUsers = Math.max(0, Math.floor(freeVramGib / spec.kvGiB))
+    return { ctx, ctxLabel: ctx >= 1024 ? `${ctx / 1024}k` : `${ctx}`, additionalUsers, kvPerUserGib: spec.kvGiB }
+  })
+
+  return { freeVramGib, totalVramGib, slots }
+}
+
+// ==============================================================================
+// 7. Phase 4 — Alert Banner Row
+// ==============================================================================
+function AlertBannerRow({ alerts, allClear }) {
+  if (allClear) {
+    return (
+      <div className="flex items-center space-x-2 bg-[#181b1f] border border-emerald-800/40 rounded-sm px-3.5 py-3 text-xs text-emerald-400 h-full">
+        <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
+        <span className="font-medium">All systems nominal</span>
+        <span className="text-emerald-500/80 text-[11px]">— no hardware throttling, KV cache pressure, or queue bottlenecks detected</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-[#181b1f] border border-[#22252b] rounded-sm px-3.5 py-3 flex items-center gap-2 flex-wrap h-full">
+      <span className="text-[10px] text-[#8e94a0] font-mono shrink-0 uppercase tracking-wide mr-1">Active Bottlenecks</span>
+      {alerts.map((a) => (
+        <div
+          key={a.id}
+          className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-[11px] font-mono border shrink-0 ${
+            a.severity === 'danger'
+              ? 'bg-red-950/60 border-red-700/60 text-red-300'
+              : 'bg-amber-950/60 border-amber-700/60 text-amber-300'
+          }`}
+        >
+          {a.severity === 'danger' ? (
+            <span className="w-2 h-2 rounded-full bg-red-400 animate-pulse shrink-0" />
+          ) : (
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          )}
+          <span className="font-semibold">{a.label}</span>
+          <span className="text-[10px] opacity-75 hidden sm:inline">({a.detail})</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ==============================================================================
+// 8. Phase 4 — Capacity Headroom Card
+// ==============================================================================
+function CapacityHeadroomCard({ headroom }) {
+  if (!headroom) return null
+
+  return (
+    <div className="bg-[#181b1f] border border-[#22252b] rounded-sm px-3.5 py-2.5 text-xs shrink-0">
+      <div className="flex items-center space-x-1.5 pb-1.5 border-b border-[#22252b]">
+        <Users className="w-3.5 h-3.5 text-sky-400" />
+        <span className="text-[#d8d9da] font-medium text-[12px]">Capacity Headroom</span>
+        <InfoTooltip text="Estimated additional concurrent users that can be served using the remaining free VRAM. Each user requires one KV cache slot per context length. Based on transformer attention architecture math." />
+      </div>
+      <div className="mt-1.5 space-y-0.5">
+        <div className="text-[10px] text-[#6c727d] font-mono">
+          GPU Free: <span className="text-sky-300 font-bold">{headroom.freeVramGib.toFixed(1)} GB</span>
+          {' '}/ {headroom.totalVramGib?.toFixed(0)} GB
+        </div>
+        {headroom.slots?.filter(s => s.additionalUsers > 0).slice(0, 3).map(s => (
+          <div key={s.ctx} className="flex items-center justify-between space-x-3 text-[10px]">
+            <span className="text-[#717885] font-mono">{s.ctxLabel} ctx</span>
+            <span className={`font-mono font-bold ${
+              s.additionalUsers >= 5 ? 'text-emerald-400' :
+              s.additionalUsers >= 2 ? 'text-sky-400' : 'text-amber-400'
+            }`}>
+              ~{s.additionalUsers} user{s.additionalUsers !== 1 ? 's' : ''}
+            </span>
+          </div>
+        ))}
+        {headroom.slots?.every(s => s.additionalUsers === 0) && (
+          <div className="text-[10px] text-red-400 font-mono">VRAM full — no headroom</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ==============================================================================
+// 9. Phase 5 — Run Rating + Regression Pure Functions
+// ==============================================================================
+
+/** Maps benchmark/load-test metrics to a rating tier. */
+function rateRun(run) {
+  // Load tests: use error_rate and tokens_out_per_second
+  const isLoadTest = run.target_users != null || run.max_concurrent_users != null
+  if (isLoadTest) {
+    const errRate = run.error_rate ?? 0
+    const tps = run.tokens_out_per_second ?? run.avg_tokens_per_second ?? 0
+    if (errRate > 10) return { label: 'High Error Rate', color: 'red', icon: '🔴' }
+    if (tps > 30 && errRate < 2) return { label: 'Excellent', color: 'emerald', icon: '🏆' }
+    if (tps > 10 && errRate < 5) return { label: 'Good', color: 'sky', icon: '✅' }
+    return { label: 'Moderate', color: 'amber', icon: '🟡' }
+  }
+  // Benchmarks: use p95_latency_ms and tokens_per_second
+  const p95 = run.p95_latency_ms
+  const tps = run.tokens_per_second
+  if (p95 == null && tps == null) return { label: 'No Data', color: 'gray', icon: '—' }
+  if (p95 < 100 && tps > 50) return { label: 'Excellent', color: 'emerald', icon: '🏆' }
+  if (p95 < 300 && tps > 20) return { label: 'Good', color: 'sky', icon: '✅' }
+  if (p95 < 600 || tps > 10) return { label: 'Moderate', color: 'amber', icon: '🟡' }
+  return { label: 'Slow', color: 'red', icon: '🔴' }
+}
+
+/**
+ * computeRegression — compares two runs, returns delta % and regression flag.
+ * Positive tok/s delta = improvement; positive p95 delta = regression (slower).
+ */
+function computeRegression(current, baseline) {
+  if (!current || !baseline) return null
+  const tpsCurrent = current.tokens_per_second ?? current.tokens_out_per_second ?? null
+  const tpsBaseline = baseline.tokens_per_second ?? baseline.tokens_out_per_second ?? null
+  const p95Current = current.p95_latency_ms ?? null
+  const p95Baseline = baseline.p95_latency_ms ?? null
+
+  const toksDeltaPct = (tpsCurrent != null && tpsBaseline != null && tpsBaseline > 0)
+    ? +((tpsCurrent - tpsBaseline) / tpsBaseline * 100).toFixed(1)
+    : null
+  const p95DeltaPct = (p95Current != null && p95Baseline != null && p95Baseline > 0)
+    ? +((p95Current - p95Baseline) / p95Baseline * 100).toFixed(1)
+    : null
+  const isRegression = p95DeltaPct != null && p95DeltaPct > 10
+
+  return { toksDeltaPct, p95DeltaPct, isRegression }
+}
+
+// ==============================================================================
+// 10. Phase 5 — Recent Runs Strip Component
+// ==============================================================================
+const RATING_COLOR_MAP = {
+  emerald: 'text-emerald-400 bg-emerald-950/50 border-emerald-800/40',
+  sky: 'text-sky-400 bg-sky-950/50 border-sky-800/40',
+  amber: 'text-amber-400 bg-amber-950/50 border-amber-800/40',
+  red: 'text-red-400 bg-red-950/50 border-red-800/40',
+  gray: 'text-gray-500 bg-[#1a1d22] border-[#22252b]',
+}
+
+function DeltaChip({ value, invertGood = false }) {
+  if (value == null) return null
+  // For P95: lower is better (invert), for tok/s: higher is better
+  const isGood = invertGood ? value < 0 : value > 0
+  const label = `${value > 0 ? '+' : ''}${value}%`
+  return (
+    <span className={`flex items-center space-x-0.5 text-[10px] font-mono ${isGood ? 'text-emerald-400' : 'text-red-400'}`}>
+      {isGood ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+      <span>{label}</span>
+    </span>
+  )
+}
+
+function RecentRunsStrip({ benchmarks, loadTests }) {
+  const [baselineId, setBaselineId] = useState(() => {
+    try { return localStorage.getItem('dynollm_baseline_run_id') || null } catch { return null }
+  })
+
+  const pinBaseline = (id) => {
+    setBaselineId(id)
+    try { localStorage.setItem('dynollm_baseline_run_id', id) } catch {}
+  }
+  const unpinBaseline = () => {
+    setBaselineId(null)
+    try { localStorage.removeItem('dynollm_baseline_run_id') } catch {}
+  }
+
+  // Interleave benchmarks + load tests by created_at (newest first), limit 5
+  const allRuns = useMemo(() => {
+    const bRuns = (benchmarks || []).filter(r => r.status === 'completed').map(r => ({ ...r, _type: 'benchmark' }))
+    const ltRuns = (loadTests || []).filter(r => r.status === 'completed').map(r => ({ ...r, _type: 'loadtest' }))
+    return [...bRuns, ...ltRuns]
+      .sort((a, b) => new Date(b.created_at || b.started_at || 0) - new Date(a.created_at || a.started_at || 0))
+      .slice(0, 5)
+  }, [benchmarks, loadTests])
+
+  const baselineRun = useMemo(
+    () => allRuns.find(r => r.id === baselineId) || allRuns[1] || null,
+    [allRuns, baselineId]
+  )
+
+  const latestRun = allRuns[0] || null
+  const regression = computeRegression(latestRun, baselineRun)
+
+  if (allRuns.length === 0) {
+    return (
+      <div className="text-xs text-gray-500 py-1">
+        No completed runs yet. Run your first benchmark or load test to see results here.
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Regression warning */}
+      {regression?.isRegression && (
+        <div className="flex items-center space-x-2 bg-red-950/40 border border-red-800/40 rounded px-2.5 py-1.5 text-xs text-red-300">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+          <span>
+            <span className="font-bold">Performance Regression</span>
+            {' '}— P95 latency worsened by {regression.p95DeltaPct}% vs {baselineId ? 'pinned baseline' : 'previous run'}
+          </span>
+        </div>
+      )}
+
+      {/* Run rows */}
+      {allRuns.map((run, idx) => {
+        const rating = rateRun(run)
+        const isBaseline = run.id === baselineId
+        const isLatest = idx === 0
+        // Show regression vs baseline or vs prior run
+        const compareWith = baselineId ? baselineRun : allRuns[idx + 1] || null
+        const reg = idx === 0 ? regression : computeRegression(run, compareWith)
+        const tps = run.tokens_per_second ?? run.tokens_out_per_second ?? run.avg_tokens_per_second
+        const p95 = run.p95_latency_ms
+        const errRate = run.error_rate
+
+        return (
+          <div
+            key={run.id}
+            className={`flex items-center justify-between text-xs bg-[#14161a] px-2.5 py-2 rounded border ${
+              isBaseline ? 'border-sky-700/50' : 'border-[#22252b]'
+            }`}
+          >
+            {/* Left: type icon + name + timestamp */}
+            <div className="flex items-center space-x-2 min-w-0 flex-1">
+              <span className="text-[14px] shrink-0">{run._type === 'loadtest' ? '⚡' : '🔬'}</span>
+              <div className="min-w-0">
+                <div className="flex items-center space-x-1.5">
+                  <span className="font-medium text-white truncate max-w-[120px]">
+                    {run.model_name || run.runtime_name || 'Unknown'}
+                  </span>
+                  {isBaseline && (
+                    <span className="px-1 py-0.5 rounded bg-sky-900/60 border border-sky-700/50 text-sky-400 text-[9px] font-mono shrink-0">
+                      📌 Baseline
+                    </span>
+                  )}
+                  {isLatest && !isBaseline && (
+                    <span className="px-1 py-0.5 rounded bg-[#1e2026] border border-[#2b303a] text-gray-500 text-[9px] font-mono shrink-0">
+                      latest
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-gray-500 font-mono">
+                  {run._type === 'loadtest'
+                    ? `${run.target_users ?? run.max_concurrent_users ?? '?'} users · ${run.duration_seconds ?? '?'}s`
+                    : `${run.scenario_name || 'Standard'}`}
+                  {' · '}{run.created_at ? new Date(run.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                </div>
+              </div>
+            </div>
+
+            {/* Middle: metrics */}
+            <div className="flex items-center space-x-3 text-[11px] font-mono mx-3 shrink-0">
+              {tps != null && (
+                <div className="flex items-center space-x-1">
+                  <span className="text-emerald-400 font-bold">{fmt(tps)}</span>
+                  <span className="text-gray-500">tok/s</span>
+                  {reg && <DeltaChip value={reg.toksDeltaPct} invertGood={false} />}
+                </div>
+              )}
+              {p95 != null && (
+                <div className="flex items-center space-x-1">
+                  <span className="text-gray-300">{fmt(p95)} ms</span>
+                  <span className="text-gray-600">P95</span>
+                  {reg && <DeltaChip value={reg.p95DeltaPct} invertGood={true} />}
+                </div>
+              )}
+              {errRate != null && errRate > 0 && (
+                <span className="text-red-400">{errRate.toFixed(1)}% err</span>
+              )}
+            </div>
+
+            {/* Right: rating badge + pin */}
+            <div className="flex items-center space-x-1.5 shrink-0">
+              <span className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${RATING_COLOR_MAP[rating.color]}`}>
+                {rating.icon} {rating.label}
+              </span>
+              <button
+                type="button"
+                title={isBaseline ? 'Unpin baseline' : 'Pin as baseline for regression comparison'}
+                onClick={() => isBaseline ? unpinBaseline() : pinBaseline(run.id)}
+                className={`p-1 rounded transition-colors ${
+                  isBaseline
+                    ? 'text-sky-400 hover:text-sky-300 bg-sky-950/40'
+                    : 'text-gray-600 hover:text-sky-400 bg-transparent'
+                }`}
+              >
+                <Pin className="w-3 h-3" />
+              </button>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ==============================================================================
+// 11. Main Dashboard Component
 // ==============================================================================
 export function Dashboard() {
   const current = useMonitoringStore((s) => s.current)
@@ -643,6 +1043,14 @@ export function Dashboard() {
     }
   }, [engineStats, primaryGpu])
 
+  // Phase 4: Derived Bottlenecks & Capacity Headroom
+  const bottlenecks = useMemo(() => {
+    return computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats })
+  }, [primaryGpu, kvCacheSummary, engineStats])
+
+  const capacityHeadroom = useMemo(() => {
+    return computeCapacityHeadroom({ primaryGpu, kvCacheSummary })
+  }, [primaryGpu, kvCacheSummary])
 
   // Middle Right: Throughput by Quantization (Sample baseline curve)
   const quantizationBarData = [
@@ -831,6 +1239,20 @@ export function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================
+          PHASE 4: Bottleneck Alerts Banner & Capacity Headroom Row
+          ======================================================================== */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-stretch">
+        <div className={capacityHeadroom ? "lg:col-span-8 flex flex-col justify-center" : "lg:col-span-12 flex flex-col justify-center"}>
+          <AlertBannerRow alerts={bottlenecks.alerts} allClear={bottlenecks.allClear} />
+        </div>
+        {capacityHeadroom && (
+          <div className="lg:col-span-4">
+            <CapacityHeadroomCard headroom={capacityHeadroom} />
+          </div>
+        )}
+      </div>
 
       {/* ========================================================================
           TOP ROW: [Memory / CPU (32%)] | [Tokens Throughput (34%)] | [Gauges & Sparklines (34%)]
@@ -1445,23 +1867,8 @@ export function Dashboard() {
               <ChevronRight className="w-3 h-3" />
             </Link>
           </div>
-          <div className="py-2.5 space-y-2">
-            {benchmarks.length > 0 ? (
-              benchmarks.slice(0, 3).map((b) => (
-                <div key={b.id} className="flex items-center justify-between text-xs bg-[#14161a] p-2 rounded border border-[#22252b]">
-                  <div>
-                    <span className="font-medium text-white">{b.model_name}</span>
-                    <span className="text-[10px] text-gray-500 ml-2">Scenario: {b.scenario_name || 'Standard'}</span>
-                  </div>
-                  <div className="flex items-center space-x-3 text-gray-300 font-mono text-[11px]">
-                    <span className="text-emerald-400">{fmt(b.tokens_per_second)} tok/s</span>
-                    <span>{fmt(b.p95_latency_ms)} ms P95</span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-xs text-gray-500 py-1">No benchmark runs recorded yet. Start your first run from the button below.</div>
-            )}
+          <div className="py-2.5">
+            <RecentRunsStrip benchmarks={benchmarks} loadTests={loadTests} />
           </div>
           <div className="flex items-center space-x-2">
             <Link to="/benchmark" className="flex-1 text-center text-xs py-1.5 bg-[#22262e] hover:bg-[#2c313c] text-gray-300 rounded transition-colors">
