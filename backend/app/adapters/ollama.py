@@ -9,6 +9,8 @@ from typing import AsyncIterator, Optional
 
 from app.adapters.base import RuntimeAdapter, GenerateRequest, GenerateResponse, StreamChunk
 
+_B_TO_GB = 1 / (1024 ** 3)
+
 
 class OllamaAdapter(RuntimeAdapter):
 
@@ -43,6 +45,66 @@ class OllamaAdapter(RuntimeAdapter):
                     "modified_at": m.get("modified_at"),
                 })
             return models
+
+    async def get_engine_stats(self, client: Optional[httpx.AsyncClient] = None) -> dict:
+        """
+        Poll Ollama /api/ps to get currently loaded models.
+
+        Returns a dict like::
+
+            {
+                "engine": "ollama",
+                "models_loaded": [
+                    {
+                        "name": "llama3.1:8b-instruct-q4_K_M",
+                        "size_gb": 4.92,           # full model size on disk
+                        "vram_gb": 4.12,            # bytes actually in VRAM
+                        "cpu_offload_gb": 0.80,     # bytes in RAM (CPU offloaded)
+                        "cpu_offloaded": False,      # True if any layer in RAM
+                        "offload_pct": 0.0,          # % of model in RAM
+                        "context_length": 8192,
+                    }
+                ],
+                "total_vram_gb": 4.12,
+                "error": null,
+            }
+        """
+        try:
+            async with self.get_client(client, default_timeout=5.0) as http_client:
+                resp = await http_client.get(f"{self.endpoint}/api/ps")
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            return {"engine": "ollama", "models_loaded": [], "total_vram_gb": 0.0, "error": str(exc)}
+
+        models_loaded = []
+        total_vram = 0.0
+        for m in data.get("models", []):
+            size_bytes = m.get("size", 0) or 0
+            size_vram_bytes = m.get("size_vram", 0) or 0
+            size_cpu_bytes = max(size_bytes - size_vram_bytes, 0)
+            offload_pct = (size_cpu_bytes / size_bytes * 100) if size_bytes else 0.0
+            vram_gb = size_vram_bytes * _B_TO_GB
+            total_vram += vram_gb
+            details = m.get("details", {})
+            models_loaded.append({
+                "name": m.get("name", ""),
+                "size_gb": round(size_bytes * _B_TO_GB, 2),
+                "vram_gb": round(vram_gb, 2),
+                "cpu_offload_gb": round(size_cpu_bytes * _B_TO_GB, 2),
+                "cpu_offloaded": size_cpu_bytes > 0,
+                "offload_pct": round(offload_pct, 1),
+                "context_length": details.get("context_length") or m.get("context_length"),
+                "quantization_level": details.get("quantization_level"),
+                "expires_at": m.get("expires_at"),
+            })
+
+        return {
+            "engine": "ollama",
+            "models_loaded": models_loaded,
+            "total_vram_gb": round(total_vram, 2),
+            "error": None,
+        }
 
     async def generate(
         self,

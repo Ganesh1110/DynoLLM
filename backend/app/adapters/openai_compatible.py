@@ -45,6 +45,86 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                 })
             return models
 
+    async def get_engine_stats(self, client: Optional[httpx.AsyncClient] = None) -> dict:
+        """
+        Scrape vLLM's Prometheus /metrics endpoint for KV-cache and queue stats.
+
+        Key metrics extracted:
+        - vllm:gpu_cache_usage_perc   → KV cache occupancy (0–1)
+        - vllm:num_requests_waiting   → requests queued (no slot available)
+        - vllm:num_requests_running   → requests actively generating tokens
+        - vllm:cache_config_info      → total KV cache blocks (via label)
+        - vllm:prefix_cache_hit_rate  → prefix cache reuse ratio (0–1)
+
+        Returns a normalised dict with ``engine="vllm"``.
+        Falls back to ``engine="openai_compatible"`` with empty stats if the
+        /metrics path returns 404 or is not a vLLM server.
+        """
+        try:
+            async with self.get_client(client, default_timeout=5.0) as http_client:
+                resp = await http_client.get(
+                    f"{self.endpoint}/metrics",
+                    headers={"Accept": "text/plain"},
+                )
+                if resp.status_code == 404:
+                    # Not a vLLM instance; return empty stats
+                    return {
+                        "engine": "openai_compatible",
+                        "models_loaded": [],
+                        "kv_cache_usage_pct": None,
+                        "requests_waiting": None,
+                        "requests_running": None,
+                        "prefix_cache_hit_rate": None,
+                        "total_vram_gb": None,
+                        "error": None,
+                    }
+                resp.raise_for_status()
+                text = resp.text
+        except Exception as exc:
+            return {
+                "engine": "vllm",
+                "models_loaded": [],
+                "kv_cache_usage_pct": None,
+                "requests_waiting": None,
+                "requests_running": None,
+                "prefix_cache_hit_rate": None,
+                "total_vram_gb": None,
+                "error": str(exc),
+            }
+
+        # Minimal Prometheus text-format parser – extract scalar gauge values
+        def _parse_metric(name: str) -> Optional[float]:
+            """Return the first numeric value for a given metric name, or None."""
+            for line in text.splitlines():
+                line = line.strip()
+                if line.startswith("#") or not line:
+                    continue
+                # Match both `metric_name value` and `metric_name{labels...} value`
+                if line.startswith(name + "{") or line.startswith(name + " "):
+                    parts = line.rsplit(None, 1)
+                    try:
+                        return float(parts[-1])
+                    except ValueError:
+                        pass
+            return None
+
+        kv_usage = _parse_metric("vllm:gpu_cache_usage_perc")
+        waiting = _parse_metric("vllm:num_requests_waiting")
+        running = _parse_metric("vllm:num_requests_running")
+        prefix_hit = _parse_metric("vllm:prefix_cache_hit_rate")
+
+        return {
+            "engine": "vllm",
+            "models_loaded": [],
+            # Multiply by 100 so it's a percentage (0–100) to match Ollama offload_pct units
+            "kv_cache_usage_pct": round(kv_usage * 100, 1) if kv_usage is not None else None,
+            "requests_waiting": int(waiting) if waiting is not None else None,
+            "requests_running": int(running) if running is not None else None,
+            "prefix_cache_hit_rate": round(prefix_hit * 100, 1) if prefix_hit is not None else None,
+            "total_vram_gb": None,  # NVML in collector.py is more accurate for VRAM
+            "error": None,
+        }
+
     async def generate(
         self,
         request: GenerateRequest,

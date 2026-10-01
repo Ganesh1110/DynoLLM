@@ -11,7 +11,10 @@ class GPUMetrics(BaseModel):
     vram_percent: float
     temperature_celsius: Optional[float]
     power_draw_watts: Optional[float]
+    power_limit_watts: Optional[float] = None
     clock_mhz: Optional[int]
+    memory_bandwidth_percent: Optional[float] = None
+    throttle_reasons: Optional[str] = None
 
 
 class HardwareMetrics(BaseModel):

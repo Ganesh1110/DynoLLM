@@ -126,6 +126,7 @@ export const loadTestsApi = {
 
 export const monitoringApi = {
   current: () => request('/api/monitoring/current'),
+  engineStats: () => request('/api/monitoring/engine-stats'),
 }
 
 export function createMonitoringWS(onMessage, onClose) {

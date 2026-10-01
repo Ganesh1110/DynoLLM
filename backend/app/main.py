@@ -15,6 +15,7 @@ from app.api.load_tests import router as load_tests_router
 from app.api.monitoring import router as monitoring_router
 from app.api.export import router as export_router
 from app.api.prompt_templates import router as prompt_templates_router
+from app.monitoring import engine_poller
 
 log = structlog.get_logger()
 
@@ -29,8 +30,11 @@ async def lifespan(app: FastAPI):
     log.info("Starting up — creating database tables")
     await create_tables()
     log.info("Database ready")
+    engine_poller.start_poller()
+    log.info("Engine stats poller started")
     yield
     log.info("Shutting down")
+    engine_poller.stop_poller()
 
 
 app = FastAPI(

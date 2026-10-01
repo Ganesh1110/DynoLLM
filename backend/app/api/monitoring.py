@@ -4,6 +4,7 @@ import json
 from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from app.monitoring.collector import collect_metrics
+from app.monitoring.engine_poller import get_all_engine_stats
 from app.api.websocket_manager import manager
 from app.schemas.monitoring import HardwareMetrics
 from app.core.config import settings
@@ -16,6 +17,21 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 async def get_current_metrics():
     """Snapshot of current hardware metrics."""
     return collect_metrics()
+
+
+@router.get("/engine-stats", dependencies=[Depends(verify_api_key)])
+async def get_engine_stats():
+    """
+    Cached engine-level stats for all active runtimes.
+
+    Data is refreshed every 5 seconds by the background engine poller.
+    Returns an empty list if no runtimes have been polled yet.
+
+    Each element contains engine-specific fields:
+    - Ollama: models_loaded (list), total_vram_gb
+    - vLLM: kv_cache_usage_pct, requests_waiting, requests_running, prefix_cache_hit_rate
+    """
+    return {"runtimes": get_all_engine_stats()}
 
 
 @router.websocket("/stream")

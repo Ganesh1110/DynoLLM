@@ -79,16 +79,45 @@ def collect_metrics() -> dict:
                     clock = pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS)
                 except Exception:
                     clock = None
+
+                # NVML Memory Bandwidth Utilization %
+                mem_bw_util = getattr(util, "memory", None)
+
+                # Enforced Power Limit (Watts)
+                try:
+                    power_limit = pynvml.nvmlDeviceGetEnforcedPowerLimit(handle) / 1000.0
+                except Exception:
+                    power_limit = None
+
+                # Clocks Throttling Reasons
+                throttle_reasons = "None"
+                try:
+                    reasons = pynvml.nvmlDeviceGetCurrentClocksThrottleReasons(handle)
+                    active_reasons = []
+                    if hasattr(pynvml, "nvmlClocksThrottleReasonSwPowerCap") and (reasons & pynvml.nvmlClocksThrottleReasonSwPowerCap):
+                        active_reasons.append("PowerCap")
+                    if hasattr(pynvml, "nvmlClocksThrottleReasonHwSlowdown") and (reasons & pynvml.nvmlClocksThrottleReasonHwSlowdown):
+                        active_reasons.append("HwSlowdown")
+                    if hasattr(pynvml, "nvmlClocksThrottleReasonSwThermalSlowdown") and (reasons & pynvml.nvmlClocksThrottleReasonSwThermalSlowdown):
+                        active_reasons.append("Thermal")
+                    if active_reasons:
+                        throttle_reasons = ", ".join(active_reasons)
+                except Exception:
+                    throttle_reasons = None
+
                 gpus.append({
                     "index": i,
                     "name": name,
                     "utilization_percent": util.gpu,
+                    "memory_bandwidth_percent": float(mem_bw_util) if mem_bw_util is not None else None,
                     "vram_used_bytes": mem_info.used,
                     "vram_total_bytes": mem_info.total,
                     "vram_percent": (mem_info.used / mem_info.total * 100) if mem_info.total else 0,
                     "temperature_celsius": temp,
                     "power_draw_watts": power,
+                    "power_limit_watts": power_limit,
                     "clock_mhz": clock,
+                    "throttle_reasons": throttle_reasons,
                 })
             except Exception:
                 pass
