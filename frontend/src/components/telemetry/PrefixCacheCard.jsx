@@ -46,12 +46,12 @@ export default function PrefixCacheCard({
         </div>
 
         {/* Efficiency summary */}
-        <div className="w-full bg-[#14161a] border border-[#22252b] rounded p-2.5 text-xs text-center space-y-1">
+        <div className="w-full bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-xs text-center space-y-1">
           <div className="text-gray-300 font-medium flex items-center justify-center space-x-1">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             <span>KV Block Sharing Active</span>
           </div>
-          <p className="text-[11px] text-gray-500 max-w-xs mx-auto">
+          <p className="text-[11px] text-gray-400 max-w-xs mx-auto">
             {hitRate && hitRate > 50
               ? 'Excellent cache re-use: over half of prompt tokens bypass prefill computation entirely.'
               : hitRate && hitRate > 0

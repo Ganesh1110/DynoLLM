@@ -67,16 +67,16 @@ export default function ThroughputCard({
     >
       {/* Top rate pills */}
       <div className="grid grid-cols-2 gap-2 mb-3">
-        <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-          <div className="text-[10px] text-gray-500 uppercase font-mono">Prompt (Prefill)</div>
+        <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+          <div className="text-[10px] text-gray-400 uppercase font-mono">Prompt (Prefill)</div>
           <div className="text-lg font-bold font-mono text-sky-400">
             {currentInputTokSec} <span className="text-xs font-normal text-gray-400">tok/s</span>
           </div>
           <div className="text-[9px] text-gray-500">compute-bound</div>
         </div>
 
-        <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-          <div className="text-[10px] text-gray-500 uppercase font-mono">Generation (Decode)</div>
+        <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+          <div className="text-[10px] text-gray-400 uppercase font-mono">Generation (Decode)</div>
           <div className="text-lg font-bold font-mono text-emerald-400">
             {currentOutputTokSec} <span className="text-xs font-normal text-gray-400">tok/s</span>
           </div>
@@ -88,19 +88,19 @@ export default function ThroughputCard({
       <div className="h-40 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+            <CartesianGrid strokeDasharray="1 3" stroke="#1f2937" vertical={false} />
             <XAxis
               dataKey="time"
-              stroke="#5d636f"
+              stroke="#6b7280"
               fontSize={10}
               tickLine={false}
-              axisLine={{ stroke: '#2b303a' }}
+              axisLine={{ stroke: '#374151' }}
             />
             <YAxis
-              stroke="#5d636f"
+              stroke="#6b7280"
               fontSize={10}
               tickLine={false}
-              axisLine={{ stroke: '#2b303a' }}
+              axisLine={{ stroke: '#374151' }}
             />
             <Tooltip
               content={({ active, payload, label }) => {
@@ -108,8 +108,8 @@ export default function ThroughputCard({
                 const inVal = payload.find((p) => p.dataKey === 'input_rate')?.value ?? 0
                 const outVal = payload.find((p) => p.dataKey === 'output_rate')?.value ?? 0
                 return (
-                  <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1 font-mono">
-                    <div className="text-gray-400 border-b border-[#2b303a] pb-1">{label}</div>
+                  <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow-xl text-[11px] space-y-1 font-mono">
+                    <div className="text-gray-400 border-b border-gray-800 pb-1">{label}</div>
                     <div className="text-sky-400 flex justify-between space-x-3">
                       <span>Prompt:</span>
                       <span className="font-bold">{inVal} tok/s</span>

@@ -96,13 +96,13 @@ export default function TelemetryCard({
 
   return (
     <div
-      className={`bg-[#181b1f] border ${
+      className={`bg-gray-900 border ${
         state === 'stale'
           ? 'border-amber-500/40'
           : isMuted
-          ? 'border-[#22252b] opacity-80'
-          : 'border-[#22252b]'
-      } rounded-sm p-3.5 flex flex-col justify-between ${minHeight} ${className} transition-all`}
+          ? 'border-gray-800/80 opacity-80'
+          : 'border-gray-800 hover:border-gray-700'
+      } rounded-xl p-4.5 flex flex-col justify-between ${minHeight} ${className} transition-all shadow-sm`}
     >
       {/* Header */}
       <div>
@@ -115,7 +115,7 @@ export default function TelemetryCard({
                 }`}
               />
             )}
-            <span className="text-[13px] text-[#d8d9da] font-medium tracking-tight truncate">
+            <span className="text-sm text-white font-bold tracking-tight truncate">
               {title}
             </span>
             {tooltip && <InfoTooltip text={tooltip} />}
@@ -129,16 +129,16 @@ export default function TelemetryCard({
         </div>
 
         {subtitle && (
-          <div className="text-left text-[10px] text-[#717885] truncate">
+          <div className="text-left text-xs text-gray-400 truncate">
             {subtitle}
           </div>
         )}
       </div>
 
       {/* Body depending on state */}
-      <div className="flex-1 flex flex-col justify-center mt-2">
+      <div className="flex-1 flex flex-col justify-center mt-2.5">
         {state === 'unavailable' ? (
-          <div className="py-6 px-4 flex flex-col items-center justify-center text-center space-y-2 bg-[#14161a] rounded border border-dashed border-[#262a33]">
+          <div className="py-6 px-4 flex flex-col items-center justify-center text-center space-y-2 bg-gray-950/60 rounded-lg border border-dashed border-gray-800">
             <Slash className="w-6 h-6 text-gray-500" />
             <div className="text-xs text-gray-300 font-medium">Metric Unavailable</div>
             <p className="text-[11px] text-gray-500 max-w-xs leading-relaxed">
@@ -146,7 +146,7 @@ export default function TelemetryCard({
             </p>
           </div>
         ) : state === 'no_data' ? (
-          <div className="py-6 px-4 flex flex-col items-center justify-center text-center space-y-2 bg-[#14161a] rounded border border-[#22252b]">
+          <div className="py-6 px-4 flex flex-col items-center justify-center text-center space-y-2 bg-gray-950/60 rounded-lg border border-gray-800">
             <Activity className="w-6 h-6 text-sky-400/60" />
             <div className="text-xs text-gray-300 font-medium">No Recent Activity</div>
             <p className="text-[11px] text-gray-500 max-w-xs leading-relaxed">

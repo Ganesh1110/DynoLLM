@@ -25,7 +25,7 @@ export default function TelemetryControls({
   }
 
   return (
-    <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
       {/* Left: Runtime Picker & Engine Badge */}
       <div className="flex flex-wrap items-center gap-2.5">
         <div className="flex items-center space-x-2 text-gray-300">
@@ -37,7 +37,7 @@ export default function TelemetryControls({
           <select
             value={activeRuntimeId || ''}
             onChange={(e) => onSelectRuntime(e.target.value)}
-            className="bg-[#14161a] border border-[#2b303a] hover:border-sky-500/50 text-gray-100 rounded px-2.5 py-1 text-xs font-mono focus:outline-none focus:border-sky-500 transition-colors cursor-pointer"
+            className="bg-gray-950 border border-gray-700 hover:border-gray-600 text-gray-100 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:border-sky-500 transition-colors cursor-pointer"
           >
             {runtimes.map((rt) => (
               <option key={rt.id} value={rt.id}>
@@ -59,8 +59,8 @@ export default function TelemetryControls({
       {/* Right: Window Selector & Poll Indicator */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Time Window Pills */}
-        <div className="flex items-center bg-[#14161a] border border-[#262a33] rounded p-0.5">
-          <span className="text-[10px] text-gray-500 px-2 flex items-center space-x-1">
+        <div className="flex items-center bg-gray-950 border border-gray-800 rounded-lg p-0.5">
+          <span className="text-[10px] text-gray-400 px-2 flex items-center space-x-1">
             <Clock className="w-3 h-3 text-gray-400" />
             <span>Window</span>
           </span>
@@ -81,14 +81,14 @@ export default function TelemetryControls({
         </div>
 
         {/* Polled info & refresh button */}
-        <div className="flex items-center space-x-2 text-[11px] text-[#8e94a0] font-mono">
+        <div className="flex items-center space-x-2 text-[11px] text-gray-400 font-mono">
           <span>Updated: {formatLastPolled(lastPolledAt)}</span>
           <button
             type="button"
             onClick={onManualRefresh}
             title="Refresh telemetry"
             disabled={isRefreshing}
-            className="p-1 rounded bg-[#22252b] hover:bg-[#2b303a] text-gray-300 hover:text-white transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin text-sky-400' : ''}`} />
           </button>

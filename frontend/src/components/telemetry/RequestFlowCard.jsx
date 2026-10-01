@@ -45,24 +45,24 @@ export default function RequestFlowCard({
     >
       {/* Metric summary counters */}
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-          <div className="text-[10px] text-gray-500 uppercase font-mono">Running</div>
+        <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+          <div className="text-[10px] text-gray-400 uppercase font-mono">Running</div>
           <div className="text-lg font-bold font-mono text-emerald-400">
             {currentRunning ?? 0}
           </div>
           <div className="text-[9px] text-gray-500">active generation</div>
         </div>
 
-        <div className={`border rounded p-2 text-center ${hasBacklog ? 'bg-amber-950/20 border-amber-500/40' : 'bg-[#14161a] border-[#22252b]'}`}>
-          <div className="text-[10px] text-gray-500 uppercase font-mono">Waiting</div>
+        <div className={`border rounded-lg p-2.5 text-center ${hasBacklog ? 'bg-amber-950/30 border-amber-500/40' : 'bg-gray-800/40 border-gray-800'}`}>
+          <div className="text-[10px] text-gray-400 uppercase font-mono">Waiting</div>
           <div className={`text-lg font-bold font-mono ${hasBacklog ? 'text-amber-400 animate-pulse' : 'text-gray-300'}`}>
             {currentWaiting ?? 0}
           </div>
           <div className="text-[9px] text-gray-500">queued for KV slot</div>
         </div>
 
-        <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-          <div className="text-[10px] text-gray-500 uppercase font-mono">Swapped</div>
+        <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+          <div className="text-[10px] text-gray-400 uppercase font-mono">Swapped</div>
           <div className="text-lg font-bold font-mono text-purple-400">
             {currentSwapped ?? 0}
           </div>
@@ -74,19 +74,19 @@ export default function RequestFlowCard({
       <div className="h-40 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={series} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+            <CartesianGrid strokeDasharray="1 3" stroke="#1f2937" vertical={false} />
             <XAxis
               dataKey="time"
-              stroke="#5d636f"
+              stroke="#6b7280"
               fontSize={10}
               tickLine={false}
-              axisLine={{ stroke: '#2b303a' }}
+              axisLine={{ stroke: '#374151' }}
             />
             <YAxis
-              stroke="#5d636f"
+              stroke="#6b7280"
               fontSize={10}
               tickLine={false}
-              axisLine={{ stroke: '#2b303a' }}
+              axisLine={{ stroke: '#374151' }}
               allowDecimals={false}
             />
             <Tooltip
@@ -95,8 +95,8 @@ export default function RequestFlowCard({
                 const running = payload.find((p) => p.dataKey === 'requests_running')?.value ?? 0
                 const waiting = payload.find((p) => p.dataKey === 'requests_waiting')?.value ?? 0
                 return (
-                  <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1 font-mono">
-                    <div className="text-gray-400 border-b border-[#2b303a] pb-1">{label}</div>
+                  <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow-xl text-[11px] space-y-1 font-mono">
+                    <div className="text-gray-400 border-b border-gray-800 pb-1">{label}</div>
                     <div className="text-emerald-400 flex justify-between space-x-3">
                       <span>Running:</span>
                       <span className="font-bold">{running}</span>

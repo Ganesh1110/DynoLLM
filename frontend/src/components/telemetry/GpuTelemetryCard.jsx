@@ -56,8 +56,8 @@ export default function GpuTelemetryCard({
         {/* Core compute & memory bus grid */}
         <div className="grid grid-cols-2 gap-2">
           {/* Core compute */}
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500 uppercase font-mono">Compute Load</div>
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+            <div className="text-[10px] text-gray-400 uppercase font-mono">Compute Load</div>
             <div className="text-lg font-bold font-mono text-amber-400">
               {gpu.utilization_percent != null ? `${fmt(gpu.utilization_percent)}%` : '—'}
             </div>
@@ -65,8 +65,8 @@ export default function GpuTelemetryCard({
           </div>
 
           {/* Memory Bandwidth */}
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500 uppercase font-mono">Memory Bus Saturation</div>
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+            <div className="text-[10px] text-gray-400 uppercase font-mono">Memory Bus Saturation</div>
             <div className="text-lg font-bold font-mono text-sky-400">
               {gpu.memory_bandwidth_percent != null ? `${fmt(gpu.memory_bandwidth_percent)}%` : '—'}
             </div>
@@ -75,7 +75,7 @@ export default function GpuTelemetryCard({
         </div>
 
         {/* VRAM allocated bar */}
-        <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5 space-y-1.5">
+        <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 space-y-1.5">
           <div className="flex justify-between items-center text-xs">
             <span className="text-gray-400 font-medium">VRAM Allocated</span>
             <span className="font-mono text-white font-bold">
@@ -83,7 +83,7 @@ export default function GpuTelemetryCard({
               <span className="text-emerald-400 font-normal">({fmt(gpu.vram_percent)}%)</span>
             </span>
           </div>
-          <div className="w-full bg-[#22252b] h-2 rounded-full overflow-hidden">
+          <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden">
             <div
               className={`h-full transition-all ${
                 gpu.vram_percent > 90
@@ -99,8 +99,8 @@ export default function GpuTelemetryCard({
 
         {/* Thermals, Power, Clock */}
         <div className="grid grid-cols-3 gap-2 text-xs">
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-            <div className="text-[9px] text-gray-500 uppercase font-mono flex items-center justify-center space-x-1">
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2 text-center">
+            <div className="text-[9px] text-gray-400 uppercase font-mono flex items-center justify-center space-x-1">
               <Flame className="w-2.5 h-2.5 text-amber-400" />
               <span>Temp</span>
             </div>
@@ -113,8 +113,8 @@ export default function GpuTelemetryCard({
             </div>
           </div>
 
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-            <div className="text-[9px] text-gray-500 uppercase font-mono flex items-center justify-center space-x-1">
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2 text-center">
+            <div className="text-[9px] text-gray-400 uppercase font-mono flex items-center justify-center space-x-1">
               <Zap className="w-2.5 h-2.5 text-sky-400" />
               <span>Power</span>
             </div>
@@ -123,8 +123,8 @@ export default function GpuTelemetryCard({
             </div>
           </div>
 
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-            <div className="text-[9px] text-gray-500 uppercase font-mono flex items-center justify-center space-x-1">
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2 text-center">
+            <div className="text-[9px] text-gray-400 uppercase font-mono flex items-center justify-center space-x-1">
               <Gauge className="w-2.5 h-2.5 text-purple-400" />
               <span>Clock</span>
             </div>

@@ -43,8 +43,8 @@ export default function ModelInfoCard({
     >
       <div className="space-y-2.5 py-1">
         {/* Model name header */}
-        <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5">
-          <div className="text-[10px] text-gray-500 uppercase font-mono">Active Model</div>
+        <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5">
+          <div className="text-[10px] text-gray-400 uppercase font-mono">Active Model</div>
           <div className="font-bold text-white text-sm font-mono truncate mt-0.5" title={modelName}>
             {modelName}
           </div>
@@ -52,15 +52,15 @@ export default function ModelInfoCard({
 
         {/* Architecture details */}
         <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2">
-            <div className="text-[9px] text-gray-500 uppercase font-mono">Family &amp; Size</div>
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5">
+            <div className="text-[9px] text-gray-400 uppercase font-mono">Family &amp; Size</div>
             <div className="font-mono font-bold text-sky-400 mt-0.5 truncate">
               {parsed.family} {parsed.paramSizeB ? `${parsed.paramSizeB}B` : ''}
             </div>
           </div>
 
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2">
-            <div className="text-[9px] text-gray-500 uppercase font-mono">Precision / Quant</div>
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5">
+            <div className="text-[9px] text-gray-400 uppercase font-mono">Precision / Quant</div>
             <div className="font-mono font-bold text-gray-200 mt-0.5">
               {parsed.quant || 'Native / FP16'}
             </div>
@@ -68,7 +68,7 @@ export default function ModelInfoCard({
         </div>
 
         {/* Engine and VRAM details */}
-        <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-xs flex justify-between items-center font-mono">
+        <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-xs flex justify-between items-center font-mono">
           <span className="text-gray-400">VRAM Weight Footprint</span>
           <span className="text-white font-bold">
             {model?.vram_gb != null ? `${model.vram_gb.toFixed(1)} GB` : '—'}

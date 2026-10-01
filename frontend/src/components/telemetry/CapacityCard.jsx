@@ -78,7 +78,7 @@ export default function CapacityCard({
 
         {/* PagedAttention Block Telemetry (vLLM) */}
         {totalBlocks != null && freeBlocks != null ? (
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5 space-y-2">
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 space-y-2">
             <div className="flex justify-between items-center text-xs">
               <span className="text-gray-400 font-medium">Free KV Blocks</span>
               <span className="font-mono font-bold text-sky-400">
@@ -87,7 +87,7 @@ export default function CapacityCard({
             </div>
 
             {/* Visual Headroom Bar */}
-            <div className="w-full bg-[#22252b] h-2 rounded-full overflow-hidden flex">
+            <div className="w-full bg-gray-800 h-2 rounded-full overflow-hidden flex">
               <div
                 className={`h-full transition-all ${
                   blockHeadroomPct < 15
@@ -106,13 +106,13 @@ export default function CapacityCard({
               />
             </div>
 
-            <div className="flex justify-between text-[10px] text-gray-500 font-mono pt-0.5">
+            <div className="flex justify-between text-[10px] text-gray-400 font-mono pt-0.5">
               <span>Allocated: {totalBlocks - freeBlocks} blocks</span>
               <span>Available: {freeBlocks} blocks</span>
             </div>
           </div>
         ) : (
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5 flex items-center justify-between text-xs">
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 flex items-center justify-between text-xs">
             <div className="flex items-center space-x-2 text-gray-400">
               <Cpu className="w-3.5 h-3.5 text-sky-400" />
               <span>Concurrency Load Factor</span>
@@ -125,8 +125,8 @@ export default function CapacityCard({
 
         {/* Key Headroom Insights */}
         <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500 uppercase font-mono">Admission Ratio</div>
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+            <div className="text-[10px] text-gray-400 uppercase font-mono">Admission Ratio</div>
             <div className="font-mono font-bold text-gray-200 mt-0.5">
               {currentRunning + currentWaiting > 0
                 ? `${Math.round((currentRunning / (currentRunning + currentWaiting)) * 100)}%`
@@ -135,8 +135,8 @@ export default function CapacityCard({
             <div className="text-[9px] text-gray-500">running / total requests</div>
           </div>
 
-          <div className="bg-[#14161a] border border-[#22252b] rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500 uppercase font-mono">Queue Status</div>
+          <div className="bg-gray-800/40 border border-gray-800 rounded-lg p-2.5 text-center">
+            <div className="text-[10px] text-gray-400 uppercase font-mono">Queue Status</div>
             <div className={`font-mono font-bold mt-0.5 ${hasBacklog ? 'text-amber-400' : 'text-emerald-400'}`}>
               {hasBacklog ? `${currentWaiting} Queued` : 'Empty (0)'}
             </div>

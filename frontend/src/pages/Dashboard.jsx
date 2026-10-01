@@ -114,10 +114,10 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
 
   if (collapsed) {
     return (
-      <div className="bg-[#181b1f] border border-[#22252b] rounded-sm px-4 py-2 flex items-center justify-between text-xs">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5 flex items-center justify-between text-xs">
         <div className="flex items-center space-x-2 text-gray-300">
           <Sparkles className="w-4 h-4 text-sky-400" />
-          <span className="font-medium">How to use DynoLLM (3-Step Evaluation Process)</span>
+          <span className="font-medium text-white">How to use DynoLLM (3-Step Evaluation Process)</span>
         </div>
         <button
           type="button"
@@ -131,8 +131,8 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
   }
 
   return (
-    <div className="bg-gradient-to-r from-[#181b1f] via-[#1a1f26] to-[#181b1f] border border-sky-900/40 rounded-sm p-3.5 text-xs shadow-md">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2.5 border-b border-[#262c36]">
+    <div className="bg-gray-900 border border-sky-900/40 rounded-xl p-4 text-xs shadow-md">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pb-2.5 border-b border-gray-800">
         <div className="flex items-center space-x-2">
           <div className="w-6 h-6 rounded bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
             <Sparkles className="w-3.5 h-3.5" />
@@ -168,7 +168,7 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
         {/* Step 1 */}
         <Link
           to="/runtimes"
-          className="group bg-[#14161a] hover:bg-[#1a1e24] border border-[#22252b] hover:border-sky-500/40 p-2.5 rounded transition-all flex items-start space-x-2.5"
+          className="group bg-gray-800/40 hover:bg-gray-800/80 border border-gray-800 hover:border-sky-500/40 p-3 rounded-lg transition-all flex items-start space-x-2.5"
         >
           <span className="w-5 h-5 rounded-full bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
             1
@@ -178,7 +178,7 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
               <span>Connect Model Engine</span>
               <ChevronRight className="w-3 h-3 text-[#656c78] group-hover:translate-x-0.5 transition-transform" />
             </div>
-            <p className="text-[11px] text-[#8e94a0] leading-snug">
+            <p className="text-[11px] text-gray-400 leading-snug">
               Add your Ollama or vLLM server endpoint under <strong>Runtimes</strong>.
             </p>
           </div>
@@ -187,7 +187,7 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
         {/* Step 2 */}
         <Link
           to="/benchmark"
-          className="group bg-[#14161a] hover:bg-[#1a1e24] border border-[#22252b] hover:border-emerald-500/40 p-2.5 rounded transition-all flex items-start space-x-2.5"
+          className="group bg-gray-800/40 hover:bg-gray-800/80 border border-gray-800 hover:border-emerald-500/40 p-3 rounded-lg transition-all flex items-start space-x-2.5"
         >
           <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
             2
@@ -197,7 +197,7 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
               <span>Test Single-User Speed</span>
               <ChevronRight className="w-3 h-3 text-[#656c78] group-hover:translate-x-0.5 transition-transform" />
             </div>
-            <p className="text-[11px] text-[#8e94a0] leading-snug">
+            <p className="text-[11px] text-gray-400 leading-snug">
               Run a <strong>Benchmark</strong> to measure base TTFT, tok/s, and GPU VRAM usage.
             </p>
           </div>
@@ -206,7 +206,7 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
         {/* Step 3 */}
         <Link
           to="/load-test"
-          className="group bg-[#14161a] hover:bg-[#1a1e24] border border-[#22252b] hover:border-amber-500/40 p-2.5 rounded transition-all flex items-start space-x-2.5"
+          className="group bg-gray-800/40 hover:bg-gray-800/80 border border-gray-800 hover:border-amber-500/40 p-3 rounded-lg transition-all flex items-start space-x-2.5"
         >
           <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
             3
@@ -308,13 +308,13 @@ function CheatSheetModal({ isOpen, onClose }) {
 
         <div className="overflow-y-auto py-3 space-y-3 pr-1 text-xs">
           {terms.map((t, idx) => (
-            <div key={idx} className="bg-[#181b1f] border border-[#22252b] rounded p-3 space-y-1.5">
+            <div key={idx} className="bg-gray-800/40 border border-gray-800 rounded-lg p-3 space-y-1.5">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-white text-sm">{t.term}</span>
                 <span className={`px-2 py-0.5 rounded text-[10px] font-mono border ${t.badgeColor}`}>{t.badge}</span>
               </div>
               <p className="text-gray-300 leading-relaxed">{t.desc}</p>
-              <div className="bg-[#101216] border border-[#22252b] rounded px-2.5 py-1.5 text-[11px] text-sky-300 font-mono">
+              <div className="bg-gray-950/60 border border-gray-800 rounded-lg px-2.5 py-1.5 text-[11px] text-sky-300 font-mono">
                 💡 Rule of thumb: {t.rule}
               </div>
             </div>
@@ -348,7 +348,7 @@ function GrafanaArcGauge({ value = '—', percent = 0, title = 'Memory', subtitl
   const gradId = `arc-grad-${title.replace(/\s+/g, '-').toLowerCase()}`
 
   return (
-    <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-3 flex flex-col justify-between h-full">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col justify-between h-full">
       <div>
         <div className="flex items-center justify-between">
           <div className="text-[12px] text-[#d8d9da] font-medium tracking-tight text-left">
@@ -417,7 +417,7 @@ function SparklineCard({ title, subtitle, value, unit, color, data, tooltipText,
   })
 
   return (
-    <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-3 flex flex-col justify-between h-full">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col justify-between h-full">
       <div>
         <div className="flex items-center justify-between">
           <div className="text-[12px] text-[#d8d9da] font-medium tracking-tight">
@@ -663,7 +663,7 @@ function computeCapacityHeadroom({ primaryGpu, kvCacheSummary }) {
 function AlertBannerRow({ alerts, allClear }) {
   if (allClear) {
     return (
-      <div className="flex items-center space-x-2 bg-[#181b1f] border border-emerald-800/40 rounded-sm px-3.5 py-3 text-xs text-emerald-400 h-full">
+      <div className="flex items-center space-x-2 bg-gray-900 border border-emerald-800/40 rounded-xl px-4 py-3 text-xs text-emerald-400 h-full">
         <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
         <span className="font-medium">All systems nominal</span>
         <span className="text-emerald-500/80 text-[11px]">— no hardware throttling, KV cache pressure, or queue bottlenecks detected</span>
@@ -672,7 +672,7 @@ function AlertBannerRow({ alerts, allClear }) {
   }
 
   return (
-    <div className="bg-[#181b1f] border border-[#22252b] rounded-sm px-3.5 py-3 flex items-center gap-2 flex-wrap h-full">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-2 flex-wrap h-full">
       <span className="text-[10px] text-[#8e94a0] font-mono shrink-0 uppercase tracking-wide mr-1">Active Bottlenecks</span>
       {alerts.map((a) => (
         <div
@@ -703,8 +703,8 @@ function CapacityHeadroomCard({ headroom }) {
   if (!headroom) return null
 
   return (
-    <div className="bg-[#181b1f] border border-[#22252b] rounded-sm px-3.5 py-2.5 text-xs shrink-0">
-      <div className="flex items-center space-x-1.5 pb-1.5 border-b border-[#22252b]">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 text-xs shrink-0">
+      <div className="flex items-center space-x-1.5 pb-1.5 border-b border-gray-800">
         <Users className="w-3.5 h-3.5 text-sky-400" />
         <span className="text-[#d8d9da] font-medium text-[12px]">Capacity Headroom</span>
         <InfoTooltip text="Estimated additional concurrent users that can be served using the remaining free capacity. For vLLM, based on free KV cache blocks. For Ollama, based on free VRAM." />
@@ -1359,9 +1359,9 @@ export function Dashboard() {
           PHASE 2: Real NVIDIA GPU Telemetry Strip (When GPU is Present)
           ======================================================================== */}
       {hasLiveGpu && primaryGpu && (
-        <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-3.5 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs shadow-sm">
           <div className="flex items-center space-x-3">
-            <div className="w-9 h-9 rounded bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+            <div className="w-9 h-9 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
               <Activity className="w-5 h-5" />
             </div>
             <div>
@@ -1390,7 +1390,7 @@ export function Dashboard() {
           {/* Key Metrics Chips */}
           <div className="flex flex-wrap items-center gap-2">
             {/* VRAM Footprint */}
-            <div className="bg-[#14161a] border border-[#22252b] px-3 py-1.5 rounded text-left">
+            <div className="bg-gray-800/40 border border-gray-800 px-3 py-1.5 rounded-lg text-left">
               <div className="text-[10px] text-[#6c727d] uppercase font-mono">VRAM Allocated</div>
               <div className="font-bold font-mono text-white text-xs">
                 {fmtBytes(primaryGpu.vram_used_bytes)} / {fmtBytes(primaryGpu.vram_total_bytes)}
@@ -1399,7 +1399,7 @@ export function Dashboard() {
             </div>
 
             {/* Memory Bandwidth % (NVML util.memory) */}
-            <div className="bg-[#14161a] border border-[#22252b] px-3 py-1.5 rounded text-left">
+            <div className="bg-gray-800/40 border border-gray-800 px-3 py-1.5 rounded-lg text-left">
               <div className="text-[10px] text-[#6c727d] uppercase font-mono flex items-center">
                 <span>Memory Bus Saturation</span>
                 <InfoTooltip text="NVML Memory Bandwidth Utilization. LLM token generation (decode phase) is strictly memory-bandwidth bound. High % explains why generation speed plateaus!" />
@@ -1410,7 +1410,7 @@ export function Dashboard() {
             </div>
 
             {/* GPU Core Compute */}
-            <div className="bg-[#14161a] border border-[#22252b] px-3 py-1.5 rounded text-left">
+            <div className="bg-gray-800/40 border border-gray-800 px-3 py-1.5 rounded-lg text-left">
               <div className="text-[10px] text-[#6c727d] uppercase font-mono">Core Compute</div>
               <div className="font-bold font-mono text-amber-400 text-xs">
                 {fmt(primaryGpu.utilization_percent)}%
@@ -1439,7 +1439,7 @@ export function Dashboard() {
           ======================================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Panel 1: Memory / CPU (100% Live Telemetry) */}
-        <div className="lg:col-span-4 bg-[#181b1f] border border-[#22252b] rounded-sm p-3.5 flex flex-col justify-between min-h-[220px]">
+        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[220px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center">
@@ -1491,8 +1491,8 @@ export function Dashboard() {
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     return (
-                      <div className="bg-[#181b1f] border border-[#2b303a] p-2 rounded shadow text-[11px] space-y-1">
-                        <div className="text-[#8e94a0] border-b border-[#2b303a] pb-0.5">{label}</div>
+                      <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-1">
+                        <div className="text-[#8e94a0] border-b border-gray-800 pb-0.5">{label}</div>
                         <div className="text-[#3274d9]">RAM / VRAM: {Number(payload[0]?.value).toFixed(1)} GB</div>
                         <div className="text-[#e02f44]">CPU Load: {Number(payload[1]?.value).toFixed(1)}%</div>
                       </div>
@@ -1505,7 +1505,7 @@ export function Dashboard() {
                   dataKey="memory"
                   stroke="#3274d9"
                   strokeWidth={1.75}
-                  dot={{ r: 2.5, fill: '#3274d9', stroke: '#181b1f', strokeWidth: 1 }}
+                  dot={{ r: 2.5, fill: '#3274d9', stroke: '#111827', strokeWidth: 1 }}
                   isAnimationActive={false}
                 />
                 <Line
@@ -1534,7 +1534,7 @@ export function Dashboard() {
         </div>
 
         {/* Panel 2: Token Throughput */}
-        <div className="lg:col-span-4 bg-[#181b1f] border border-[#22252b] rounded-sm p-3.5 flex flex-col justify-between min-h-[220px]">
+        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[220px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center">
@@ -1573,8 +1573,8 @@ export function Dashboard() {
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     return (
-                      <div className="bg-[#181b1f] border border-[#2b303a] p-2 rounded shadow text-[11px] space-y-1">
-                        <div className="text-[#8e94a0] border-b border-[#2b303a] pb-0.5">{label}</div>
+                      <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-1">
+                        <div className="text-[#8e94a0] border-b border-gray-800 pb-0.5">{label}</div>
                         <div className="text-[#b877d9]">Peak Baseline: {payload[0]?.value} tok/s</div>
                         <div className="text-[#56a4ff]">Live Generation: {payload[1]?.value} tok/s</div>
                       </div>
@@ -1586,7 +1586,7 @@ export function Dashboard() {
                   dataKey="peak_baseline"
                   stroke="#b877d9"
                   strokeWidth={1.5}
-                  dot={{ r: 2, fill: '#b877d9', stroke: '#181b1f', strokeWidth: 1 }}
+                  dot={{ r: 2, fill: '#b877d9', stroke: '#111827', strokeWidth: 1 }}
                   isAnimationActive={false}
                 />
                 <Line
@@ -1594,7 +1594,7 @@ export function Dashboard() {
                   dataKey="live_tok_per_sec"
                   stroke="#56a4ff"
                   strokeWidth={1.5}
-                  dot={{ r: 2, fill: '#56a4ff', stroke: '#181b1f', strokeWidth: 1 }}
+                  dot={{ r: 2, fill: '#56a4ff', stroke: '#111827', strokeWidth: 1 }}
                   isAnimationActive={false}
                 />
               </LineChart>
@@ -1662,7 +1662,7 @@ export function Dashboard() {
           ======================================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Left: KV Cache Occupancy & VRAM Allocation Stream */}
-        <div className="lg:col-span-8 bg-[#181b1f] border border-[#22252b] rounded-sm p-3.5 flex flex-col justify-between min-h-[260px]">
+        <div className="lg:col-span-8 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[260px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center space-x-1.5">
@@ -1730,8 +1730,8 @@ export function Dashboard() {
                       if (!active || !payload?.length) return null
                       const d = payload[0]?.payload || {}
                       return (
-                        <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1.5 min-w-[190px]">
-                          <div className="flex justify-between border-b border-[#2b303a] pb-1 font-mono text-[#8e94a0]">
+                        <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1.5 min-w-[190px]">
+                          <div className="flex justify-between border-b border-gray-800 pb-1 font-mono text-[#8e94a0]">
                             <span>{label}</span>
                             <span className="text-sky-300 font-bold">KV Pool Occupancy</span>
                           </div>
@@ -1792,8 +1792,8 @@ export function Dashboard() {
                         (d.kv_cache_reserved || 0)
                       ).toFixed(1)
                       return (
-                        <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1.5 min-w-[210px]">
-                          <div className="flex justify-between border-b border-[#2b303a] pb-1 font-mono text-[#8e94a0]">
+                        <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1.5 min-w-[210px]">
+                          <div className="flex justify-between border-b border-gray-800 pb-1 font-mono text-[#8e94a0]">
                             <span>{label}</span>
                             <span className="text-sky-300 font-bold">Total: {totalVram} GB</span>
                           </div>
@@ -1900,7 +1900,7 @@ export function Dashboard() {
         </div>
 
         {/* Right: Throughput by Quantization */}
-        <div className="lg:col-span-4 bg-[#181b1f] border border-[#22252b] rounded-sm p-3.5 flex flex-col justify-between min-h-[260px]">
+        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[260px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center">
@@ -1932,7 +1932,7 @@ export function Dashboard() {
                     if (!active || !payload?.length) return null
                     const d = payload[0].payload
                     return (
-                      <div className="bg-[#181b1f] border border-[#2b303a] p-2 rounded shadow text-[11px] space-y-0.5">
+                      <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-0.5">
                         <div className="text-white font-bold">{d.name} Format</div>
                         <div className="text-sky-400">{d.note}</div>
                       </div>

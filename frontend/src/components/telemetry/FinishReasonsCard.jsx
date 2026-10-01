@@ -70,7 +70,7 @@ export default function FinishReasonsCard({
 
         {/* Breakdown List */}
         <div className="space-y-1.5 pt-1">
-          <div className="flex items-center justify-between text-xs bg-[#14161a] border border-[#22252b] rounded px-3 py-1.5">
+          <div className="flex items-center justify-between text-xs bg-gray-800/40 border border-gray-800 rounded-lg px-3 py-2">
             <div className="flex items-center space-x-2 text-gray-300">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
               <span>Natural EOS (stop)</span>
@@ -80,7 +80,7 @@ export default function FinishReasonsCard({
             </span>
           </div>
 
-          <div className="flex items-center justify-between text-xs bg-[#14161a] border border-[#22252b] rounded px-3 py-1.5">
+          <div className="flex items-center justify-between text-xs bg-gray-800/40 border border-gray-800 rounded-lg px-3 py-2">
             <div className="flex items-center space-x-2 text-gray-300">
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
               <span>Max Tokens Cutoff (length)</span>
@@ -90,7 +90,7 @@ export default function FinishReasonsCard({
             </span>
           </div>
 
-          <div className="flex items-center justify-between text-xs bg-[#14161a] border border-[#22252b] rounded px-3 py-1.5">
+          <div className="flex items-center justify-between text-xs bg-gray-800/40 border border-gray-800 rounded-lg px-3 py-2">
             <div className="flex items-center space-x-2 text-gray-300">
               <XCircle className="w-3.5 h-3.5 text-red-400" />
               <span>Client Aborted (abort)</span>
