@@ -24,6 +24,7 @@ import {
   Award,
   Users,
   CheckCircle,
+  Terminal,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -1235,6 +1236,14 @@ export function Dashboard() {
           >
             <Zap className="w-3.5 h-3.5 text-amber-400" />
             <span>Load Test</span>
+          </Link>
+
+          <Link
+            to="/traces"
+            className="flex items-center space-x-1.5 bg-[#1e232c] hover:bg-[#252b36] border border-[#2b303a] text-gray-200 px-3 py-1.5 rounded transition-colors"
+          >
+            <Terminal className="w-3.5 h-3.5 text-sky-400" />
+            <span>Traces</span>
           </Link>
 
           <div className="flex items-center space-x-1.5 bg-[#181b1f] border border-[#262930] px-2.5 py-1.5 rounded text-[#8e94a0]">

@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     DEFAULT_COMPLETION_COST_PER_MILLION: float = 1.50
     DEFAULT_GPU_HOURLY_COST: float = 0.70
 
+    # Traces & Privacy Retention
+    STORE_PROMPT_CONTENT: bool = True
+    MAX_STORED_TRACES: int = 5000
+    MAX_PROMPT_CHARS: int = 4000
+
     class Config:
         env_file = ".env"
         case_sensitive = True

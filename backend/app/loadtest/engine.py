@@ -149,6 +149,18 @@ async def _persist_tier_results(results: list, db: Optional[AsyncSession] = None
                 session.add(r)
             await session.commit()
 
+    traces_data = [getattr(r, "_trace_dict", None) for r in results if getattr(r, "_trace_dict", None)]
+    if traces_data:
+        try:
+            from app.services.trace_service import record_traces_bulk
+            if db is not None:
+                await record_traces_bulk(db, traces_data)
+            else:
+                async with AsyncSessionLocal() as session:
+                    await record_traces_bulk(session, traces_data)
+        except Exception as exc:
+            log.warning("error_persisting_tier_traces", error=str(exc))
+
 
 async def _single_request(
     adapter,
@@ -161,6 +173,7 @@ async def _single_request(
     concurrent_users: int,
     run_id: str,
     db: Optional[AsyncSession] = None,
+    runtime_id: Optional[str] = None,
 ) -> "LoadTestResult":
     """Execute one LLM request and return a LoadTestResult — no DB I/O.
 
@@ -263,7 +276,24 @@ async def _single_request(
 
     quality_valid = _validate_quality(prompt, full_text, success, timed_out)
 
-    return LoadTestResult(
+    calc_tpot = None
+    if ttft_ms is not None and total_latency_ms is not None and completion_tokens and completion_tokens > 1:
+        net_gen_ms = max(0.0, total_latency_ms - ttft_ms)
+        calc_tpot = round(net_gen_ms / (completion_tokens - 1), 2)
+    elif generation_tokens_per_second and generation_tokens_per_second > 0:
+        calc_tpot = round(1000.0 / generation_tokens_per_second, 2)
+
+    finish_reason = (
+        "abort"
+        if timed_out
+        else (
+            "error"
+            if error
+            else ("length" if completion_tokens and completion_tokens >= max_tokens else "stop")
+        )
+    )
+
+    res = LoadTestResult(
         id=str(uuid.uuid4()),
         run_id=run_id,
         timestamp=datetime.now(timezone.utc),
@@ -279,6 +309,29 @@ async def _single_request(
         timed_out=timed_out,
         is_transient_error=is_transient_error,
     )
+
+    res._trace_dict = {
+        "source": "load_test",
+        "run_id": run_id,
+        "runtime_id": runtime_id or "unknown",
+        "model": model,
+        "prompt_text": prompt,
+        "output_text": full_text,
+        "prompt_tokens": prompt_tokens or 0,
+        "completion_tokens": completion_tokens or 0,
+        "finish_reason": finish_reason,
+        "ttft_ms": ttft_ms,
+        "tpot_ms": calc_tpot,
+        "total_latency_ms": total_latency_ms,
+        "error": error,
+        "params": {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "concurrent_users": concurrent_users,
+        },
+    }
+
+    return res
 
 
 async def run_load_test(
@@ -299,6 +352,7 @@ async def run_load_test(
     request_timeout: float,
     broadcast_fn: Optional[Callable[[dict], Awaitable[None]]] = None,
     db: Optional[AsyncSession] = None,
+    runtime_id: Optional[str] = None,
 ) -> dict:
     """Run a load test and return aggregate metrics.
 
@@ -367,6 +421,7 @@ async def run_load_test(
                             timeout=request_timeout,
                             concurrent_users=n_users,
                             run_id=run_id,
+                            runtime_id=runtime_id,
                         )
                     # Append to tier buffer first, then to the run-wide list.
                     tier_buffer.append(result)

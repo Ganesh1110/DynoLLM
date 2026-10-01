@@ -89,6 +89,7 @@ async def run_benchmark(
     broadcast_fn=None,
     test_type: str = "standard",
     context_lengths: Optional[list[int]] = None,
+    runtime_id: Optional[str] = None,
 ):
     """Execute benchmark runs and persist results to DB."""
     limits = httpx.Limits(max_connections=20, max_keepalive_connections=10, keepalive_expiry=30.0)
@@ -138,6 +139,7 @@ async def run_benchmark(
                     scenario=curr_scenario,
                     prompt_length_target=target_len,
                     db=db,
+                    runtime_id=runtime_id,
                 )
                 results.append(result)
                 if result.total_latency_ms:
@@ -230,6 +232,7 @@ async def _run_single(
     scenario: str,
     db: AsyncSession,
     prompt_length_target: Optional[int] = None,
+    runtime_id: Optional[str] = None,
 ) -> BenchmarkResult:
     request = GenerateRequest(
         model=model,
@@ -341,5 +344,49 @@ async def _run_single(
     )
     db.add(db_result)
     await db.flush()
+
+    # Calculate client-observed TPOT: (latency - TTFT) / max(1, completion_tokens - 1)
+    calc_tpot = None
+    if ttft_ms is not None and total_latency_ms is not None and completion_tokens and completion_tokens > 1:
+        net_gen_ms = max(0.0, total_latency_ms - ttft_ms)
+        calc_tpot = round(net_gen_ms / (completion_tokens - 1), 2)
+    elif generation_tokens_per_second and generation_tokens_per_second > 0:
+        calc_tpot = round(1000.0 / generation_tokens_per_second, 2)
+
+    finish_reason = (
+        "error"
+        if error
+        else ("length" if completion_tokens and completion_tokens >= max_tokens else "stop")
+    )
+
+    try:
+        from app.services.trace_service import record_trace
+        await record_trace(
+            db,
+            {
+                "source": "benchmark",
+                "run_id": run_id,
+                "runtime_id": runtime_id or "unknown",
+                "model": model,
+                "prompt_text": prompt,
+                "output_text": full_text,
+                "prompt_tokens": prompt_tokens or 0,
+                "completion_tokens": completion_tokens or 0,
+                "finish_reason": finish_reason,
+                "ttft_ms": ttft_ms,
+                "tpot_ms": calc_tpot,
+                "total_latency_ms": total_latency_ms,
+                "error": error,
+                "params": {
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "use_streaming": use_streaming,
+                    "scenario": scenario,
+                },
+            },
+        )
+    except Exception as trace_exc:
+        logger.warning(f"Error persisting benchmark request trace: {trace_exc}")
+
     return db_result
 

@@ -131,6 +131,20 @@ export const monitoringApi = {
     request(`/api/monitoring/engine-stats/history?runtime_id=${encodeURIComponent(runtimeId)}&window=${encodeURIComponent(window)}`),
 }
 
+export const tracesApi = {
+  list: (params = {}) => {
+    const qs = new URLSearchParams()
+    if (params.run_id) qs.set('run_id', params.run_id)
+    if (params.source) qs.set('source', params.source)
+    if (params.runtime_id) qs.set('runtime_id', params.runtime_id)
+    if (params.limit) qs.set('limit', params.limit)
+    if (params.offset) qs.set('offset', params.offset)
+    const queryString = qs.toString()
+    return request(`/api/traces${queryString ? `?${queryString}` : ''}`)
+  },
+  get: (id) => request(`/api/traces/${encodeURIComponent(id)}`),
+}
+
 export function createMonitoringWS(onMessage, onClose) {
   const apiKey = getApiKey()
   const query = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''

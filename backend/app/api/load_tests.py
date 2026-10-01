@@ -51,6 +51,7 @@ async def _execute_load_test(run_id: str, runtime_type: str, endpoint: str, api_
                 request_timeout=run_data["request_timeout"],
                 db=db,
                 broadcast_fn=manager.broadcast,
+                runtime_id=run_data.get("runtime_id"),
             )
 
             result = await db.execute(select(LoadTestRun).where(LoadTestRun.id == run_id))

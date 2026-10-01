@@ -43,6 +43,7 @@ async def _execute_benchmark(run_id: str, runtime_type: str, endpoint: str, api_
                 broadcast_fn=manager.broadcast,
                 test_type=run_data.get("test_type", "standard"),
                 context_lengths=run_data.get("context_lengths"),
+                runtime_id=run.runtime_id,
             )
 
             # Update run with aggregates
