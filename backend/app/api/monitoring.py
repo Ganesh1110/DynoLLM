@@ -79,6 +79,13 @@ async def get_engine_stats_history(runtime_id: str, window: str = "15m"):
     }
 
 
+@router.get("/engine-stats/run/{run_id}")
+async def get_engine_stats_for_run(run_id: str):
+    """Return engine telemetry samples recorded during a specific benchmark or load test run."""
+    from app.monitoring.engine_history import get_history_for_run
+    return get_history_for_run(run_id)
+
+
 @router.websocket("/stream")
 async def monitoring_stream(websocket: WebSocket, _auth: Optional[str] = Depends(verify_ws_api_key)):
     """WebSocket endpoint that streams hardware + event metrics at 1Hz."""

@@ -361,6 +361,10 @@ async def run_load_test(
     the shared-session contention that wedged workers at ≥40 VU.
     """
     _ACTIVE_RUNS[run_id] = True
+    if runtime_id:
+        from app.monitoring.engine_history import set_active_run_for_runtime
+        set_active_run_for_runtime(runtime_id, run_id)
+
     t_run_start = time.perf_counter()
 
     # Issue 5: Detect rampup budget trap before the run starts.
@@ -581,6 +585,9 @@ async def run_load_test(
             watchdog_task.cancel()
             ticker_task.cancel()
             _ACTIVE_RUNS.pop(run_id, None)
+            if runtime_id:
+                from app.monitoring.engine_history import set_active_run_for_runtime
+                set_active_run_for_runtime(runtime_id, None)
 
     # Issue 9 fix: use actual wall-clock run duration, not max(ts) - min(ts) of the
     # result list (which is a collapsed subset and inflates out-rate for long runs).

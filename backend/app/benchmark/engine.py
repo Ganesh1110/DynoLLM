@@ -96,6 +96,9 @@ async def run_benchmark(
     timeout_cfg = httpx.Timeout(timeout=300.0, connect=10.0)
 
     _ACTIVE_BENCH_RUNS[run_id] = True
+    if runtime_id:
+        from app.monitoring.engine_history import set_active_run_for_runtime
+        set_active_run_for_runtime(runtime_id, run_id)
 
     results = []
     latencies = []
@@ -168,6 +171,9 @@ async def run_benchmark(
                     })
     finally:
         _ACTIVE_BENCH_RUNS.pop(run_id, None)
+        if runtime_id:
+            from app.monitoring.engine_history import set_active_run_for_runtime
+            set_active_run_for_runtime(runtime_id, None)
 
     return compute_benchmark_aggregates(results, latencies, ttfts)
 

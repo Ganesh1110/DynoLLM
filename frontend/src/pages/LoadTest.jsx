@@ -5,7 +5,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianG
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
 import { useMonitoringStore } from '../stores/monitoringStore'
-import { loadTestsApi } from '../services/api'
+import { loadTestsApi, monitoringApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
 import { classifyWorkload, calcTokenCosts, calcHardwareCosts, formatTokenCount, computeBreakdownFromResults } from '../utils/tokenMetrics'
@@ -37,6 +37,18 @@ export function LoadTest() {
   const [loadingModels, setLoadingModels] = useState(false)
   const [guideModalOpen, setGuideModalOpen] = useState(false)
   const [guideModalTab, setGuideModalTab] = useState('before')
+  const [runTelemetry, setRunTelemetry] = useState(null)
+
+  // Fetch engine telemetry linked to the active run
+  useEffect(() => {
+    if (activeRun?.id) {
+      monitoringApi.runEngineStats(activeRun.id)
+        .then((data) => setRunTelemetry(data))
+        .catch(() => setRunTelemetry(null))
+    } else {
+      setRunTelemetry(null)
+    }
+  }, [activeRun?.id, activeRun?.status])
 
   // Load Test Config
   const [config, setConfig] = useState({
@@ -1396,6 +1408,68 @@ export function LoadTest() {
                       <span className="text-base font-bold text-red-400">{fmtMs(activeRun.p99_latency_ms)}</span>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Correlated Engine Telemetry (Phase 5 Run Linking) */}
+              {runTelemetry && runTelemetry.samples_count > 0 && (
+                <div className="card bg-gray-900 border border-sky-900/40 p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2">
+                      <Activity className="w-4 h-4 text-sky-400" />
+                      <h4 className="text-xs font-semibold text-gray-200 uppercase tracking-wider">
+                        Linked Engine Telemetry ({runTelemetry.samples_count} samples logged during load test)
+                      </h4>
+                    </div>
+                    {runTelemetry.summary?.max_requests_waiting > 5 ? (
+                      <span className="bg-amber-950/80 border border-amber-700/60 text-amber-300 text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                        Queue Saturation ({runTelemetry.summary.max_requests_waiting} max waiting)
+                      </span>
+                    ) : (
+                      <span className="bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                        Engine Stable ({runTelemetry.summary?.max_kv_cache_usage_pct ?? 0}% max KV)
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Peak KV Cache Occupancy</span>
+                      <span className={`font-bold font-mono text-sm ${
+                        (runTelemetry.summary?.max_kv_cache_usage_pct ?? 0) > 80 ? 'text-amber-400' : 'text-sky-400'
+                      }`}>
+                        {runTelemetry.summary?.max_kv_cache_usage_pct != null ? `${runTelemetry.summary.max_kv_cache_usage_pct}%` : '—'}
+                      </span>
+                    </div>
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Peak Request Backlog</span>
+                      <span className={`font-bold font-mono text-sm ${
+                        (runTelemetry.summary?.max_requests_waiting ?? 0) > 5 ? 'text-amber-400' : 'text-gray-200'
+                      }`}>
+                        {runTelemetry.summary?.max_requests_waiting ?? 0} queued
+                      </span>
+                    </div>
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Peak Concurrency Absorbed</span>
+                      <span className="font-bold font-mono text-sm text-gray-200">
+                        {runTelemetry.summary?.max_requests_running ?? 0} running
+                      </span>
+                    </div>
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Prefix Hit Rate</span>
+                      <span className="font-bold font-mono text-sm text-emerald-400">
+                        {runTelemetry.series?.length && runTelemetry.series[runTelemetry.series.length - 1]?.prefix_cache_hit_rate != null
+                          ? `${(runTelemetry.series[runTelemetry.series.length - 1].prefix_cache_hit_rate * 100).toFixed(0)}%`
+                          : 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {runTelemetry.summary?.max_requests_waiting > 5 && (
+                    <p className="text-[11px] text-amber-300/90 bg-amber-950/30 p-2 rounded border border-amber-900/40">
+                      ⚠️ Engine request backlog spiked to {runTelemetry.summary.max_requests_waiting} waiting requests. P95 latency inflection corresponds directly to queue waiting time.
+                    </p>
+                  )}
                 </div>
               )}
 

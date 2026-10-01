@@ -129,6 +129,8 @@ export const monitoringApi = {
   engineStats: () => request('/api/monitoring/engine-stats'),
   engineStatsHistory: (runtimeId, window = '15m') =>
     request(`/api/monitoring/engine-stats/history?runtime_id=${encodeURIComponent(runtimeId)}&window=${encodeURIComponent(window)}`),
+  runEngineStats: (runId) =>
+    request(`/api/monitoring/engine-stats/run/${encodeURIComponent(runId)}`),
 }
 
 export const tracesApi = {

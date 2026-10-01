@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   PlayCircle, StopCircle, RefreshCw, BarChart2, Download,
   CheckCircle2, AlertTriangle, ArrowRight, Zap, ShieldCheck,
-  Cpu, FileText, Plus, Trash2, Layers, TrendingUp, Sparkles, Sliders, HelpCircle
+  Cpu, FileText, Plus, Trash2, Layers, TrendingUp, Sparkles, Sliders, HelpCircle, Activity
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
@@ -12,7 +12,7 @@ import {
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { useMonitoringStore } from '../stores/monitoringStore'
-import { benchmarksApi, promptTemplatesApi } from '../services/api'
+import { benchmarksApi, promptTemplatesApi, monitoringApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
 import { TestingGuideModal } from '../components/TestingGuideModal'
@@ -42,6 +42,18 @@ export function Benchmark() {
   const [loadingModels, setLoadingModels] = useState(false)
   const [guideModalOpen, setGuideModalOpen] = useState(false)
   const [guideModalTab, setGuideModalTab] = useState('before')
+  const [runTelemetry, setRunTelemetry] = useState(null)
+
+  // Fetch engine telemetry linked to the active run
+  useEffect(() => {
+    if (activeRun?.id) {
+      monitoringApi.runEngineStats(activeRun.id)
+        .then((data) => setRunTelemetry(data))
+        .catch(() => setRunTelemetry(null))
+    } else {
+      setRunTelemetry(null)
+    }
+  }, [activeRun?.id, activeRun?.status])
 
   // Custom Prompt Templates state
   const [templates, setTemplates] = useState([])
@@ -853,6 +865,66 @@ export function Benchmark() {
                   </div>
                 </div>
               </div>
+
+              {/* Correlated Engine Telemetry Card (Phase 5 Run Linking) */}
+              {runTelemetry && runTelemetry.samples_count > 0 && (
+                <div className="card bg-gray-900 border border-sky-900/40 p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2">
+                      <Activity className="w-4 h-4 text-sky-400" />
+                      <h4 className="text-xs font-semibold text-gray-200 uppercase tracking-wider">
+                        Linked Engine Telemetry ({runTelemetry.samples_count} samples logged during run)
+                      </h4>
+                    </div>
+                    {runTelemetry.summary?.max_kv_cache_usage_pct > 80 ? (
+                      <span className="bg-amber-950/80 border border-amber-700/60 text-amber-300 text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                        High KV Pressure ({runTelemetry.summary.max_kv_cache_usage_pct}%)
+                      </span>
+                    ) : (
+                      <span className="bg-emerald-950/80 border border-emerald-700/60 text-emerald-300 text-xs px-2.5 py-0.5 rounded-full font-semibold">
+                        Engine Normal ({runTelemetry.summary?.max_kv_cache_usage_pct ?? 0}% KV peak)
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center text-xs">
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Peak KV Cache</span>
+                      <span className={`font-bold font-mono text-sm ${
+                        (runTelemetry.summary?.max_kv_cache_usage_pct ?? 0) > 80 ? 'text-amber-400' : 'text-sky-400'
+                      }`}>
+                        {runTelemetry.summary?.max_kv_cache_usage_pct != null ? `${runTelemetry.summary.max_kv_cache_usage_pct}%` : '—'}
+                      </span>
+                    </div>
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Peak Queue Depth</span>
+                      <span className="font-bold font-mono text-sm text-gray-200">
+                        {runTelemetry.summary?.max_requests_waiting ?? 0} waiting
+                      </span>
+                    </div>
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Peak Running Slots</span>
+                      <span className="font-bold font-mono text-sm text-gray-200">
+                        {runTelemetry.summary?.max_requests_running ?? 0} active
+                      </span>
+                    </div>
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
+                      <span className="text-gray-400 block text-[10px]">Admission State</span>
+                      <span className={`font-bold font-mono text-sm ${
+                        (runTelemetry.summary?.max_requests_waiting ?? 0) > 3 ? 'text-amber-400' : 'text-emerald-400'
+                      }`}>
+                        {(runTelemetry.summary?.max_requests_waiting ?? 0) > 3 ? 'Queue Saturation' : 'Smooth Flow'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {runTelemetry.summary?.max_kv_cache_usage_pct > 85 && (
+                    <p className="text-[11px] text-amber-300/90 bg-amber-950/30 p-2 rounded border border-amber-900/40">
+                      ⚠️ TTFT & decode latencies elevated while engine KV cache reached {runTelemetry.summary.max_kv_cache_usage_pct}%. Consider allocating more KV blocks or tuning max_model_len.
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Context Length Scaling Degradation Curve (Only for Context Scaling runs) */}
               {isContextScalingRun && resultsData.length > 0 && (

@@ -538,6 +538,59 @@ function computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats }) {
     })
   }
 
+  // Phase 5: Deep Engine Telemetry Diagnostics (vLLM / Ollama engine stats)
+  const statsList = Array.isArray(engineStats) ? engineStats : (engineStats ? [engineStats] : [])
+  for (const es of statsList) {
+    const canonical = es?.canonical || es || {}
+    const name = es?.runtime_name || es?.name || 'Engine'
+    const rtId = es?.runtime_id || name
+
+    // 1. Memory Swapping Active (Danger)
+    const swapped = canonical.requests_swapped ?? canonical.num_swapped_gpu_blocks ?? 0
+    if (swapped > 0) {
+      alerts.push({
+        id: `swap-active-${rtId}`,
+        label: 'KV Block Swapping Active',
+        detail: `${name}: ${swapped} blocks/requests swapped to host RAM — severe TPOT stall`,
+        severity: 'danger',
+      })
+    }
+
+    // 2. High Queue Backlog
+    const esWaiting = canonical.requests_waiting ?? 0
+    if (esWaiting > 5) {
+      alerts.push({
+        id: `queue-backlog-${rtId}`,
+        label: 'Severe Engine Queue Backlog',
+        detail: `${name}: ${esWaiting} requests queued waiting for admission`,
+        severity: 'warning',
+      })
+    }
+
+    // 3. Low Prefix Cache Hit Rate under load
+    const prefixRate = canonical.prefix_cache_hit_rate
+    const running = canonical.requests_running ?? 0
+    if (prefixRate !== undefined && prefixRate !== null && running > 2 && prefixRate < 0.15 && es?.capabilities?.prefix_cache) {
+      alerts.push({
+        id: `prefix-miss-${rtId}`,
+        label: 'Low Prefix Cache Hit Rate',
+        detail: `${name}: ${(prefixRate * 100).toFixed(0)}% hit rate with ${running} active requests — prompt sharing low`,
+        severity: 'warning',
+      })
+    }
+
+    // 4. Pre-fill Spike / High TTFT
+    const p95Ttft = canonical.p95_ttft_ms ?? (canonical.ttft_seconds ? canonical.ttft_seconds * 1000 : null)
+    if (p95Ttft != null && p95Ttft > 2500) {
+      alerts.push({
+        id: `ttft-spike-${rtId}`,
+        label: 'High Prefill Latency',
+        detail: `${name}: P95 TTFT at ${(p95Ttft / 1000).toFixed(1)}s — prefill bottleneck`,
+        severity: 'warning',
+      })
+    }
+  }
+
   return { alerts, allClear: alerts.length === 0 }
 }
 

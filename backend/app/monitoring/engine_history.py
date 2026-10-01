@@ -16,6 +16,7 @@ MAX_SAMPLES_PER_RUNTIME = 720  # 720 samples * 5s = 3600s = 1 hour
 @dataclass
 class EngineSample:
     timestamp: float  # Unix timestamp
+    run_id: Optional[str] = None
     gauges: Dict[str, Optional[float]] = field(default_factory=dict)
     counters: Dict[str, Optional[float]] = field(default_factory=dict)
     histograms: Dict[str, Any] = field(default_factory=dict)
@@ -24,9 +25,24 @@ class EngineSample:
 
 # In-memory storage: runtime_id -> deque of EngineSample
 _history_buffers: Dict[str, deque] = {}
+# Active run tracking: runtime_id -> run_id
+_active_runs: Dict[str, str] = {}
 
 
-def record_sample(runtime_id: str, sample_data: Dict[str, Any]) -> None:
+def set_active_run_for_runtime(runtime_id: str, run_id: Optional[str]) -> None:
+    """Register or clear the currently executing benchmark/load test run on a runtime."""
+    if run_id:
+        _active_runs[runtime_id] = run_id
+    else:
+        _active_runs.pop(runtime_id, None)
+
+
+def get_active_run_for_runtime(runtime_id: str) -> Optional[str]:
+    """Retrieve the currently active run_id on a runtime, if any."""
+    return _active_runs.get(runtime_id)
+
+
+def record_sample(runtime_id: str, sample_data: Dict[str, Any], run_id: Optional[str] = None) -> None:
     """Record a fresh telemetry sample in the runtime's ring buffer."""
     if runtime_id not in _history_buffers:
         _history_buffers[runtime_id] = deque(maxlen=MAX_SAMPLES_PER_RUNTIME)
@@ -43,8 +59,11 @@ def record_sample(runtime_id: str, sample_data: Dict[str, Any]) -> None:
                 "buckets": list(getattr(h_obj, "buckets", [])),
             }
 
+    effective_run_id = run_id or _active_runs.get(runtime_id)
+
     sample = EngineSample(
         timestamp=sample_data.get("polled_at") or time.time(),
+        run_id=effective_run_id,
         gauges={
             "kv_cache_usage_pct": canonical.get("kv_cache_usage_pct"),
             "requests_running": canonical.get("requests_running"),
@@ -197,4 +216,56 @@ def get_history(runtime_id: str, window_seconds: int = 900) -> Dict[str, Any]:
         "samples_count": len(series),
         "series": series,
         "summary": summary,
+    }
+
+
+def get_history_for_run(run_id: str) -> Dict[str, Any]:
+    """
+    Retrieve all engine samples recorded during a specific run_id.
+    Derives key summary metrics (max KV %, peak queue depth, average latency).
+    """
+    matching_samples: List[Tuple[str, EngineSample]] = []
+    for rt_id, buf in _history_buffers.items():
+        for s in buf:
+            if s.run_id == run_id:
+                matching_samples.append((rt_id, s))
+
+    # Sort chronologically
+    matching_samples.sort(key=lambda item: item[1].timestamp)
+
+    series = []
+    max_kv = 0.0
+    max_waiting = 0
+    max_running = 0
+
+    for rt_id, s in matching_samples:
+        kv = s.gauges.get("kv_cache_usage_pct") or 0.0
+        waiting = int(s.gauges.get("requests_waiting") or 0)
+        running = int(s.gauges.get("requests_running") or 0)
+
+        if kv > max_kv:
+            max_kv = kv
+        if waiting > max_waiting:
+            max_waiting = waiting
+        if running > max_running:
+            max_running = running
+
+        series.append({
+            "timestamp": s.timestamp,
+            "runtime_id": rt_id,
+            "kv_cache_usage_pct": round(kv, 1) if kv is not None else None,
+            "requests_waiting": waiting,
+            "requests_running": running,
+            "prefix_cache_hit_rate": s.gauges.get("prefix_cache_hit_rate"),
+        })
+
+    return {
+        "run_id": run_id,
+        "samples_count": len(series),
+        "series": series,
+        "summary": {
+            "max_kv_cache_usage_pct": round(max_kv, 1),
+            "max_requests_waiting": max_waiting,
+            "max_requests_running": max_running,
+        },
     }
