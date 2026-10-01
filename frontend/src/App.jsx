@@ -11,6 +11,7 @@ import { GpuSizer } from './pages/GpuSizer'
 import { VllmOptimizer } from './pages/VllmOptimizer'
 import { Traces } from './pages/Traces'
 import { useWebSocket } from './hooks/useWebSocket'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 function AppContent() {
   useWebSocket() // Persistent WebSocket connection for monitoring and test events
@@ -19,7 +20,8 @@ function AppContent() {
     <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col font-sans">
       <Navbar />
       <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Routes>
+        <ErrorBoundary>
+          <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/runtimes" element={<Runtimes />} />
           <Route path="/benchmark" element={<Benchmark />} />
@@ -30,6 +32,7 @@ function AppContent() {
           <Route path="/compare" element={<Compare />} />
           <Route path="/history" element={<History />} />
         </Routes>
+        </ErrorBoundary>
       </main>
 
       <footer className="border-t border-gray-900 py-4 text-center text-xs text-gray-600">

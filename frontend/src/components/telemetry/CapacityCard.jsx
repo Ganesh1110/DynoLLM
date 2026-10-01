@@ -31,7 +31,7 @@ export default function CapacityCard({
     return null
   }, [totalBlocks, freeBlocks])
 
-  const isSevereBacklog = backlogStats.isSevereBacklog
+  const { hasBacklog, isSevereBacklog } = backlogStats
 
   return (
     <TelemetryCard
