@@ -73,14 +73,14 @@ function InfoTooltip({ text, position = 'top' }) {
         <div
           className={`absolute ${
             position === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
-          } left-1/2 -translate-x-1/2 z-50 w-64 p-2.5 bg-[#14161a] border border-sky-500/40 text-gray-200 text-[11px] rounded-lg shadow-2xl backdrop-blur-md pointer-events-none leading-relaxed`}
+          } left-1/2 -translate-x-1/2 z-50 w-64 p-2.5 bg-gray-900 border border-sky-500/40 text-gray-200 text-[11px] rounded-lg shadow-2xl backdrop-blur-md pointer-events-none leading-relaxed`}
         >
-          <div className="font-semibold text-sky-400 pb-1 border-b border-[#22252b] mb-1 flex items-center space-x-1">
+          <div className="font-semibold text-sky-400 pb-1 border-b border-gray-800 mb-1 flex items-center space-x-1">
             <Info className="w-3 h-3" />
             <span>Concept Explanation</span>
           </div>
           <div>{text}</div>
-          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-[#14161a]" />
+          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-900" />
         </div>
       )}
     </div>
@@ -286,10 +286,10 @@ function CheatSheetModal({ isOpen, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-2xl bg-[#14161a] border border-[#2b303a] rounded-xl shadow-2xl p-5 text-gray-200 max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between pb-3 border-b border-[#22252b]">
+      <div className="relative w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-xl shadow-2xl p-5 text-gray-200 max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between pb-3 border-b border-gray-800">
           <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
+            <div className="w-8 h-8 rounded-lg bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400">
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
@@ -300,7 +300,7 @@ function CheatSheetModal({ isOpen, onClose }) {
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-white p-1 rounded hover:bg-[#22252b]"
+            className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800"
           >
             ✕
           </button>
@@ -321,7 +321,7 @@ function CheatSheetModal({ isOpen, onClose }) {
           ))}
         </div>
 
-        <div className="pt-3 border-t border-[#22252b] flex justify-end">
+        <div className="pt-3 border-t border-gray-800 flex justify-end">
           <button
             type="button"
             onClick={onClose}
@@ -783,7 +783,7 @@ const RATING_COLOR_MAP = {
   sky: 'text-sky-400 bg-sky-950/50 border-sky-800/40',
   amber: 'text-amber-400 bg-amber-950/50 border-amber-800/40',
   red: 'text-red-400 bg-red-950/50 border-red-800/40',
-  gray: 'text-gray-500 bg-[#1a1d22] border-[#22252b]',
+  gray: 'text-gray-500 bg-gray-800/40 border-gray-800',
 }
 
 function DeltaChip({ value, invertGood = false }) {
@@ -842,7 +842,7 @@ function RecentRunsStrip({ benchmarks, loadTests }) {
     <div className="space-y-2">
       {/* Regression warning */}
       {regression?.isRegression && (
-        <div className="flex items-center space-x-2 bg-red-950/40 border border-red-800/40 rounded px-2.5 py-1.5 text-xs text-red-300">
+        <div className="flex items-center space-x-2 bg-red-950/40 border border-red-800/40 rounded-lg px-2.5 py-1.5 text-xs text-red-300">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           <span>
             <span className="font-bold">Performance Regression</span>
@@ -866,8 +866,8 @@ function RecentRunsStrip({ benchmarks, loadTests }) {
         return (
           <div
             key={run.id}
-            className={`flex items-center justify-between text-xs bg-[#14161a] px-2.5 py-2 rounded border ${
-              isBaseline ? 'border-sky-700/50' : 'border-[#22252b]'
+            className={`flex items-center justify-between text-xs bg-gray-800/40 px-2.5 py-2 rounded-lg border ${
+              isBaseline ? 'border-sky-700/50' : 'border-gray-800'
             }`}
           >
             {/* Left: type icon + name + timestamp */}
@@ -1250,7 +1250,7 @@ export function Dashboard() {
       {/* ========================================================================
           Top Breadcrumb Bar
           ======================================================================== */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#22252b] pb-3 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 pb-3 pt-1">
         <div className="flex items-center space-x-2 text-sm">
           <div className="w-5 h-5 flex items-center justify-center">
             <Flame className="w-5 h-5 text-orange-500 fill-orange-500" />
@@ -1299,7 +1299,7 @@ export function Dashboard() {
             <span>Traces</span>
           </Link>
 
-          <div className="flex items-center space-x-1.5 bg-[#181b1f] border border-[#262930] px-2.5 py-1.5 rounded text-[#8e94a0]">
+          <div className="flex items-center space-x-1.5 bg-gray-800/40 border border-gray-800 px-2.5 py-1.5 rounded-lg text-[#8e94a0]">
             <Clock className="w-3.5 h-3.5 text-sky-400" />
             <span>Last 20m</span>
           </div>
@@ -1314,12 +1314,12 @@ export function Dashboard() {
       {/* ========================================================================
           View Switcher: Engine Telemetry Grid vs System Overview
           ======================================================================== */}
-      <div className="flex flex-wrap items-center justify-between border-b border-[#22252b] pb-2.5 gap-2">
-        <div className="flex items-center space-x-1.5 bg-[#14161a] border border-[#22252b] p-1 rounded">
+      <div className="flex flex-wrap items-center justify-between border-b border-gray-800 pb-2.5 gap-2">
+        <div className="flex items-center space-x-1.5 bg-gray-900 border border-gray-800 p-1 rounded-lg">
           <button
             type="button"
             onClick={() => setDashboardView('telemetry')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
               dashboardView === 'telemetry'
                 ? 'bg-sky-600 text-white shadow-sm'
                 : 'text-[#8e94a0] hover:text-white'
@@ -1334,9 +1334,9 @@ export function Dashboard() {
           <button
             type="button"
             onClick={() => setDashboardView('overview')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
               dashboardView === 'overview'
-                ? 'bg-[#22252b] text-white shadow-sm'
+                ? 'bg-gray-800 text-white shadow-sm'
                 : 'text-[#8e94a0] hover:text-white'
             }`}
           >
@@ -1966,7 +1966,7 @@ export function Dashboard() {
       {/* ========================================================================
           BOTTOM FULL-WIDTH ROW: [Inference Latency Percentiles (P25 - P95)]
           ======================================================================== */}
-      <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-3.5 flex flex-col justify-between min-h-[260px]">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[260px]">
         <div>
           <div className="flex items-center justify-between pb-0.5">
             <div className="flex items-center">
@@ -2009,8 +2009,8 @@ export function Dashboard() {
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null
                     return (
-                      <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1">
-                        <div className="text-[#8e94a0] border-b border-[#2b303a] pb-1 font-mono">{label}</div>
+                      <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1">
+                        <div className="text-[#8e94a0] border-b border-gray-800 pb-1 font-mono">{label}</div>
                         {payload.map((p, idx) => (
                           <div key={idx} className="flex justify-between space-x-4" style={{ color: p.color }}>
                             <span>{p.name}:</span>
@@ -2031,8 +2031,8 @@ export function Dashboard() {
           </div>
 
           {/* Right Summary Table */}
-          <div className="w-full lg:w-56 bg-[#14161a] border border-[#22252b] rounded p-3 text-xs space-y-2 shrink-0 self-center">
-            <div className="flex justify-between text-[11px] text-[#6c727d] border-b border-[#22252b] pb-1 font-mono">
+          <div className="w-full lg:w-56 bg-gray-800/40 border border-gray-800 rounded-lg p-3 text-xs space-y-2 shrink-0 self-center">
+            <div className="flex justify-between text-[11px] text-[#6c727d] border-b border-gray-800 pb-1 font-mono">
               <span>Percentile</span>
               <span className="font-semibold text-[#8e94a0]">avg latency</span>
             </div>
@@ -2082,8 +2082,8 @@ export function Dashboard() {
           ======================================================================== */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
         {/* Runtimes Card */}
-        <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between pb-2 border-b border-[#22252b]">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col justify-between">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-800">
             <div className="flex items-center space-x-2">
               <Server className="w-4 h-4 text-sky-400" />
               <span className="text-sm font-semibold text-white">Registered LLM Engines</span>
@@ -2096,7 +2096,7 @@ export function Dashboard() {
           <div className="py-2.5 space-y-2">
             {runtimes.length > 0 ? (
               runtimes.slice(0, 3).map((r) => (
-                <div key={r.id} className="flex items-center justify-between text-xs bg-[#14161a] p-2 rounded border border-[#22252b]">
+                <div key={r.id} className="flex items-center justify-between text-xs bg-gray-800/40 p-2.5 rounded-lg border border-gray-800">
                   <div className="flex items-center space-x-2">
                     <span className={`w-2 h-2 rounded-full ${r.status === 'healthy' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                     <span className="font-medium text-white">{r.name}</span>
@@ -2109,14 +2109,14 @@ export function Dashboard() {
               <div className="text-xs text-gray-500 py-1">No runtimes registered yet. Click below to add your local engine.</div>
             )}
           </div>
-          <Link to="/runtimes" className="text-center text-xs py-1.5 bg-[#22262e] hover:bg-[#2c313c] text-gray-300 rounded transition-colors">
+          <Link to="/runtimes" className="text-center text-xs py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors font-medium">
             + Register New Runtime (Ollama / vLLM / LM Studio)
           </Link>
         </div>
 
         {/* Recent Performance Runs */}
-        <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-4 flex flex-col justify-between">
-          <div className="flex items-center justify-between pb-2 border-b border-[#22252b]">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col justify-between">
+          <div className="flex items-center justify-between pb-2 border-b border-gray-800">
             <div className="flex items-center space-x-2">
               <Activity className="w-4 h-4 text-emerald-400" />
               <span className="text-sm font-semibold text-white">Latest Benchmark &amp; Load Runs</span>
@@ -2130,10 +2130,10 @@ export function Dashboard() {
             <RecentRunsStrip benchmarks={benchmarks} loadTests={loadTests} />
           </div>
           <div className="flex items-center space-x-2">
-            <Link to="/benchmark" className="flex-1 text-center text-xs py-1.5 bg-[#22262e] hover:bg-[#2c313c] text-gray-300 rounded transition-colors">
+            <Link to="/benchmark" className="flex-1 text-center text-xs py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-lg transition-colors font-medium">
               Run Single Benchmark
             </Link>
-            <Link to="/load-test" className="flex-1 text-center text-xs py-1.5 bg-[#22262e] hover:bg-[#2c313c] text-amber-300/90 rounded transition-colors">
+            <Link to="/load-test" className="flex-1 text-center text-xs py-2 bg-gray-800 hover:bg-gray-700 text-amber-300/90 rounded-lg transition-colors font-medium">
               Run Concurrency Test
             </Link>
           </div>

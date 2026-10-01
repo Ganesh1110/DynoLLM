@@ -33,7 +33,7 @@ export default function PrefixCacheCard({
       <div className="flex flex-col items-center justify-center py-4 space-y-3">
         {/* Radial / Arc Display */}
         <div className="relative flex items-center justify-center">
-          <div className="w-24 h-24 rounded-full border-4 border-[#22252b] flex items-center justify-center">
+          <div className="w-24 h-24 rounded-full border-4 border-gray-800 flex items-center justify-center">
             <div className="text-center">
               <div className="text-2xl font-bold font-mono text-emerald-400">
                 {hitRate != null ? `${hitRate}%` : '—'}

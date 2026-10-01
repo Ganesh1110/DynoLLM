@@ -29,14 +29,14 @@ export function InfoTooltip({ text, position = 'top' }) {
         <div
           className={`absolute ${
             position === 'top' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
-          } left-1/2 -translate-x-1/2 z-50 w-64 p-2.5 bg-[#14161a] border border-sky-500/40 text-gray-200 text-[11px] rounded-lg shadow-2xl backdrop-blur-md pointer-events-none leading-relaxed`}
+          } left-1/2 -translate-x-1/2 z-50 w-64 p-2.5 bg-gray-900 border border-sky-500/40 text-gray-200 text-[11px] rounded-lg shadow-2xl backdrop-blur-md pointer-events-none leading-relaxed`}
         >
-          <div className="font-semibold text-sky-400 pb-1 border-b border-[#22252b] mb-1 flex items-center space-x-1">
+          <div className="font-semibold text-sky-400 pb-1 border-b border-gray-800 mb-1 flex items-center space-x-1">
             <Info className="w-3 h-3" />
             <span>Metric Info</span>
           </div>
           <div>{text}</div>
-          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-[#14161a]" />
+          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-1 border-4 border-transparent border-t-gray-900" />
         </div>
       )}
     </div>
@@ -62,7 +62,7 @@ export function StateBadge({ state }) {
   }
   if (state === 'unavailable') {
     return (
-      <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-[#22252b] border border-[#2e333d] text-gray-400 text-[10px] font-mono">
+      <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 text-gray-400 text-[10px] font-mono">
         <Slash className="w-2.5 h-2.5 text-gray-400" />
         <span>Unsupported</span>
       </span>

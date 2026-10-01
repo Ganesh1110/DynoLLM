@@ -44,7 +44,7 @@ export default function FinishReasonsCard({
     >
       <div className="space-y-3 py-2">
         {/* Visual Distribution Segmented Bar */}
-        <div className="w-full bg-[#22252b] h-3 rounded-full overflow-hidden flex">
+        <div className="w-full bg-gray-800 h-3 rounded-full overflow-hidden flex">
           {counts.stop > 0 && (
             <div
               className="bg-emerald-500 h-full transition-all"

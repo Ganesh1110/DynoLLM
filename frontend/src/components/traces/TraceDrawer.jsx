@@ -96,9 +96,9 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
       />
 
       <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-2xl bg-[#14161a] border-l border-[#22252b] text-gray-200 flex flex-col shadow-2xl">
+        <div className="w-screen max-w-2xl bg-gray-900 border-l border-gray-800 text-gray-200 flex flex-col shadow-2xl">
           {/* Header */}
-          <div className="p-4 border-b border-[#22252b] flex items-center justify-between bg-[#181b1f]">
+          <div className="p-4 border-b border-gray-800 flex items-center justify-between bg-gray-950/60">
             <div className="flex items-center space-x-2.5 truncate">
               <Terminal className="w-5 h-5 text-sky-400 shrink-0" />
               <div>
@@ -149,7 +149,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1 rounded text-gray-400 hover:text-white hover:bg-[#22252b] transition-colors"
+                className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
                 aria-label="Close drawer"
               >
                 <X className="w-5 h-5" />
@@ -161,7 +161,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {/* Error Banner if any */}
             {trace.error && (
-              <div className="p-3 rounded bg-red-950/40 border border-red-500/50 text-red-300 text-xs flex items-start space-x-2">
+              <div className="p-3 rounded-lg bg-red-950/40 border border-red-500/50 text-red-300 text-xs flex items-start space-x-2">
                 <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
                 <div>
                   <div className="font-semibold text-red-200">Execution Error</div>
@@ -171,7 +171,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
             )}
 
             {/* Section 1: Timeline Breakdown (TTFT Prefill vs Decode Generation) */}
-            <div className="bg-[#181b1f] border border-[#22252b] rounded p-3.5 space-y-3">
+            <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2 text-white font-semibold">
                   <Clock className="w-4 h-4 text-sky-400" />
@@ -184,7 +184,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
               </div>
 
               {/* Horizontal Visual Split Bar */}
-              <div className="w-full bg-[#22252b] h-3.5 rounded overflow-hidden flex font-mono text-[9px] text-white select-none">
+              <div className="w-full bg-gray-950 h-3.5 rounded-lg overflow-hidden flex font-mono text-[9px] text-white select-none border border-gray-800">
                 {ttftPct > 0 && (
                   <div
                     className="bg-sky-600 h-full flex items-center justify-center transition-all overflow-hidden"
@@ -207,7 +207,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
 
               {/* Phase Stats Grid */}
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5">
+                <div className="bg-gray-950 border border-gray-800 rounded-lg p-3">
                   <div className="flex items-center justify-between text-[#8e94a0] text-[10px] font-mono">
                     <span className="flex items-center space-x-1">
                       <span className="w-2 h-2 rounded-full bg-sky-500 inline-block" />
@@ -223,7 +223,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
                   </div>
                 </div>
 
-                <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5">
+                <div className="bg-gray-950 border border-gray-800 rounded-lg p-3">
                   <div className="flex items-center justify-between text-[#8e94a0] text-[10px] font-mono">
                     <span className="flex items-center space-x-1">
                       <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
@@ -242,7 +242,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
             </div>
 
             {/* Section 2: Input & Model Context */}
-            <div className="bg-[#181b1f] border border-[#22252b] rounded p-3.5 space-y-2.5">
+            <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 space-y-2.5">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2 text-white font-semibold">
                   <FileText className="w-4 h-4 text-sky-400" />
@@ -255,7 +255,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
                   <button
                     type="button"
                     onClick={() => handleCopy(trace.prompt_text, 'prompt')}
-                    className="flex items-center space-x-1 px-2 py-0.5 rounded bg-[#22252b] hover:bg-[#2b303a] text-gray-300 text-[11px] transition-colors"
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-[11px] transition-colors"
                   >
                     {copiedPrompt ? (
                       <>
@@ -274,23 +274,23 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
 
               {/* Model & Parameters pill strip */}
               <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-                <span className="px-2 py-0.5 rounded bg-[#14161a] border border-[#22252b] text-gray-200">
+                <span className="px-2 py-0.5 rounded-lg bg-gray-950 border border-gray-800 text-gray-200">
                   Model: <strong className="text-white">{trace.model}</strong>
                 </span>
                 {parsedModel.paramSizeB && (
-                  <span className="px-2 py-0.5 rounded bg-[#14161a] border border-[#22252b] text-sky-400">
+                  <span className="px-2 py-0.5 rounded-lg bg-gray-950 border border-gray-800 text-sky-400">
                     {parsedModel.family} {parsedModel.paramSizeB}B
                   </span>
                 )}
                 {trace.params && typeof trace.params === 'object' && (
                   <>
                     {trace.params.temperature != null && (
-                      <span className="px-2 py-0.5 rounded bg-[#14161a] border border-[#22252b] text-gray-400">
+                      <span className="px-2 py-0.5 rounded-lg bg-gray-950 border border-gray-800 text-gray-400">
                         temp: {trace.params.temperature}
                       </span>
                     )}
                     {trace.params.max_tokens != null && (
-                      <span className="px-2 py-0.5 rounded bg-[#14161a] border border-[#22252b] text-gray-400">
+                      <span className="px-2 py-0.5 rounded-lg bg-gray-950 border border-gray-800 text-gray-400">
                         max_tokens: {trace.params.max_tokens}
                       </span>
                     )}
@@ -299,7 +299,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
               </div>
 
               {/* Prompt Text Block */}
-              <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5 max-h-48 overflow-y-auto font-mono text-xs text-gray-300 whitespace-pre-wrap leading-relaxed select-text">
+              <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 max-h-48 overflow-y-auto font-mono text-xs text-gray-300 whitespace-pre-wrap leading-relaxed select-text">
                 {trace.prompt_text || (
                   <span className="text-gray-500 italic">
                     Prompt text not stored (privacy setting STORE_PROMPT_CONTENT is disabled)
@@ -309,7 +309,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
             </div>
 
             {/* Section 3: Output Response */}
-            <div className="bg-[#181b1f] border border-[#22252b] rounded p-3.5 space-y-2.5">
+            <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 space-y-2.5">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2 text-white font-semibold">
                   <Sparkles className="w-4 h-4 text-emerald-400" />
@@ -319,13 +319,13 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
                   <span className="text-[10px] font-mono text-gray-400">
                     {completionTokens} completion tokens
                   </span>
-                  <span className="px-1.5 py-0.5 rounded bg-[#22252b] text-gray-300 text-[10px] font-mono uppercase">
+                  <span className="px-2 py-0.5 rounded-lg bg-gray-950 border border-gray-800 text-gray-300 text-[10px] font-mono uppercase">
                     Finish: {trace.finish_reason || 'stop'}
                   </span>
                   <button
                     type="button"
                     onClick={() => handleCopy(trace.output_text, 'output')}
-                    className="flex items-center space-x-1 px-2 py-0.5 rounded bg-[#22252b] hover:bg-[#2b303a] text-gray-300 text-[11px] transition-colors"
+                    className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-[11px] transition-colors"
                   >
                     {copiedOutput ? (
                       <>
@@ -343,7 +343,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
               </div>
 
               {/* Output Text Block */}
-              <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5 max-h-56 overflow-y-auto font-mono text-xs text-emerald-300/90 whitespace-pre-wrap leading-relaxed select-text">
+              <div className="bg-gray-950 border border-gray-800 rounded-lg p-3 max-h-56 overflow-y-auto font-mono text-xs text-emerald-300/90 whitespace-pre-wrap leading-relaxed select-text">
                 {trace.output_text || (
                   <span className="text-gray-500 italic">
                     Response text not stored (privacy setting STORE_PROMPT_CONTENT is disabled)
@@ -353,7 +353,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
             </div>
 
             {/* Section 4: Memory & KV Cache Footprint */}
-            <div className="bg-[#181b1f] border border-[#22252b] rounded p-3.5 space-y-3">
+            <div className="bg-gray-800/40 border border-gray-800 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between text-xs">
                 <div className="flex items-center space-x-2 text-white font-semibold">
                   <Database className="w-4 h-4 text-purple-400" />
@@ -366,7 +366,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {/* Per-Request KV */}
-                <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5">
+                <div className="bg-gray-950 border border-gray-800 rounded-lg p-3">
                   <div className="text-[10px] text-gray-500 uppercase font-mono">
                     Estimated Request KV
                   </div>
@@ -381,7 +381,7 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
                 </div>
 
                 {/* Engine-wide KV Occupancy */}
-                <div className="bg-[#14161a] border border-[#22252b] rounded p-2.5">
+                <div className="bg-gray-950 border border-gray-800 rounded-lg p-3">
                   <div className="text-[10px] text-gray-500 uppercase font-mono">
                     Engine KV at Request
                   </div>

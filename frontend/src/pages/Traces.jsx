@@ -75,7 +75,7 @@ export function Traces() {
   return (
     <div className="-mt-4 sm:-mt-6 space-y-4 font-sans text-gray-200">
       {/* Top Breadcrumb Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#22252b] pb-3 pt-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 pb-3 pt-1">
         <div className="flex items-center space-x-2 text-sm">
           <Terminal className="w-5 h-5 text-sky-400" />
           <span className="text-[#8e94a0]">DynoLLM</span>
@@ -90,7 +90,7 @@ export function Traces() {
           type="button"
           onClick={fetchTraces}
           disabled={loading}
-          className="flex items-center space-x-1.5 bg-[#181b1f] hover:bg-[#22252b] border border-[#2b303a] text-gray-300 px-3 py-1.5 rounded text-xs transition-colors disabled:opacity-50"
+          className="flex items-center space-x-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 px-3 py-1.5 rounded-lg text-xs transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-sky-400' : ''}`} />
           <span>Refresh</span>
@@ -98,9 +98,9 @@ export function Traces() {
       </div>
 
       {/* Filter Toolbar */}
-      <div className="bg-[#181b1f] border border-[#22252b] rounded-sm p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
         {/* Source Pills */}
-        <div className="flex items-center space-x-1 bg-[#14161a] border border-[#262a33] rounded p-0.5 font-mono text-[11px]">
+        <div className="flex items-center space-x-1 bg-gray-950 border border-gray-800 rounded-lg p-1 font-mono text-[11px]">
           <span className="text-gray-500 px-2">Source:</span>
           {['all', 'benchmark', 'load_test', 'proxy'].map((s) => (
             <button
@@ -110,7 +110,7 @@ export function Traces() {
                 setSourceFilter(s)
                 setPage(0)
               }}
-              className={`px-2.5 py-0.5 rounded capitalize transition-colors ${
+              className={`px-2.5 py-0.5 rounded-md capitalize transition-colors ${
                 sourceFilter === s
                   ? 'bg-sky-600 text-white font-medium shadow-sm'
                   : 'text-gray-400 hover:text-gray-200'
@@ -133,7 +133,7 @@ export function Traces() {
                 setSearchRunId(e.target.value)
                 setPage(0)
               }}
-              className="bg-[#14161a] border border-[#2b303a] hover:border-sky-500/50 text-gray-200 placeholder-gray-500 rounded px-2.5 py-1 text-xs font-mono w-44 focus:outline-none focus:border-sky-500"
+              className="bg-gray-950 border border-gray-800 hover:border-sky-500/50 text-gray-200 placeholder-gray-500 rounded-lg px-2.5 py-1.5 text-xs font-mono w-44 focus:outline-none focus:border-sky-500"
             />
           </div>
 
@@ -145,18 +145,18 @@ export function Traces() {
               placeholder="Search model / text..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-[#14161a] border border-[#2b303a] hover:border-sky-500/50 text-gray-200 placeholder-gray-500 rounded pl-8 pr-2.5 py-1 text-xs font-mono w-52 focus:outline-none focus:border-sky-500"
+              className="bg-gray-950 border border-gray-800 hover:border-sky-500/50 text-gray-200 placeholder-gray-500 rounded-lg pl-8 pr-2.5 py-1.5 text-xs font-mono w-52 focus:outline-none focus:border-sky-500"
             />
           </div>
         </div>
       </div>
 
       {/* Traces Table */}
-      <div className="bg-[#181b1f] border border-[#22252b] rounded-sm overflow-hidden shadow-sm">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="border-b border-[#22252b] bg-[#14161a] text-[#8e94a0] font-mono text-[11px]">
+              <tr className="border-b border-gray-800 bg-gray-950/60 text-[#8e94a0] font-mono text-[11px]">
                 <th className="py-2.5 px-3 font-semibold">Time</th>
                 <th className="py-2.5 px-3 font-semibold">Source</th>
                 <th className="py-2.5 px-3 font-semibold">Model</th>
@@ -168,7 +168,7 @@ export function Traces() {
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#22252b]/60 font-mono text-[11px]">
+            <tbody className="divide-y divide-gray-800/60 font-mono text-[11px]">
               {filteredTraces.length > 0 ? (
                 filteredTraces.map((t) => {
                   const isSuccess = !t.error && t.finish_reason !== 'error' && t.finish_reason !== 'abort'
@@ -180,7 +180,7 @@ export function Traces() {
                     <tr
                       key={t.id}
                       onClick={() => setSelectedTrace(t)}
-                      className="hover:bg-[#20252e] cursor-pointer transition-colors group"
+                      className="hover:bg-gray-800/50 cursor-pointer transition-colors group"
                     >
                       <td className="py-2.5 px-3 text-gray-400 whitespace-nowrap">{timeStr}</td>
                       <td className="py-2.5 px-3">
@@ -255,7 +255,7 @@ export function Traces() {
         </div>
 
         {/* Pagination Footer */}
-        <div className="p-3 border-t border-[#22252b] bg-[#14161a] flex items-center justify-between text-xs font-mono text-[#8e94a0]">
+        <div className="p-3 border-t border-gray-800 bg-gray-950/60 flex items-center justify-between text-xs font-mono text-[#8e94a0]">
           <span>
             Showing {filteredTraces.length} of {totalCount} total traces
           </span>
@@ -265,7 +265,7 @@ export function Traces() {
               type="button"
               disabled={page === 0 || loading}
               onClick={() => setPage((p) => Math.max(0, p - 1))}
-              className="p-1 rounded bg-[#22252b] hover:bg-[#2b303a] text-gray-300 disabled:opacity-40 transition-colors"
+              className="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-40 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -276,7 +276,7 @@ export function Traces() {
               type="button"
               disabled={page + 1 >= totalPages || loading}
               onClick={() => setPage((p) => p + 1)}
-              className="p-1 rounded bg-[#22252b] hover:bg-[#2b303a] text-gray-300 disabled:opacity-40 transition-colors"
+              className="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-40 transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
