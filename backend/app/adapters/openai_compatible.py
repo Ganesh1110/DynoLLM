@@ -3,6 +3,7 @@ OpenAI-compatible runtime adapter.
 Works with: LM Studio, vLLM, llama.cpp server, OpenAI, Groq, etc.
 """
 import json
+import re
 import time
 import httpx
 from typing import AsyncIterator, Optional
@@ -109,18 +110,40 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
             return None
 
         kv_usage = _parse_metric("vllm:gpu_cache_usage_perc")
+        if kv_usage is None:
+            kv_usage = _parse_metric("vllm:kv_cache_usage_perc")
+
         waiting = _parse_metric("vllm:num_requests_waiting")
         running = _parse_metric("vllm:num_requests_running")
         prefix_hit = _parse_metric("vllm:prefix_cache_hit_rate")
+        num_total_blocks = _parse_metric("vllm:num_total_gpu_blocks")
+        num_free_blocks = _parse_metric("vllm:num_free_gpu_blocks")
+        if num_free_blocks is None and num_total_blocks is not None and kv_usage is not None:
+            num_free_blocks = num_total_blocks * max(0.0, 1.0 - kv_usage)
+
+        # Detect active model name from Prometheus metric labels if present
+        models_loaded = []
+        model_match = re.search(r'model_name="([^"]+)"', text)
+        if model_match:
+            models_loaded.append({"name": model_match.group(1)})
+        else:
+            try:
+                models = await self.list_models(client=http_client)
+                if models:
+                    models_loaded = [{"name": m.get("id") or m.get("name", "")} for m in models]
+            except Exception:
+                pass
 
         return {
             "engine": "vllm",
-            "models_loaded": [],
+            "models_loaded": models_loaded,
             # Multiply by 100 so it's a percentage (0–100) to match Ollama offload_pct units
             "kv_cache_usage_pct": round(kv_usage * 100, 1) if kv_usage is not None else None,
             "requests_waiting": int(waiting) if waiting is not None else None,
             "requests_running": int(running) if running is not None else None,
             "prefix_cache_hit_rate": round(prefix_hit * 100, 1) if prefix_hit is not None else None,
+            "num_total_gpu_blocks": int(num_total_blocks) if num_total_blocks is not None else None,
+            "num_free_gpu_blocks": int(num_free_blocks) if num_free_blocks is not None else None,
             "total_vram_gb": None,  # NVML in collector.py is more accurate for VRAM
             "error": None,
         }

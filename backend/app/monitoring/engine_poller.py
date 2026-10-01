@@ -84,6 +84,13 @@ async def _poller_loop() -> None:
                 )
                 runtimes = result.scalars().all()
 
+            # Evict runtimes that are no longer active or have been deleted
+            active_ids = {str(r.id) for r in runtimes}
+            for cached_id in list(_engine_cache.keys()):
+                if cached_id not in active_ids:
+                    _engine_cache.pop(cached_id, None)
+                    _last_polled.pop(cached_id, None)
+
             # Fan-out: poll all runtimes concurrently with a 4-second timeout each
             tasks = [
                 asyncio.wait_for(

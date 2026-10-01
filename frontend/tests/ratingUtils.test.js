@@ -8,6 +8,7 @@ import {
   getLatencyConsistencyRating,
   getRatingBadgeClasses,
   getOverallEvaluation,
+  rateSingleRun,
 } from '../src/utils/ratingUtils.js'
 
 test('Rating Utils: getTtftRating classifies instant, interactive, and high latency', () => {
@@ -147,5 +148,27 @@ test('Rating Utils: getOverallEvaluation classifies Good, Average, and Bad stage
 
   // Empty / unmeasured
   assert.equal(getOverallEvaluation({}), null)
+})
+
+test('Rating Utils: rateSingleRun handles null P95 correctly without coercion bug', () => {
+  // Bug check: null P95 should NEVER be treated as < 100ms
+  const runWithNullP95 = { p95_latency_ms: null, tokens_per_second: 55 }
+  const rating = rateSingleRun(runWithNullP95)
+  assert.notEqual(rating.label, 'Excellent') // Must not be excellent since P95 is unknown
+  assert.equal(rating.color, 'sky') // Valid speed > 20 fallback
+
+  // Null input
+  assert.equal(rateSingleRun(null).label, 'No Data')
+  assert.equal(rateSingleRun({}).label, 'No Data')
+
+  // Benchmark excellent
+  const excellentRun = { p95_latency_ms: 120, tokens_per_second: 48 }
+  assert.equal(rateSingleRun(excellentRun).color, 'emerald')
+  assert.equal(rateSingleRun(excellentRun).label, 'Excellent')
+
+  // Load test with high error rate
+  const failedLoadTest = { target_users: 20, error_rate: 15.0, tokens_out_per_second: 35 }
+  assert.equal(rateSingleRun(failedLoadTest).color, 'red')
+  assert.equal(rateSingleRun(failedLoadTest).label, 'High Error Rate')
 })
 

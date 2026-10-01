@@ -90,7 +90,7 @@ def collect_metrics() -> dict:
                     power_limit = None
 
                 # Clocks Throttling Reasons
-                throttle_reasons = "None"
+                throttle_reasons = None
                 try:
                     reasons = pynvml.nvmlDeviceGetCurrentClocksThrottleReasons(handle)
                     active_reasons = []

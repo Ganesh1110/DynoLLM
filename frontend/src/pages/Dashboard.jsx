@@ -47,6 +47,7 @@ import { useLoadTestStore } from '../stores/loadTestStore'
 import { fmt, fmtBytes } from '../components/ui'
 import { monitoringApi } from '../services/api'
 import { parseModelName, calcDetailedKvSpecs, BYTES_PER_GIB } from '../utils/gpuSizer'
+import { rateSingleRun } from '../utils/ratingUtils'
 
 // ==============================================================================
 // 1. Badges & Interactive Info Tooltip
@@ -522,10 +523,17 @@ function computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats }) {
     alerts.push({ id: 'cpu-offload', label: 'CPU Offload Active', detail: `${kvCacheSummary.cpuOffloadGb} GB in RAM — latency ×3–10x slower`, severity: 'warning' })
   }
 
-  // Power cap throttle
+  // Power cap throttle (warning if only power capping; danger if thermal/slowdown)
   const throttle = primaryGpu?.throttle_reasons
   if (throttle && throttle !== 'None' && throttle !== null) {
-    alerts.push({ id: 'throttle', label: `GPU Throttling: ${throttle}`, detail: 'Clock speed reduced by hardware protection', severity: 'danger' })
+    const throttleStr = String(throttle).toLowerCase()
+    const isPowerCapOnly = throttleStr.includes('power') && !throttleStr.includes('thermal') && !throttleStr.includes('slowdown')
+    alerts.push({
+      id: 'throttle',
+      label: `GPU Throttling: ${throttle}`,
+      detail: isPowerCapOnly ? 'Operating at power limit' : 'Clock speed reduced by hardware protection',
+      severity: isPowerCapOnly ? 'warning' : 'danger',
+    })
   }
 
   return { alerts, allClear: alerts.length === 0 }
@@ -534,6 +542,8 @@ function computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats }) {
 /**
  * computeCapacityHeadroom — given live GPU state + loaded model, estimates
  * how many additional concurrent users fit at standard context lengths.
+ * For vLLM: calculates slots from free KV blocks directly and model name from /v1/models.
+ * For Ollama/standard: calculates slots from free VRAM and transformer attention geometry.
  */
 function computeCapacityHeadroom({ primaryGpu, kvCacheSummary }) {
   if (!primaryGpu) return null
@@ -542,22 +552,54 @@ function computeCapacityHeadroom({ primaryGpu, kvCacheSummary }) {
   const usedVramGib = primaryGpu.vram_used_bytes / BYTES_PER_GIB
   const freeVramGib = Math.max(0, totalVramGib - usedVramGib)
 
-  // Need at least 0.5 GB free to meaningfully add users
-  if (freeVramGib < 0.5) return { freeVramGib: 0, slots: [] }
-
-  // Determine model architecture from loaded model name (Ollama) or fallback
   const modelName = kvCacheSummary?.modelName || ''
   const arch = parseModelName(modelName)
   const params = arch.params || 8
 
+  // vLLM block-based capacity calculation
+  if (kvCacheSummary?.source === 'vllm' && kvCacheSummary.vllmFreeBlocks != null) {
+    const freeTokens = kvCacheSummary.vllmFreeBlocks * 16 // 16 tokens per block standard
+    const slots = [2048, 4096, 8192, 16384].map((ctx) => {
+      const additionalUsers = Math.max(0, Math.floor(freeTokens / ctx))
+      return {
+        ctx,
+        ctxLabel: ctx >= 1024 ? `${ctx / 1024}k` : `${ctx}`,
+        additionalUsers,
+        kvPerUserGib: null,
+      }
+    })
+    return {
+      freeVramGib,
+      totalVramGib,
+      freeBlocks: kvCacheSummary.vllmFreeBlocks,
+      totalBlocks: kvCacheSummary.vllmTotalBlocks,
+      isBlockBased: true,
+      modelName: arch.detected ? modelName : `${params}B`,
+      slots,
+    }
+  }
+
+  // Ollama or generic VRAM-based calculation
+  if (freeVramGib < 0.5) return { freeVramGib: 0, totalVramGib, isBlockBased: false, slots: [] }
+
   const slots = [2048, 4096, 8192, 16384].map((ctx) => {
     const spec = calcDetailedKvSpecs(params, ctx, arch)
-    // Each concurrent user needs one KV cache slot of spec.kvGiB
     const additionalUsers = Math.max(0, Math.floor(freeVramGib / spec.kvGiB))
-    return { ctx, ctxLabel: ctx >= 1024 ? `${ctx / 1024}k` : `${ctx}`, additionalUsers, kvPerUserGib: spec.kvGiB }
+    return {
+      ctx,
+      ctxLabel: ctx >= 1024 ? `${ctx / 1024}k` : `${ctx}`,
+      additionalUsers,
+      kvPerUserGib: spec.kvGiB,
+    }
   })
 
-  return { freeVramGib, totalVramGib, slots }
+  return {
+    freeVramGib,
+    totalVramGib,
+    isBlockBased: false,
+    modelName: arch.detected ? modelName : `${params}B`,
+    slots,
+  }
 }
 
 // ==============================================================================
@@ -610,12 +652,23 @@ function CapacityHeadroomCard({ headroom }) {
       <div className="flex items-center space-x-1.5 pb-1.5 border-b border-[#22252b]">
         <Users className="w-3.5 h-3.5 text-sky-400" />
         <span className="text-[#d8d9da] font-medium text-[12px]">Capacity Headroom</span>
-        <InfoTooltip text="Estimated additional concurrent users that can be served using the remaining free VRAM. Each user requires one KV cache slot per context length. Based on transformer attention architecture math." />
+        <InfoTooltip text="Estimated additional concurrent users that can be served using the remaining free capacity. For vLLM, based on free KV cache blocks. For Ollama, based on free VRAM." />
       </div>
       <div className="mt-1.5 space-y-0.5">
         <div className="text-[10px] text-[#6c727d] font-mono">
-          GPU Free: <span className="text-sky-300 font-bold">{headroom.freeVramGib.toFixed(1)} GB</span>
-          {' '}/ {headroom.totalVramGib?.toFixed(0)} GB
+          {headroom.isBlockBased ? (
+            <>
+              vLLM Blocks Free: <span className="text-sky-300 font-bold">{headroom.freeBlocks}</span>
+              {headroom.totalBlocks ? ` / ${headroom.totalBlocks}` : ''}
+              {headroom.modelName ? ` · ${headroom.modelName}` : ''}
+            </>
+          ) : (
+            <>
+              GPU Free: <span className="text-sky-300 font-bold">{headroom.freeVramGib.toFixed(1)} GB</span>
+              {' '}/ {headroom.totalVramGib?.toFixed(0)} GB
+              {headroom.modelName ? ` · ${headroom.modelName}` : ''}
+            </>
+          )}
         </div>
         {headroom.slots?.filter(s => s.additionalUsers > 0).slice(0, 3).map(s => (
           <div key={s.ctx} className="flex items-center justify-between space-x-3 text-[10px]">
@@ -629,7 +682,7 @@ function CapacityHeadroomCard({ headroom }) {
           </div>
         ))}
         {headroom.slots?.every(s => s.additionalUsers === 0) && (
-          <div className="text-[10px] text-red-400 font-mono">VRAM full — no headroom</div>
+          <div className="text-[10px] text-red-400 font-mono">Cache full — no headroom</div>
         )}
       </div>
     </div>
@@ -640,26 +693,9 @@ function CapacityHeadroomCard({ headroom }) {
 // 9. Phase 5 — Run Rating + Regression Pure Functions
 // ==============================================================================
 
-/** Maps benchmark/load-test metrics to a rating tier. */
+/** Maps benchmark/load-test metrics to a rating tier using unified ratingUtils. */
 function rateRun(run) {
-  // Load tests: use error_rate and tokens_out_per_second
-  const isLoadTest = run.target_users != null || run.max_concurrent_users != null
-  if (isLoadTest) {
-    const errRate = run.error_rate ?? 0
-    const tps = run.tokens_out_per_second ?? run.avg_tokens_per_second ?? 0
-    if (errRate > 10) return { label: 'High Error Rate', color: 'red', icon: '🔴' }
-    if (tps > 30 && errRate < 2) return { label: 'Excellent', color: 'emerald', icon: '🏆' }
-    if (tps > 10 && errRate < 5) return { label: 'Good', color: 'sky', icon: '✅' }
-    return { label: 'Moderate', color: 'amber', icon: '🟡' }
-  }
-  // Benchmarks: use p95_latency_ms and tokens_per_second
-  const p95 = run.p95_latency_ms
-  const tps = run.tokens_per_second
-  if (p95 == null && tps == null) return { label: 'No Data', color: 'gray', icon: '—' }
-  if (p95 < 100 && tps > 50) return { label: 'Excellent', color: 'emerald', icon: '🏆' }
-  if (p95 < 300 && tps > 20) return { label: 'Good', color: 'sky', icon: '✅' }
-  if (p95 < 600 || tps > 10) return { label: 'Moderate', color: 'amber', icon: '🟡' }
-  return { label: 'Slow', color: 'red', icon: '🔴' }
+  return rateSingleRun(run)
 }
 
 /**
@@ -893,6 +929,19 @@ export function Dashboard() {
     return () => { cancelled = true; clearInterval(timer) }
   }, [])
 
+  // Rolling buffer for live KV cache stream (~60 points)
+  const [kvHistory, setKvHistory] = useState([])
+
+  // Filter for fresh engine stats (< 30s old and without connection error)
+  const freshEngineStats = useMemo(() => {
+    const nowSec = Date.now() / 1000
+    return (engineStats || []).filter((r) => {
+      if (r.error) return false
+      if (!r.polled_at) return true
+      return nowSec - r.polled_at <= 30
+    })
+  }, [engineStats])
+
   // GPU Discovery
   const hasLiveGpu = (current?.gpu_count || 0) > 0 && current?.gpus?.[0]
   const primaryGpu = hasLiveGpu ? current.gpus[0] : null
@@ -937,39 +986,53 @@ export function Dashboard() {
     { time: '17:47', live_tok_per_sec: 32, peak_baseline: 58 },
   ]
 
+  // Sample KV cache baseline curve
+  const sampleKvData = useMemo(() => [
+    { time: '16:50', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.1, kv_cache_reserved: 4.8 },
+    { time: '16:55', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.5, kv_cache_reserved: 4.4 },
+    { time: '17:00', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.8, kv_cache_reserved: 4.1 },
+    { time: '17:05', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.2, kv_cache_reserved: 3.7 },
+    { time: '17:10', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.9, kv_cache_reserved: 4.0 },
+    { time: '17:15', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.5, kv_cache_reserved: 3.4 },
+    { time: '17:20', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.8, kv_cache_reserved: 3.1 },
+    { time: '17:25', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.4, kv_cache_reserved: 3.5 },
+    { time: '17:30', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.6, kv_cache_reserved: 3.3 },
+    { time: '17:35', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.1, kv_cache_reserved: 2.8 },
+    { time: '17:40', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.8, kv_cache_reserved: 2.1 },
+    { time: '17:45', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.2, kv_cache_reserved: 2.7 },
+  ], [])
+
   // Middle Left: KV Cache Occupancy & VRAM Allocation Stream
-  // Phase 3: Derive real values from engine stats when available; fall back to sample
-  const { kvCacheMemoryData, kvCacheIsRealData, kvCacheSummary } = useMemo(() => {
-    // --- Try to get real data from the first Ollama runtime (has model VRAM breakdown) ---
-    const ollamaRuntime = engineStats.find(r => r.engine === 'ollama' && !r.error)
-    const vllmRuntime = engineStats.find(r => r.engine === 'vllm' && !r.error)
+  // Phase 0 Fixes: Derive real values without multiplying vLLM KV % by total VRAM
+  const { currentKvPoint, kvCacheIsRealData, kvCacheSummary } = useMemo(() => {
+    const ollamaRuntime = freshEngineStats.find((r) => r.engine === 'ollama')
+    const vllmRuntime = freshEngineStats.find((r) => r.engine === 'vllm')
 
     // Ollama path: use real loaded model VRAM split across model_weights vs kv_cache buckets
     if (ollamaRuntime && ollamaRuntime.models_loaded?.length > 0 && primaryGpu) {
       const totalVramGb = primaryGpu.vram_total_bytes / (1024 ** 3)
       const models = ollamaRuntime.models_loaded
-      // Sum of model weight VRAM
       const modelWeightsGb = models.reduce((s, m) => s + (m.vram_gb || 0), 0)
       const cpuOffloadGb = models.reduce((s, m) => s + (m.cpu_offload_gb || 0), 0)
-      // NVML VRAM used − model weights = active KV cache + CUDA overhead
       const nvmlVramUsedGb = primaryGpu.vram_used_bytes / (1024 ** 3)
       const cudaOverheadGb = 0.8 // typical fixed overhead
       const kvActive = Math.max(nvmlVramUsedGb - modelWeightsGb - cudaOverheadGb, 0)
       const kvReserved = Math.max(totalVramGb - nvmlVramUsedGb, 0)
 
       const now = new Date()
-      const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       const point = {
         time: timeLabel,
         model_weights: +modelWeightsGb.toFixed(2),
         cuda_overhead: +cudaOverheadGb.toFixed(2),
         kv_cache_active: +kvActive.toFixed(2),
         kv_cache_reserved: +kvReserved.toFixed(2),
+        source: 'ollama',
       }
       const modelName = models[0]?.name ?? ''
       const isCpuOffloaded = cpuOffloadGb > 0.1
       return {
-        kvCacheMemoryData: [point],
+        currentKvPoint: point,
         kvCacheIsRealData: true,
         kvCacheSummary: {
           activeTokensCached: `${(kvActive / totalVramGb * 100).toFixed(0)}% KV occupied`,
@@ -980,43 +1043,39 @@ export function Dashboard() {
           vllmKvPct: null,
           vllmWaiting: null,
           vllmRunning: null,
+          vllmFreeBlocks: null,
+          vllmTotalBlocks: null,
           prefixHitRate: null,
         },
       }
     }
 
-    // vLLM path: use KV cache usage % × total VRAM from NVML
-    if (vllmRuntime && vllmRuntime.kv_cache_usage_pct != null && primaryGpu) {
-      const totalVramGb = primaryGpu.vram_total_bytes / (1024 ** 3)
-      const nvmlVramUsedGb = primaryGpu.vram_used_bytes / (1024 ** 3)
-      const kvPct = vllmRuntime.kv_cache_usage_pct / 100  // 0-1
-      // vLLM pre-allocates KV budget from available VRAM after model weights
-      const modelWeightsGb = Math.max(nvmlVramUsedGb - totalVramGb * kvPct, 0)
-      const cudaOverheadGb = 0.5
-      const kvActiveGb = +(totalVramGb * kvPct * 0.7).toFixed(2)
-      const kvReservedGb = +(totalVramGb * kvPct * 0.3).toFixed(2)
-
+    // vLLM path: real KV cache % as its own dedicated metric (stop multiplying KV % by total VRAM)
+    if (vllmRuntime && vllmRuntime.kv_cache_usage_pct != null) {
       const now = new Date()
-      const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      const modelName = vllmRuntime.models_loaded?.[0]?.name || ''
       const point = {
         time: timeLabel,
-        model_weights: +Math.max(modelWeightsGb - cudaOverheadGb, 0).toFixed(2),
-        cuda_overhead: cudaOverheadGb,
-        kv_cache_active: kvActiveGb,
-        kv_cache_reserved: kvReservedGb,
+        kv_usage_pct: vllmRuntime.kv_cache_usage_pct,
+        waiting: vllmRuntime.requests_waiting ?? 0,
+        running: vllmRuntime.requests_running ?? 0,
+        source: 'vllm',
       }
       return {
-        kvCacheMemoryData: [point],
+        currentKvPoint: point,
         kvCacheIsRealData: true,
         kvCacheSummary: {
           activeTokensCached: `${vllmRuntime.kv_cache_usage_pct}% KV occupied`,
-          modelName: '',
+          modelName,
           isCpuOffloaded: false,
           cpuOffloadGb: '0',
           source: 'vllm',
           vllmKvPct: vllmRuntime.kv_cache_usage_pct,
           vllmWaiting: vllmRuntime.requests_waiting,
           vllmRunning: vllmRuntime.requests_running,
+          vllmFreeBlocks: vllmRuntime.num_free_gpu_blocks,
+          vllmTotalBlocks: vllmRuntime.num_total_gpu_blocks,
           prefixHitRate: vllmRuntime.prefix_cache_hit_rate,
         },
       }
@@ -1024,24 +1083,37 @@ export function Dashboard() {
 
     // Fallback: sample data
     return {
+      currentKvPoint: null,
       kvCacheIsRealData: false,
       kvCacheSummary: null,
-      kvCacheMemoryData: [
-        { time: '16:50', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.1, kv_cache_reserved: 4.8 },
-        { time: '16:55', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.5, kv_cache_reserved: 4.4 },
-        { time: '17:00', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.8, kv_cache_reserved: 4.1 },
-        { time: '17:05', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.2, kv_cache_reserved: 3.7 },
-        { time: '17:10', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.9, kv_cache_reserved: 4.0 },
-        { time: '17:15', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.5, kv_cache_reserved: 3.4 },
-        { time: '17:20', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.8, kv_cache_reserved: 3.1 },
-        { time: '17:25', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.4, kv_cache_reserved: 3.5 },
-        { time: '17:30', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.6, kv_cache_reserved: 3.3 },
-        { time: '17:35', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.1, kv_cache_reserved: 2.8 },
-        { time: '17:40', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.8, kv_cache_reserved: 2.1 },
-        { time: '17:45', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.2, kv_cache_reserved: 2.7 },
-      ],
     }
-  }, [engineStats, primaryGpu])
+  }, [freshEngineStats, primaryGpu])
+
+  // Rolling buffer (up to 60 points) for live KV cache telemetry
+  useEffect(() => {
+    if (!currentKvPoint) return
+    setKvHistory((prev) => {
+      const last = prev[prev.length - 1]
+      if (last && last.time === currentKvPoint.time) {
+        return [...prev.slice(0, -1), currentKvPoint]
+      }
+      return [...prev.slice(-59), currentKvPoint]
+    })
+  }, [currentKvPoint])
+
+  // Chart data: uses rolling live history if available, else sample baseline
+  const kvCacheMemoryData = useMemo(() => {
+    if (kvCacheIsRealData && kvHistory.length >= 2) {
+      return kvHistory
+    }
+    if (kvCacheIsRealData && kvHistory.length === 1) {
+      return [
+        { ...kvHistory[0], time: 'start' },
+        kvHistory[0],
+      ]
+    }
+    return sampleKvData
+  }, [kvCacheIsRealData, kvHistory, sampleKvData])
 
   // Phase 4: Derived Bottlenecks & Capacity Headroom
   const bottlenecks = useMemo(() => {
@@ -1526,120 +1598,197 @@ export function Dashboard() {
 
           <div className="h-56 w-full pt-1">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={kvCacheMemoryData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
-                <XAxis
-                  dataKey="time"
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                />
-                <YAxis
-                  domain={[0, 16]}
-                  ticks={[0, 4, 8, 12, 16]}
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                  tickFormatter={(v) => `${v} GB`}
-                />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    const d = payload[0]?.payload || {}
-                    const totalVram = (
-                      (d.model_weights || 0) +
-                      (d.cuda_overhead || 0) +
-                      (d.kv_cache_active || 0) +
-                      (d.kv_cache_reserved || 0)
-                    ).toFixed(1)
-                    return (
-                      <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1.5 min-w-[210px]">
-                        <div className="flex justify-between border-b border-[#2b303a] pb-1 font-mono text-[#8e94a0]">
-                          <span>{label}</span>
-                          <span className="text-sky-300 font-bold">Total: {totalVram} GB</span>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[#5c95c8]">
-                            <span>Reserved KV Pool:</span>
-                            <span className="font-mono font-bold">{d.kv_cache_reserved} GB (Free)</span>
+              {kvCacheSummary?.source === 'vllm' ? (
+                <AreaChart data={kvCacheMemoryData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+                  <XAxis
+                    dataKey="time"
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                  />
+                  <YAxis
+                    domain={[0, 100]}
+                    ticks={[0, 25, 50, 75, 100]}
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      const d = payload[0]?.payload || {}
+                      return (
+                        <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1.5 min-w-[190px]">
+                          <div className="flex justify-between border-b border-[#2b303a] pb-1 font-mono text-[#8e94a0]">
+                            <span>{label}</span>
+                            <span className="text-sky-300 font-bold">KV Pool Occupancy</span>
                           </div>
-                          <div className="flex justify-between text-[#3d84be]">
-                            <span>Active KV Cache:</span>
-                            <span className="font-mono font-bold">{d.kv_cache_active} GB (Tokens)</span>
-                          </div>
-                          <div className="flex justify-between text-[#2b699c]">
-                            <span>CUDA Overhead:</span>
-                            <span className="font-mono font-bold">{d.cuda_overhead} GB</span>
-                          </div>
-                          <div className="flex justify-between text-[#8e94a0]">
-                            <span>Model Weights:</span>
-                            <span className="font-mono font-bold">{d.model_weights} GB (Static)</span>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-sky-400">
+                              <span>KV Cache Usage:</span>
+                              <span className="font-mono font-bold">{d.kv_usage_pct ?? '—'}%</span>
+                            </div>
+                            <div className="flex justify-between text-emerald-400">
+                              <span>Active Requests:</span>
+                              <span className="font-mono font-bold">{d.running ?? 0}</span>
+                            </div>
+                            <div className="flex justify-between text-amber-400">
+                              <span>Waiting in Queue:</span>
+                              <span className="font-mono font-bold">{d.waiting ?? 0}</span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )
-                  }}
-                />
-                <Area
-                  type="monotone"
-                  stackId="1"
-                  dataKey="model_weights"
-                  stroke="#1b476f"
-                  fill="#133857"
-                  fillOpacity={0.9}
-                  name="Model Weights (Static)"
-                />
-                <Area
-                  type="monotone"
-                  stackId="1"
-                  dataKey="cuda_overhead"
-                  stroke="#2b699c"
-                  fill="#1f5077"
-                  fillOpacity={0.85}
-                  name="CUDA & Activations"
-                />
-                <Area
-                  type="monotone"
-                  stackId="1"
-                  dataKey="kv_cache_active"
-                  stroke="#3d84be"
-                  fill="#2e6b9e"
-                  fillOpacity={0.85}
-                  name="Active KV Cache (Context)"
-                />
-                <Area
-                  type="monotone"
-                  stackId="1"
-                  dataKey="kv_cache_reserved"
-                  stroke="#5c95c8"
-                  fill="#4682b4"
-                  fillOpacity={0.85}
-                  name="Reserved KV Pool (Free Blocks)"
-                />
-              </AreaChart>
+                      )
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="kv_usage_pct"
+                    stroke="#38bdf8"
+                    fill="#0284c7"
+                    fillOpacity={0.4}
+                    name="KV Cache Occupancy (%)"
+                  />
+                </AreaChart>
+              ) : (
+                <AreaChart data={kvCacheMemoryData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+                  <XAxis
+                    dataKey="time"
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                  />
+                  <YAxis
+                    domain={[0, 16]}
+                    ticks={[0, 4, 8, 12, 16]}
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                    tickFormatter={(v) => `${v} GB`}
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      const d = payload[0]?.payload || {}
+                      const totalVram = (
+                        (d.model_weights || 0) +
+                        (d.cuda_overhead || 0) +
+                        (d.kv_cache_active || 0) +
+                        (d.kv_cache_reserved || 0)
+                      ).toFixed(1)
+                      return (
+                        <div className="bg-[#181b1f] border border-[#2b303a] p-2.5 rounded shadow text-[11px] space-y-1.5 min-w-[210px]">
+                          <div className="flex justify-between border-b border-[#2b303a] pb-1 font-mono text-[#8e94a0]">
+                            <span>{label}</span>
+                            <span className="text-sky-300 font-bold">Total: {totalVram} GB</span>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-[#5c95c8]">
+                              <span>Reserved KV Pool:</span>
+                              <span className="font-mono font-bold">{d.kv_cache_reserved} GB (Free)</span>
+                            </div>
+                            <div className="flex justify-between text-[#3d84be]">
+                              <span>Active KV Cache:</span>
+                              <span className="font-mono font-bold">{d.kv_cache_active} GB (Tokens)</span>
+                            </div>
+                            <div className="flex justify-between text-[#2b699c]">
+                              <span>CUDA Overhead:</span>
+                              <span className="font-mono font-bold">{d.cuda_overhead} GB</span>
+                            </div>
+                            <div className="flex justify-between text-[#8e94a0]">
+                              <span>Model Weights:</span>
+                              <span className="font-mono font-bold">{d.model_weights} GB (Static)</span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    stackId="1"
+                    dataKey="model_weights"
+                    stroke="#1b476f"
+                    fill="#133857"
+                    fillOpacity={0.9}
+                    name="Model Weights (Static)"
+                  />
+                  <Area
+                    type="monotone"
+                    stackId="1"
+                    dataKey="cuda_overhead"
+                    stroke="#2b699c"
+                    fill="#1f5077"
+                    fillOpacity={0.85}
+                    name="CUDA & Activations"
+                  />
+                  <Area
+                    type="monotone"
+                    stackId="1"
+                    dataKey="kv_cache_active"
+                    stroke="#3d84be"
+                    fill="#2e6b9e"
+                    fillOpacity={0.85}
+                    name="Active KV Cache (Context)"
+                  />
+                  <Area
+                    type="monotone"
+                    stackId="1"
+                    dataKey="kv_cache_reserved"
+                    stroke="#5c95c8"
+                    fill="#4682b4"
+                    fillOpacity={0.85}
+                    name="Reserved KV Pool (Free Blocks)"
+                  />
+                </AreaChart>
+              )}
             </ResponsiveContainer>
           </div>
 
-          <div className="flex flex-wrap items-center justify-start space-x-6 text-[11px] pt-1 text-[#8e94a0] pl-2">
-            <span className="flex items-center space-x-1.5">
-              <span className="w-3 h-0.5 bg-[#1b476f] inline-block" />
-              <span>Model Weights (5.2 GB)</span>
-            </span>
-            <span className="flex items-center space-x-1.5">
-              <span className="w-3 h-0.5 bg-[#2b699c] inline-block" />
-              <span>CUDA Activations (1.2 GB)</span>
-            </span>
-            <span className="flex items-center space-x-1.5">
-              <span className="w-3 h-0.5 bg-[#3d84be] inline-block" />
-              <span>Active KV Cache (Context)</span>
-            </span>
-            <span className="flex items-center space-x-1.5">
-              <span className="w-3 h-0.5 bg-[#5c95c8] inline-block" />
-              <span>Reserved KV Pool (Available)</span>
-            </span>
-          </div>
+          {kvCacheSummary?.source === 'vllm' ? (
+            <div className="flex flex-wrap items-center justify-start space-x-6 text-[11px] pt-1 text-[#8e94a0] pl-2 font-mono">
+              <span className="flex items-center space-x-1.5">
+                <span className="w-3 h-0.5 bg-[#38bdf8] inline-block" />
+                <span>KV Cache Pool Occupancy (%)</span>
+              </span>
+              {kvCacheSummary.vllmTotalBlocks != null && (
+                <span className="text-[#6c727d]">
+                  Allocated GPU Blocks: <strong className="text-gray-300">{kvCacheSummary.vllmTotalBlocks}</strong>
+                </span>
+              )}
+              {kvCacheSummary.prefixHitRate != null && (
+                <span className="text-[#6c727d]">
+                  Prefix Cache Hit Rate: <strong className="text-emerald-400">{kvCacheSummary.prefixHitRate}%</strong>
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-start space-x-6 text-[11px] pt-1 text-[#8e94a0] pl-2">
+              <span className="flex items-center space-x-1.5">
+                <span className="w-3 h-0.5 bg-[#1b476f] inline-block" />
+                <span>Model Weights (5.2 GB)</span>
+              </span>
+              <span className="flex items-center space-x-1.5">
+                <span className="w-3 h-0.5 bg-[#2b699c] inline-block" />
+                <span>CUDA Activations (1.2 GB)</span>
+              </span>
+              <span className="flex items-center space-x-1.5">
+                <span className="w-3 h-0.5 bg-[#3d84be] inline-block" />
+                <span>Active KV Cache (Context)</span>
+              </span>
+              <span className="flex items-center space-x-1.5">
+                <span className="w-3 h-0.5 bg-[#5c95c8] inline-block" />
+                <span>Reserved KV Pool (Available)</span>
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Right: Throughput by Quantization */}

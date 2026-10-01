@@ -333,3 +333,47 @@ export function getOverallEvaluation({
   }
 }
 
+/**
+ * Unified evaluation for a single benchmark or load-test run.
+ * Handles null / undefined metrics safely to avoid JavaScript null-coercion bugs.
+ *
+ * @param {object} run
+ * @returns {{ label: string, color: 'emerald'|'sky'|'amber'|'red'|'gray', icon: string, stage: string }}
+ */
+export function rateSingleRun(run) {
+  if (!run) return { label: 'No Data', color: 'gray', icon: '—', stage: 'none' }
+
+  // Check for load-test specific run
+  const isLoadTest = run.target_users != null || run.max_concurrent_users != null
+  if (isLoadTest) {
+    const errRate = run.error_rate != null ? Number(run.error_rate) : 0
+    const tps = run.tokens_out_per_second ?? run.avg_tokens_per_second ?? null
+
+    if (errRate > 10) return { label: 'High Error Rate', color: 'red', icon: '🔴', stage: 'bad' }
+    if (tps != null && tps > 30 && errRate < 2) return { label: 'Excellent', color: 'emerald', icon: '🏆', stage: 'good' }
+    if (tps != null && tps > 15 && errRate < 5) return { label: 'Good', color: 'sky', icon: '✅', stage: 'good' }
+    if (tps != null && tps > 0) return { label: 'Moderate', color: 'amber', icon: '🟡', stage: 'average' }
+    return { label: 'No Data', color: 'gray', icon: '—', stage: 'none' }
+  }
+
+  // Benchmark run
+  const p95 = run.p95_latency_ms != null && !isNaN(run.p95_latency_ms) ? Number(run.p95_latency_ms) : null
+  const tps = run.tokens_per_second != null && !isNaN(run.tokens_per_second) ? Number(run.tokens_per_second) : null
+
+  if (p95 == null && tps == null) {
+    return { label: 'No Data', color: 'gray', icon: '—', stage: 'none' }
+  }
+
+  // Safe checks: ensure p95 is explicitly non-null before checking p95 < threshold
+  if (p95 != null && p95 < 150 && tps != null && tps > 40) {
+    return { label: 'Excellent', color: 'emerald', icon: '🏆', stage: 'good' }
+  }
+  if ((p95 != null && p95 < 350) || (tps != null && tps > 20)) {
+    return { label: 'Good', color: 'sky', icon: '✅', stage: 'good' }
+  }
+  if ((p95 != null && p95 < 700) || (tps != null && tps > 10)) {
+    return { label: 'Moderate', color: 'amber', icon: '🟡', stage: 'average' }
+  }
+  return { label: 'Slow', color: 'red', icon: '🔴', stage: 'bad' }
+}
+

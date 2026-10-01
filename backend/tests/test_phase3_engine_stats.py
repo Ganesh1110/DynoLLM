@@ -166,6 +166,12 @@ vllm:num_requests_waiting{model_name="meta-llama/Llama-3.1-8B-Instruct"} 0
 # HELP vllm:prefix_cache_hit_rate Prefix cache block hit rate.
 # TYPE vllm:prefix_cache_hit_rate gauge
 vllm:prefix_cache_hit_rate{model_name="meta-llama/Llama-3.1-8B-Instruct"} 0.42
+# HELP vllm:num_total_gpu_blocks Number of total GPU blocks.
+# TYPE vllm:num_total_gpu_blocks gauge
+vllm:num_total_gpu_blocks 1024
+# HELP vllm:num_free_gpu_blocks Number of free GPU blocks.
+# TYPE vllm:num_free_gpu_blocks gauge
+vllm:num_free_gpu_blocks 665
 """
 
 
@@ -196,6 +202,10 @@ async def test_openai_compatible_get_engine_stats_vllm():
     assert result["requests_running"] == 2
     assert result["requests_waiting"] == 0
     assert result["prefix_cache_hit_rate"] == pytest.approx(42.0, abs=0.1)
+    assert result["num_total_gpu_blocks"] == 1024
+    assert result["num_free_gpu_blocks"] == 665
+    assert len(result["models_loaded"]) == 1
+    assert result["models_loaded"][0]["name"] == "meta-llama/Llama-3.1-8B-Instruct"
 
 
 # ---------------------------------------------------------------------------
