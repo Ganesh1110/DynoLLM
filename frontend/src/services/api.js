@@ -145,6 +145,11 @@ export const tracesApi = {
   get: (id) => request(`/api/traces/${encodeURIComponent(id)}`),
 }
 
+export const proxyApi = {
+  info: (runtimeId) => request(`/api/proxy/${encodeURIComponent(runtimeId)}/info`),
+  proxyBaseUrl: (runtimeId) => `${BASE_URL}/api/proxy/${encodeURIComponent(runtimeId)}/v1`,
+}
+
 export function createMonitoringWS(onMessage, onClose) {
   const apiKey = getApiKey()
   const query = apiKey ? `?token=${encodeURIComponent(apiKey)}` : ''

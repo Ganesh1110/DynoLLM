@@ -16,6 +16,7 @@ from app.api.monitoring import router as monitoring_router
 from app.api.export import router as export_router
 from app.api.prompt_templates import router as prompt_templates_router
 from app.api.traces import router as traces_router
+from app.api.proxy import router as proxy_router
 from app.monitoring import engine_poller
 
 log = structlog.get_logger()
@@ -69,6 +70,7 @@ app.include_router(load_tests_router, dependencies=[Depends(verify_api_key)])
 app.include_router(monitoring_router)
 app.include_router(export_router, dependencies=[Depends(verify_export_api_key)])
 app.include_router(traces_router, dependencies=[Depends(verify_api_key)])
+app.include_router(proxy_router)  # No API key guard — accessible to local LLM clients
 
 
 @app.get("/api/health")

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react'
-import { Server, Plus, CheckCircle2, XCircle, RefreshCw, Trash2, Cpu, ExternalLink, Box } from 'lucide-react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { Server, Plus, CheckCircle2, XCircle, RefreshCw, Trash2, Cpu, ExternalLink, Box, Link2, Copy, Check } from 'lucide-react'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmtBytes } from '../components/ui'
+import { proxyApi } from '../services/api'
 
 export function Runtimes() {
   const runtimes = useRuntimeStore((s) => s.runtimes)
@@ -19,6 +20,8 @@ export function Runtimes() {
   const [healthResults, setHealthResults] = useState({})
   const [checkingHealth, setCheckingHealth] = useState({})
   const [showAddModal, setShowAddModal] = useState(false)
+  const [proxyUrl, setProxyUrl] = useState(null)
+  const [copiedProxy, setCopiedProxy] = useState(false)
 
   // Add Runtime Form State
   const [formData, setFormData] = useState({
@@ -48,6 +51,7 @@ export function Runtimes() {
   const handleSelectRuntime = async (runtime) => {
     setSelectedRuntime(runtime)
     setLoadingModels(true)
+    setProxyUrl(proxyApi.proxyBaseUrl(runtime.id))
     try {
       const fetched = await fetchModels(runtime.id)
       setModels(fetched || [])
@@ -57,6 +61,14 @@ export function Runtimes() {
       setLoadingModels(false)
     }
   }
+
+  const handleCopyProxy = useCallback(() => {
+    if (!proxyUrl) return
+    navigator.clipboard.writeText(proxyUrl).then(() => {
+      setCopiedProxy(true)
+      setTimeout(() => setCopiedProxy(false), 2000)
+    }).catch(() => {})
+  }, [proxyUrl])
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -211,6 +223,51 @@ export function Runtimes() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* Proxy Mode panel */}
+          {selectedRuntime && (
+            <div className="mt-4 space-y-2">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                <Link2 className="w-3.5 h-3.5 text-sky-400" />
+                Proxy Mode
+              </h2>
+              <div className="card bg-gray-900 border-sky-900/40 space-y-3">
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Point any OpenAI-compatible client (OpenWebUI, LM Studio relay, VS Code Copilot, curl) to the URL below
+                  instead of the engine directly.  DynoLLM will transparently forward requests and record a&nbsp;
+                  <span className="text-sky-400 font-mono">source=proxy</span> trace for every call.
+                </p>
+
+                {/* URL display + copy */}
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 text-[11px] font-mono text-emerald-300 bg-gray-950 rounded-lg px-3 py-2 truncate border border-gray-800">
+                    {proxyUrl || '—'}
+                  </code>
+                  <button
+                    onClick={handleCopyProxy}
+                    title="Copy proxy URL"
+                    className="p-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-colors flex-shrink-0"
+                  >
+                    {copiedProxy ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                </div>
+
+                {/* Quick-reference endpoints */}
+                <div className="text-[11px] text-gray-500 space-y-1">
+                  <div className="font-medium text-gray-400 mb-1">Supported endpoints:</div>
+                  <div className="font-mono">POST {proxyUrl}/chat/completions</div>
+                  <div className="font-mono">POST {proxyUrl}/completions</div>
+                  <div className="font-mono">GET  {proxyUrl}/models</div>
+                </div>
+
+                <p className="text-[11px] text-gray-600 italic">
+                  Proxy traces appear in the&nbsp;
+                  <a href="/traces" className="text-sky-500 hover:underline">Traces</a>
+                  &nbsp;explorer filtered by&nbsp;<code className="text-sky-400">source=proxy</code>.
+                </p>
+              </div>
             </div>
           )}
         </div>
