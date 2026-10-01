@@ -110,7 +110,22 @@ function LiveDataBadge({ text = 'Live NVML' }) {
 // 2. 3-Step Guided Workflow Banner for Freshers
 // ==============================================================================
 function FresherWorkflowGuide({ onOpenCheatSheet }) {
-  const [collapsed, setCollapsed] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('dynollm_fresher_guide_collapsed') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  const handleToggle = (nextState) => {
+    setCollapsed(nextState)
+    try {
+      localStorage.setItem('dynollm_fresher_guide_collapsed', String(nextState))
+    } catch {
+      // localStorage may not be available
+    }
+  }
 
   if (collapsed) {
     return (
@@ -121,7 +136,7 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
         </div>
         <button
           type="button"
-          onClick={() => setCollapsed(false)}
+          onClick={() => handleToggle(false)}
           className="text-xs text-sky-400 hover:text-sky-300 underline"
         >
           Show 3-Step Guide
@@ -155,7 +170,7 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
           </button>
           <button
             type="button"
-            onClick={() => setCollapsed(true)}
+            onClick={() => handleToggle(true)}
             className="text-[#656c78] hover:text-gray-300 text-xs"
             title="Minimize guide"
           >
@@ -230,6 +245,17 @@ function FresherWorkflowGuide({ onOpenCheatSheet }) {
 // 3. Fresher Concept Glossary Cheat Sheet Modal
 // ==============================================================================
 function CheatSheetModal({ isOpen, onClose }) {
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   const terms = [
@@ -285,7 +311,12 @@ function CheatSheetModal({ isOpen, onClose }) {
   ]
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cheatsheet-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn"
+    >
       <div className="relative w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-xl shadow-2xl p-5 text-gray-200 max-h-[85vh] flex flex-col">
         <div className="flex items-center justify-between pb-3 border-b border-gray-800">
           <div className="flex items-center space-x-2">
@@ -293,7 +324,7 @@ function CheatSheetModal({ isOpen, onClose }) {
               <BookOpen className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Fresher Concept Guide &amp; Glossary</h3>
+              <h3 id="cheatsheet-title" className="text-base font-bold text-white">Fresher Concept Guide &amp; Glossary</h3>
               <p className="text-xs text-[#8e94a0]">Plain-English guide to understanding LLM benchmarking numbers</p>
             </div>
           </div>
@@ -402,19 +433,22 @@ function GrafanaArcGauge({ value = '—', percent = 0, title = 'Memory', subtitl
 // ==============================================================================
 // 5. Sparkline KPI Card Component
 // ==============================================================================
-function SparklineCard({ title, subtitle, value, unit, color, data, tooltipText, ratingBadge, isRealData = true }) {
-  const min = Math.min(...data)
-  const max = Math.max(...data)
+function SparklineCard({ title, subtitle, value, unit, color, data = [], tooltipText, ratingBadge, isRealData = true }) {
+  const hasValidData = isRealData && Array.isArray(data) && data.length >= 2
+  const min = hasValidData ? Math.min(...data) : 0
+  const max = hasValidData ? Math.max(...data) : 1
   const range = max - min || 1
   const width = 160
   const height = 30
-  const step = width / (data.length - 1)
+  const step = hasValidData ? width / (data.length - 1) : 0
 
-  const points = data.map((d, i) => {
-    const x = i * step
-    const y = height - ((d - min) / range) * (height - 6) - 3
-    return `${x},${y}`
-  })
+  const points = hasValidData
+    ? data.map((d, i) => {
+        const x = i * step
+        const y = height - ((d - min) / range) * (height - 6) - 3
+        return `${x},${y}`
+      })
+    : []
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-3 flex flex-col justify-between h-full">
@@ -428,7 +462,7 @@ function SparklineCard({ title, subtitle, value, unit, color, data, tooltipText,
         <div className="flex items-center justify-between text-[10px] text-[#717885] tracking-tight">
           <span>{subtitle}</span>
           {ratingBadge && (
-            <span className={`text-[9px] font-mono px-1 rounded ${isRealData ? 'bg-[#20252e] text-emerald-400' : 'bg-gray-800 text-gray-400'}`}>
+            <span className={`text-[9px] font-mono px-1 rounded ${hasValidData ? 'bg-[#20252e] text-emerald-400' : 'bg-gray-800 text-gray-400'}`}>
               {ratingBadge}
             </span>
           )}
@@ -436,14 +470,14 @@ function SparklineCard({ title, subtitle, value, unit, color, data, tooltipText,
       </div>
 
       <div className="flex items-baseline justify-center my-0.5 space-x-1">
-        <span className="text-2xl font-bold tracking-tight font-sans" style={{ color: isRealData ? color : '#6c727d' }}>
+        <span className="text-2xl font-bold tracking-tight font-sans" style={{ color: hasValidData ? color : '#6c727d' }}>
           {value}
         </span>
         {unit && value !== '—' && <span className="text-xs text-[#8e94a0] font-normal">{unit}</span>}
       </div>
 
       <div className="w-full h-8 overflow-hidden pt-1">
-        {isRealData ? (
+        {hasValidData ? (
           <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible" preserveAspectRatio="none">
             <polyline
               fill="none"
@@ -475,12 +509,12 @@ function SparklineCard({ title, subtitle, value, unit, color, data, tooltipText,
 function computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats }) {
   const alerts = []
 
-  // KV Cache pressure
-  const kvPct = kvCacheSummary?.vllmKvPct ?? (
-    kvCacheSummary?.source === 'ollama' && primaryGpu
-      ? parseFloat(kvCacheSummary.activeTokensCached) || 0
-      : null
-  )
+  // KV Cache pressure (explicit numeric validation, never fails open on string parse)
+  const kvPct = typeof kvCacheSummary?.kvUsagePct === 'number' && !Number.isNaN(kvCacheSummary.kvUsagePct)
+    ? kvCacheSummary.kvUsagePct
+    : typeof kvCacheSummary?.vllmKvPct === 'number' && !Number.isNaN(kvCacheSummary.vllmKvPct)
+    ? kvCacheSummary.vllmKvPct
+    : null
   if (kvPct !== null && kvPct > 90) {
     alerts.push({ id: 'kv-critical', label: 'KV Cache Critical', detail: `${kvPct}% occupied — OOM risk`, severity: 'danger' })
   } else if (kvPct !== null && kvPct > 70) {
@@ -663,7 +697,12 @@ function computeCapacityHeadroom({ primaryGpu, kvCacheSummary }) {
 function AlertBannerRow({ alerts, allClear }) {
   if (allClear) {
     return (
-      <div className="flex items-center space-x-2 bg-gray-900 border border-emerald-800/40 rounded-xl px-4 py-3 text-xs text-emerald-400 h-full">
+      <div
+        role="region"
+        aria-label="System Bottleneck Status"
+        aria-live="polite"
+        className="flex items-center space-x-2 bg-gray-900 border border-emerald-800/40 rounded-xl px-4 py-3 text-xs text-emerald-400 h-full"
+      >
         <CheckCircle className="w-4 h-4 shrink-0 text-emerald-400" />
         <span className="font-medium">All systems nominal</span>
         <span className="text-emerald-500/80 text-[11px]">— no hardware throttling, KV cache pressure, or queue bottlenecks detected</span>
@@ -672,7 +711,12 @@ function AlertBannerRow({ alerts, allClear }) {
   }
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-2 flex-wrap h-full">
+    <div
+      role="region"
+      aria-label="System Bottleneck Status"
+      aria-live="polite"
+      className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-2 flex-wrap h-full"
+    >
       <span className="text-[10px] text-[#8e94a0] font-mono shrink-0 uppercase tracking-wide mr-1">Active Bottlenecks</span>
       {alerts.map((a) => (
         <div
@@ -1075,6 +1119,7 @@ export function Dashboard() {
       const kvActive = Math.max(nvmlVramUsedGb - modelWeightsGb - cudaOverheadGb, 0)
       const kvReserved = Math.max(totalVramGb - nvmlVramUsedGb, 0)
 
+      const ollamaKvPct = totalVramGb > 0 ? +((kvActive / totalVramGb) * 100).toFixed(1) : 0
       const now = new Date()
       const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       const point = {
@@ -1091,7 +1136,8 @@ export function Dashboard() {
         currentKvPoint: point,
         kvCacheIsRealData: true,
         kvCacheSummary: {
-          activeTokensCached: `${(kvActive / totalVramGb * 100).toFixed(0)}% KV occupied`,
+          kvUsagePct: ollamaKvPct,
+          activeTokensCached: `${ollamaKvPct.toFixed(0)}% KV occupied`,
           modelName,
           isCpuOffloaded,
           cpuOffloadGb: cpuOffloadGb.toFixed(1),
@@ -1111,9 +1157,10 @@ export function Dashboard() {
       const now = new Date()
       const timeLabel = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       const modelName = vllmRuntime.models_loaded?.[0]?.name || ''
+      const vllmKvUsagePct = Number(vllmRuntime.kv_cache_usage_pct) || 0
       const point = {
         time: timeLabel,
-        kv_usage_pct: vllmRuntime.kv_cache_usage_pct,
+        kv_usage_pct: vllmKvUsagePct,
         waiting: vllmRuntime.requests_waiting ?? 0,
         running: vllmRuntime.requests_running ?? 0,
         source: 'vllm',
@@ -1122,12 +1169,13 @@ export function Dashboard() {
         currentKvPoint: point,
         kvCacheIsRealData: true,
         kvCacheSummary: {
-          activeTokensCached: `${vllmRuntime.kv_cache_usage_pct}% KV occupied`,
+          kvUsagePct: vllmKvUsagePct,
+          activeTokensCached: `${vllmKvUsagePct}% KV occupied`,
           modelName,
           isCpuOffloaded: false,
           cpuOffloadGb: '0',
           source: 'vllm',
-          vllmKvPct: vllmRuntime.kv_cache_usage_pct,
+          vllmKvPct: vllmKvUsagePct,
           vllmWaiting: vllmRuntime.requests_waiting,
           vllmRunning: vllmRuntime.requests_running,
           vllmFreeBlocks: vllmRuntime.num_free_gpu_blocks,
@@ -1173,8 +1221,8 @@ export function Dashboard() {
 
   // Phase 4: Derived Bottlenecks & Capacity Headroom
   const bottlenecks = useMemo(() => {
-    return computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats })
-  }, [primaryGpu, kvCacheSummary, engineStats])
+    return computeBottlenecks({ primaryGpu, kvCacheSummary, engineStats: freshEngineStats })
+  }, [primaryGpu, kvCacheSummary, freshEngineStats])
 
   const capacityHeadroom = useMemo(() => {
     return computeCapacityHeadroom({ primaryGpu, kvCacheSummary })
@@ -1225,6 +1273,46 @@ export function Dashboard() {
     ? (benchmarks[0].tokens_per_second > 30 ? 'Real-Time (>30)' : 'Moderate')
     : 'No runs yet'
 
+  // Real sparkline historical points derived from recent benchmark runs
+  const recentTtftData = useMemo(() => {
+    const pts = (benchmarks || [])
+      .filter((b) => b.status === 'completed' && (b.p95_latency_ms != null || b.ttft_ms != null))
+      .slice(0, 16)
+      .reverse()
+      .map((b) => Number(b.p95_latency_ms ?? b.ttft_ms))
+    return pts.length >= 2 ? pts : null
+  }, [benchmarks])
+
+  const recentTpsData = useMemo(() => {
+    const pts = (benchmarks || [])
+      .filter((b) => b.status === 'completed' && b.tokens_per_second != null)
+      .slice(0, 16)
+      .reverse()
+      .map((b) => Number(b.tokens_per_second))
+    return pts.length >= 2 ? pts : null
+  }, [benchmarks])
+
+  // Latency summary from latest completed run
+  const latestLoadTest = useMemo(() => {
+    return (loadTests || []).find((r) => r.status === 'completed') || null
+  }, [loadTests])
+
+  const latestBenchmark = useMemo(() => {
+    return (benchmarks || []).find((r) => r.status === 'completed') || null
+  }, [benchmarks])
+
+  const latestRunForLatency = latestLoadTest || latestBenchmark
+  const hasLatencyData = Boolean(
+    latestRunForLatency &&
+    (latestRunForLatency.p95_latency_ms != null || latestRunForLatency.p50_latency_ms != null || latestRunForLatency.avg_latency_ms != null)
+  )
+
+  const formatLat = (val) => {
+    if (val == null || Number.isNaN(Number(val))) return '—'
+    const n = Number(val)
+    return n >= 1000 ? `${(n / 1000).toFixed(2)} s` : `${Math.round(n)} ms`
+  }
+
   // Live Hardware Allocation (RAM or VRAM)
   const memoryGaugeVal = current?.ram_used_bytes
     ? fmtBytes(current.ram_used_bytes)
@@ -1255,11 +1343,13 @@ export function Dashboard() {
           <div className="w-5 h-5 flex items-center justify-center">
             <Flame className="w-5 h-5 text-orange-500 fill-orange-500" />
           </div>
-          <span className="text-[#8e94a0] hover:text-white cursor-pointer transition-colors">DynoLLM</span>
+          <Link to="/" className="text-[#8e94a0] hover:text-white transition-colors">
+            DynoLLM
+          </Link>
           <span className="text-[#555a64]">›</span>
-          <span className="text-[#8e94a0] hover:text-white cursor-pointer transition-colors">Dashboards</span>
+          <span className="text-[#8e94a0]">Dashboards</span>
           <span className="text-[#555a64]">›</span>
-          <span className="text-white font-medium">Inference &amp; Hardware Telemetry</span>
+          <h1 className="text-white font-medium inline">Inference &amp; Hardware Telemetry</h1>
           <span className="hidden sm:inline-block ml-2 px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950 text-sky-400 border border-sky-800/60">
             Real-Time Profiler
           </span>
@@ -1299,7 +1389,10 @@ export function Dashboard() {
             <span>Traces</span>
           </Link>
 
-          <div className="flex items-center space-x-1.5 bg-gray-800/40 border border-gray-800 px-2.5 py-1.5 rounded-lg text-[#8e94a0]">
+          <div
+            className="flex items-center space-x-1.5 bg-gray-800/40 border border-gray-800 px-2.5 py-1.5 rounded-lg text-[#8e94a0] select-none"
+            title="Telemetry sliding window"
+          >
             <Clock className="w-3.5 h-3.5 text-sky-400" />
             <span>Last 20m</span>
           </div>
@@ -1352,7 +1445,7 @@ export function Dashboard() {
       </div>
 
       {dashboardView === 'telemetry' ? (
-        <TelemetryGrid runtimes={runtimes} currentHardware={current} />
+        <TelemetryGrid runtimes={runtimes} currentHardware={current} engineStats={engineStats} />
       ) : (
         <>
       {/* ========================================================================
@@ -1439,7 +1532,7 @@ export function Dashboard() {
           ======================================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Panel 1: Memory / CPU (100% Live Telemetry) */}
-        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[220px]">
+        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col justify-between min-h-[220px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center">
@@ -1534,7 +1627,7 @@ export function Dashboard() {
         </div>
 
         {/* Panel 2: Token Throughput */}
-        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[220px]">
+        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col justify-between min-h-[220px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center">
@@ -1639,8 +1732,8 @@ export function Dashboard() {
             unit={p95LatencyUnit}
             color="#ef4444"
             ratingBadge={p95LatencyBadge}
-            isRealData={hasBenchmarkRun}
-            data={[22, 26, 23, 29, 25, 34, 31, 38, 30, 42, 38, 45, 41, 49, 43, 52]}
+            isRealData={Boolean(hasBenchmarkRun && recentTtftData)}
+            data={recentTtftData || []}
             tooltipText="Time to First Token: Waiting delay before the model produces its first word. Under 100ms feels instantaneous."
           />
           <SparklineCard
@@ -1650,8 +1743,8 @@ export function Dashboard() {
             unit={tokenSpeedUnit}
             color="#22c55e"
             ratingBadge={tokenSpeedBadge}
-            isRealData={hasSpeedRun}
-            data={[18, 22, 20, 27, 24, 30, 28, 35, 31, 39, 36, 44, 40, 48, 43, 51]}
+            isRealData={Boolean(hasSpeedRun && recentTpsData)}
+            data={recentTpsData || []}
             tooltipText="Total tokens per second generated across all concurrent sessions."
           />
         </div>
@@ -1662,7 +1755,7 @@ export function Dashboard() {
           ======================================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* Left: KV Cache Occupancy & VRAM Allocation Stream */}
-        <div className="lg:col-span-8 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[260px]">
+        <div className="lg:col-span-8 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col justify-between min-h-[260px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center space-x-1.5">
@@ -1900,7 +1993,7 @@ export function Dashboard() {
         </div>
 
         {/* Right: Throughput by Quantization */}
-        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[260px]">
+        <div className="lg:col-span-4 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col justify-between min-h-[260px]">
           <div>
             <div className="flex items-center justify-between pb-0.5">
               <div className="flex items-center">
@@ -1966,7 +2059,7 @@ export function Dashboard() {
       {/* ========================================================================
           BOTTOM FULL-WIDTH ROW: [Inference Latency Percentiles (P25 - P95)]
           ======================================================================== */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4.5 flex flex-col justify-between min-h-[260px]">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col justify-between min-h-[260px]">
         <div>
           <div className="flex items-center justify-between pb-0.5">
             <div className="flex items-center">
@@ -2034,43 +2127,52 @@ export function Dashboard() {
           <div className="w-full lg:w-56 bg-gray-800/40 border border-gray-800 rounded-lg p-3 text-xs space-y-2 shrink-0 self-center">
             <div className="flex justify-between text-[11px] text-[#6c727d] border-b border-gray-800 pb-1 font-mono">
               <span>Percentile</span>
-              <span className="font-semibold text-[#8e94a0]">avg latency</span>
+              <span className="font-semibold text-[#8e94a0]">
+                {hasLatencyData ? (latestLoadTest ? 'Latest Load Test' : 'Latest Run') : 'No runs yet'}
+              </span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center space-x-1.5 text-gray-300">
                 <span className="w-2.5 h-0.5 bg-[#eab308] inline-block" />
                 <span>p25 (fast)</span>
               </span>
-              <span className="font-mono text-gray-200">6.81 ms</span>
+              <span className="font-mono text-gray-200">{formatLat(latestRunForLatency?.p25_latency_ms)}</span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center space-x-1.5 text-gray-300">
                 <span className="w-2.5 h-0.5 bg-[#f97316] inline-block" />
                 <span>p50 (median)</span>
               </span>
-              <span className="font-mono text-gray-200">142 ms</span>
+              <span className="font-mono text-gray-200">
+                {formatLat(latestRunForLatency?.p50_latency_ms ?? latestRunForLatency?.avg_latency_ms)}
+              </span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center space-x-1.5 text-gray-300">
                 <span className="w-2.5 h-0.5 bg-[#ea580c] inline-block" />
                 <span>p75 (upper)</span>
               </span>
-              <span className="font-mono text-gray-200">535 ms</span>
+              <span className="font-mono text-gray-200">{formatLat(latestRunForLatency?.p75_latency_ms)}</span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center space-x-1.5 text-gray-300">
                 <span className="w-2.5 h-0.5 bg-[#dc2626] inline-block" />
                 <span>p90 (tail)</span>
               </span>
-              <span className="font-mono text-gray-200">1.04 s</span>
+              <span className="font-mono text-gray-200">{formatLat(latestRunForLatency?.p90_latency_ms)}</span>
             </div>
             <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center space-x-1.5 text-gray-300">
                 <span className="w-2.5 h-0.5 bg-[#b91c1c] inline-block" />
                 <span>p95 (SLA)</span>
               </span>
-              <span className="font-mono text-gray-200">1.46 s</span>
+              <span className="font-mono text-gray-200">{formatLat(latestRunForLatency?.p95_latency_ms)}</span>
             </div>
+            {!hasLatencyData && (
+              <div className="text-[10px] text-gray-500 pt-1 text-center font-mono">
+                Run a test to populate
+              </div>
+            )}
           </div>
         </div>
       </div>

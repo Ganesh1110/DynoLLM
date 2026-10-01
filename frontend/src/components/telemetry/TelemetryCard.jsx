@@ -102,7 +102,7 @@ export default function TelemetryCard({
           : isMuted
           ? 'border-gray-800/80 opacity-80'
           : 'border-gray-800 hover:border-gray-700'
-      } rounded-xl p-4.5 flex flex-col justify-between ${minHeight} ${className} transition-all shadow-sm`}
+      } rounded-xl p-4 flex flex-col justify-between ${minHeight} ${className} transition-all shadow-sm`}
     >
       {/* Header */}
       <div>

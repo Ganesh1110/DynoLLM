@@ -16,13 +16,22 @@ export default function TelemetryGrid({
   runtimes = [],
   currentHardware = null,
   initialRuntimeId = null,
+  engineStats = null,
 }) {
   const [selectedRuntimeId, setSelectedRuntimeId] = useState(initialRuntimeId)
   const [activeWindow, setActiveWindow] = useState('15m')
-  const [engineStatsList, setEngineStatsList] = useState([])
+  const [engineStatsList, setEngineStatsList] = useState(engineStats || [])
   const [historyData, setHistoryData] = useState({ series: [], summary: {} })
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastPolledAt, setLastPolledAt] = useState(null)
+
+  // Sync engine stats from parent if provided (avoids duplicate polling)
+  useEffect(() => {
+    if (engineStats && Array.isArray(engineStats)) {
+      setEngineStatsList(engineStats)
+      setLastPolledAt(Math.floor(Date.now() / 1000))
+    }
+  }, [engineStats])
 
   // Auto-select first runtime if none selected
   useEffect(() => {
@@ -35,10 +44,14 @@ export default function TelemetryGrid({
   const fetchTelemetry = useCallback(async () => {
     try {
       setIsRefreshing(true)
-      const statsRes = await monitoringApi.engineStats()
-      const stats = statsRes.runtimes || []
-      setEngineStatsList(stats)
-      setLastPolledAt(Math.floor(Date.now() / 1000))
+
+      // Only poll engineStats if parent did not provide it
+      if (!engineStats) {
+        const statsRes = await monitoringApi.engineStats()
+        const stats = statsRes.runtimes || []
+        setEngineStatsList(stats)
+        setLastPolledAt(Math.floor(Date.now() / 1000))
+      }
 
       const rtId = selectedRuntimeId || (runtimes[0]?.id)
       if (rtId) {
@@ -54,7 +67,7 @@ export default function TelemetryGrid({
     } finally {
       setIsRefreshing(false)
     }
-  }, [selectedRuntimeId, activeWindow, runtimes])
+  }, [selectedRuntimeId, activeWindow, runtimes, engineStats])
 
   // Polling loop every 5s
   useEffect(() => {
@@ -80,9 +93,13 @@ export default function TelemetryGrid({
   const capabilities = activeRuntime?.capabilities || {}
 
   // Helper to determine state using unified lifecycle logic
+  // Unverified/empty capabilities evaluate to false, never defaulting to "live"
   const getCardState = (hasCapability, hasData = true) => {
+    if (!activeRuntime?.id) {
+      return 'no_data'
+    }
     return determineCardLifecycleState({
-      capabilities: { target: hasCapability },
+      capabilities: { target: Boolean(hasCapability) },
       capabilityKey: 'target',
       isStale,
       hasError: Boolean(activeRuntime?.error),
@@ -116,7 +133,7 @@ export default function TelemetryGrid({
         {/* Request Flow (6 cols) */}
         <div className="lg:col-span-6">
           <RequestFlowCard
-            state={getCardState(capabilities.has_request_counts !== false)}
+            state={getCardState(Boolean(capabilities.has_request_counts))}
             series={series}
             currentRunning={activeRuntime?.requests_running ?? 0}
             currentWaiting={activeRuntime?.requests_waiting ?? 0}
@@ -130,8 +147,7 @@ export default function TelemetryGrid({
         <div className="lg:col-span-6">
           <CapacityCard
             state={getCardState(
-              capabilities.has_request_counts !== false ||
-                capabilities.has_block_stats !== false
+              Boolean(capabilities.has_request_counts || capabilities.has_block_stats)
             )}
             currentRunning={activeRuntime?.requests_running ?? 0}
             currentWaiting={activeRuntime?.requests_waiting ?? 0}
@@ -150,7 +166,7 @@ export default function TelemetryGrid({
         {/* Token Throughput (4 cols) */}
         <div className="lg:col-span-4">
           <ThroughputCard
-            state={getCardState(capabilities.has_token_counts !== false)}
+            state={getCardState(Boolean(capabilities.has_token_counts))}
             series={series}
             unavailableReason="Engine cumulative token counters not available for derivation."
             staleReason="Engine polling delayed (>30s)."
@@ -160,7 +176,7 @@ export default function TelemetryGrid({
         {/* KV Cache (4 cols) */}
         <div className="lg:col-span-4">
           <KvCacheCard
-            state={getCardState(capabilities.has_kv_cache !== false)}
+            state={getCardState(Boolean(capabilities.has_kv_cache))}
             currentKvPct={activeRuntime?.kv_cache_usage_pct}
             totalBlocks={activeRuntime?.num_total_gpu_blocks}
             freeBlocks={activeRuntime?.num_free_gpu_blocks}
@@ -175,7 +191,7 @@ export default function TelemetryGrid({
         <div className="lg:col-span-4">
           <LatencyCard
             state={getCardState(
-              capabilities.has_histograms !== false,
+              Boolean(capabilities.has_histograms),
               series.some((s) => s.avg_ttft_ms != null || s.avg_tpot_ms != null)
             )}
             series={series}
@@ -191,7 +207,7 @@ export default function TelemetryGrid({
         {/* Prefix Cache (3 cols) */}
         <div className="lg:col-span-3">
           <PrefixCacheCard
-            state={getCardState(capabilities.has_prefix_cache !== false)}
+            state={getCardState(Boolean(capabilities.has_prefix_cache))}
             hitRatePct={activeRuntime?.prefix_cache_hit_rate}
             unavailableReason="Prefix caching is disabled or unsupported by this engine runtime."
             staleReason="Engine polling delayed (>30s)."
@@ -201,7 +217,7 @@ export default function TelemetryGrid({
         {/* Finish Reasons (3 cols) */}
         <div className="lg:col-span-3">
           <FinishReasonsCard
-            state={getCardState(capabilities.has_request_counts !== false)}
+            state={getCardState(Boolean(capabilities.has_request_counts))}
             finishReasons={activeRuntime?.finish_reasons || {}}
             deltaReasons={summary?.finish_reasons_delta || {}}
             unavailableReason="Engine does not categorize request completion reasons."
@@ -212,7 +228,7 @@ export default function TelemetryGrid({
         {/* Loaded Model (3 cols) */}
         <div className="lg:col-span-3">
           <ModelInfoCard
-            state={getCardState(true, (activeRuntime?.models_loaded?.length ?? 0) > 0 || Boolean(activeRuntime?.name))}
+            state={getCardState(Boolean(activeRuntime?.name), (activeRuntime?.models_loaded?.length ?? 0) > 0 || Boolean(activeRuntime?.name))}
             runtime={activeRuntime}
             modelsLoaded={activeRuntime?.models_loaded || []}
             unavailableReason="Engine does not report model architecture details."

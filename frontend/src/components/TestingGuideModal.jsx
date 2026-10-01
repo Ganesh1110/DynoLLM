@@ -74,7 +74,12 @@ export function TestingGuideModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-3xl max-h-[90vh] bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-gray-200">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="testing-guide-title"
+        className="relative w-full max-w-3xl max-h-[90vh] bg-gray-950 border border-gray-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden text-gray-200"
+      >
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-gray-800/80 flex items-center justify-between bg-gray-900/60">
           <div className="flex items-center space-x-2.5">
@@ -82,7 +87,7 @@ export function TestingGuideModal({
               <HelpCircle className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <h2 id="testing-guide-title" className="text-base font-bold text-white flex items-center gap-2">
                 <span>Testing &amp; Rating Guide</span>
                 <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-gray-800 text-gray-300 border border-gray-700">
                   {pageType === 'loadtest' ? 'Load & Stress Testing' : 'Single-Request Benchmark'}

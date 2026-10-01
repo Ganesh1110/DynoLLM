@@ -87,6 +87,14 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
 
   const isSuccess = !trace.error && trace.finish_reason !== 'error' && trace.finish_reason !== 'abort'
 
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
+
   return (
     <div className="fixed inset-0 z-50 overflow-hidden font-sans">
       {/* Dimmed backdrop */}
@@ -96,14 +104,19 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
       />
 
       <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-2xl bg-gray-900 border-l border-gray-800 text-gray-200 flex flex-col shadow-2xl">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="trace-drawer-title"
+          className="w-screen max-w-2xl bg-gray-900 border-l border-gray-800 text-gray-200 flex flex-col shadow-2xl"
+        >
           {/* Header */}
           <div className="p-4 border-b border-gray-800 flex items-center justify-between bg-gray-950/60">
             <div className="flex items-center space-x-2.5 truncate">
               <Terminal className="w-5 h-5 text-sky-400 shrink-0" />
               <div>
                 <div className="flex items-center space-x-2">
-                  <span className="font-bold text-white text-sm">Request Trace</span>
+                  <span id="trace-drawer-title" className="font-bold text-white text-sm">Request Trace</span>
                   <span className="font-mono text-xs text-gray-500">
                     #{trace.id ? trace.id.slice(0, 8) : 'unknown'}
                   </span>
