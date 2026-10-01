@@ -10,6 +10,7 @@ import asyncio
 import logging
 import time
 from typing import Any, Optional
+from app.monitoring.engine_history import record_sample, prune_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +42,16 @@ async def _poll_once(runtime_id: str, runtime_type: str, endpoint: str) -> None:
     adapter = get_adapter(runtime_type, endpoint)
     try:
         stats = await adapter.get_engine_stats()
-        _engine_cache[runtime_id] = {
+        entry = {
             "runtime_id": runtime_id,
             "runtime_type": runtime_type,
             "endpoint": endpoint,
             "polled_at": time.time(),
             **stats,
         }
-        _last_polled[runtime_id] = time.time()
+        _engine_cache[runtime_id] = entry
+        _last_polled[runtime_id] = entry["polled_at"]
+        record_sample(runtime_id, entry)
     except AttributeError:
         # Adapter doesn't implement get_engine_stats (shouldn't happen now)
         pass
@@ -90,6 +93,7 @@ async def _poller_loop() -> None:
                 if cached_id not in active_ids:
                     _engine_cache.pop(cached_id, None)
                     _last_polled.pop(cached_id, None)
+                    prune_runtime(cached_id)
 
             # Fan-out: poll all runtimes concurrently with a 4-second timeout each
             tasks = [

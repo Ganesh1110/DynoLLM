@@ -77,6 +77,16 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                         "requests_running": None,
                         "prefix_cache_hit_rate": None,
                         "total_vram_gb": None,
+                        "capabilities": {
+                            "queue": False,
+                            "kv_cache": False,
+                            "prefix_cache": False,
+                            "histograms": False,
+                            "finish_reasons": False,
+                            "token_rates": False,
+                            "block_metrics": False,
+                            "model_vram_breakdown": False,
+                        },
                         "error": None,
                     }
                 resp.raise_for_status()
@@ -90,42 +100,31 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
                 "requests_running": None,
                 "prefix_cache_hit_rate": None,
                 "total_vram_gb": None,
+                "capabilities": {
+                    "queue": False,
+                    "kv_cache": False,
+                    "prefix_cache": False,
+                    "histograms": False,
+                    "finish_reasons": False,
+                    "token_rates": False,
+                    "block_metrics": False,
+                    "model_vram_breakdown": False,
+                },
                 "error": str(exc),
             }
 
-        # Minimal Prometheus text-format parser – extract scalar gauge values
-        def _parse_metric(name: str) -> Optional[float]:
-            """Return the first numeric value for a given metric name, or None."""
-            for line in text.splitlines():
-                line = line.strip()
-                if line.startswith("#") or not line:
-                    continue
-                # Match both `metric_name value` and `metric_name{labels...} value`
-                if line.startswith(name + "{") or line.startswith(name + " "):
-                    parts = line.rsplit(None, 1)
-                    try:
-                        return float(parts[-1])
-                    except ValueError:
-                        pass
-            return None
+        from app.monitoring.prom_parse import parse_prometheus_text
+        from app.monitoring.prom_resolver import resolve_canonical_metrics
 
-        kv_usage = _parse_metric("vllm:gpu_cache_usage_perc")
-        if kv_usage is None:
-            kv_usage = _parse_metric("vllm:kv_cache_usage_perc")
+        parsed = parse_prometheus_text(text)
+        resolved = resolve_canonical_metrics(parsed)
+        canonical = resolved["canonical"]
+        capabilities = resolved["capabilities"]
 
-        waiting = _parse_metric("vllm:num_requests_waiting")
-        running = _parse_metric("vllm:num_requests_running")
-        prefix_hit = _parse_metric("vllm:prefix_cache_hit_rate")
-        num_total_blocks = _parse_metric("vllm:num_total_gpu_blocks")
-        num_free_blocks = _parse_metric("vllm:num_free_gpu_blocks")
-        if num_free_blocks is None and num_total_blocks is not None and kv_usage is not None:
-            num_free_blocks = num_total_blocks * max(0.0, 1.0 - kv_usage)
-
-        # Detect active model name from Prometheus metric labels if present
+        # Detect active model name
         models_loaded = []
-        model_match = re.search(r'model_name="([^"]+)"', text)
-        if model_match:
-            models_loaded.append({"name": model_match.group(1)})
+        if canonical.get("model_name"):
+            models_loaded.append({"name": canonical["model_name"]})
         else:
             try:
                 models = await self.list_models(client=http_client)
@@ -137,14 +136,16 @@ class OpenAICompatibleAdapter(RuntimeAdapter):
         return {
             "engine": "vllm",
             "models_loaded": models_loaded,
-            # Multiply by 100 so it's a percentage (0–100) to match Ollama offload_pct units
-            "kv_cache_usage_pct": round(kv_usage * 100, 1) if kv_usage is not None else None,
-            "requests_waiting": int(waiting) if waiting is not None else None,
-            "requests_running": int(running) if running is not None else None,
-            "prefix_cache_hit_rate": round(prefix_hit * 100, 1) if prefix_hit is not None else None,
-            "num_total_gpu_blocks": int(num_total_blocks) if num_total_blocks is not None else None,
-            "num_free_gpu_blocks": int(num_free_blocks) if num_free_blocks is not None else None,
+            "kv_cache_usage_pct": canonical.get("kv_cache_usage_pct"),
+            "requests_waiting": canonical.get("requests_waiting"),
+            "requests_running": canonical.get("requests_running"),
+            "prefix_cache_hit_rate": canonical.get("prefix_cache_hit_rate"),
+            "num_total_gpu_blocks": canonical.get("num_total_gpu_blocks"),
+            "num_free_gpu_blocks": canonical.get("num_free_gpu_blocks"),
             "total_vram_gb": None,  # NVML in collector.py is more accurate for VRAM
+            "capabilities": capabilities,
+            "canonical": canonical,
+            "histograms": resolved["histograms"],
             "error": None,
         }
 

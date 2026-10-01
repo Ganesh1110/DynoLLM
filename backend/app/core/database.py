@@ -231,6 +231,7 @@ def _migrate_columns_sync(conn):
 
 
 async def create_tables():
+    import app.models  # noqa: F401 - ensure all models are registered on Base.metadata
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_migrate_columns_sync)

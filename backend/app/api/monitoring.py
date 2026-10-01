@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 from app.monitoring.collector import collect_metrics
 from app.monitoring.engine_poller import get_all_engine_stats
+from app.monitoring.engine_history import get_history
 from app.api.websocket_manager import manager
 from app.schemas.monitoring import HardwareMetrics
 from app.core.config import settings
@@ -28,10 +29,54 @@ async def get_engine_stats():
     Returns an empty list if no runtimes have been polled yet.
 
     Each element contains engine-specific fields:
-    - Ollama: models_loaded (list), total_vram_gb
-    - vLLM: kv_cache_usage_pct, requests_waiting, requests_running, prefix_cache_hit_rate
+    - Ollama: models_loaded (list), total_vram_gb, capabilities
+    - vLLM: kv_cache_usage_pct, requests_waiting, requests_running, prefix_cache_hit_rate, capabilities
     """
     return {"runtimes": get_all_engine_stats()}
+
+
+@router.get("/engine-stats/history", dependencies=[Depends(verify_api_key)])
+async def get_engine_stats_history(runtime_id: str, window: str = "15m"):
+    """
+    Get derived telemetry series (rates, percentiles, averages) and capabilities for a runtime.
+    Window can be '5m', '15m', '1h' (or an integer duration in seconds).
+    """
+    window_sec = 900
+    w = window.strip().lower()
+    if w.endswith("m"):
+        try:
+            window_sec = int(w[:-1]) * 60
+        except ValueError:
+            pass
+    elif w.endswith("h"):
+        try:
+            window_sec = int(w[:-1]) * 3600
+        except ValueError:
+            pass
+    elif w.endswith("s"):
+        try:
+            window_sec = int(w[:-1])
+        except ValueError:
+            pass
+    else:
+        try:
+            window_sec = int(w)
+        except ValueError:
+            pass
+
+    history_data = get_history(runtime_id, window_seconds=max(30, min(window_sec, 3600)))
+
+    latest_runtimes = get_all_engine_stats()
+    runtime_stat = next((r for r in latest_runtimes if str(r.get("runtime_id")) == runtime_id), None)
+    capabilities = runtime_stat.get("capabilities", {}) if runtime_stat else {}
+
+    return {
+        "runtime_id": runtime_id,
+        "window": window,
+        "window_seconds": window_sec,
+        "capabilities": capabilities,
+        **history_data,
+    }
 
 
 @router.websocket("/stream")

@@ -75,7 +75,22 @@ class OllamaAdapter(RuntimeAdapter):
                 resp.raise_for_status()
                 data = resp.json()
         except Exception as exc:
-            return {"engine": "ollama", "models_loaded": [], "total_vram_gb": 0.0, "error": str(exc)}
+            return {
+                "engine": "ollama",
+                "models_loaded": [],
+                "total_vram_gb": 0.0,
+                "capabilities": {
+                    "queue": False,
+                    "kv_cache": False,
+                    "prefix_cache": False,
+                    "histograms": False,
+                    "finish_reasons": False,
+                    "token_rates": False,
+                    "block_metrics": False,
+                    "model_vram_breakdown": False,
+                },
+                "error": str(exc),
+            }
 
         models_loaded = []
         total_vram = 0.0
@@ -103,6 +118,16 @@ class OllamaAdapter(RuntimeAdapter):
             "engine": "ollama",
             "models_loaded": models_loaded,
             "total_vram_gb": round(total_vram, 2),
+            "capabilities": {
+                "queue": False,
+                "kv_cache": False,
+                "prefix_cache": False,
+                "histograms": False,
+                "finish_reasons": False,
+                "token_rates": False,
+                "block_metrics": False,
+                "model_vram_breakdown": True,
+            },
             "error": None,
         }
 
