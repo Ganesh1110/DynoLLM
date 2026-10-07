@@ -845,16 +845,7 @@ export function Benchmark() {
                     <span className="text-[10px] text-gray-500">Integrity Pass Rate</span>
                   </div>
 
-                  <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
-                    <div className="flex items-center justify-center space-x-1 mb-0.5">
-                      <Zap className="w-3 h-3 text-yellow-400" />
-                      <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">Energy Eff.</span>
-                    </div>
-                    <div className="text-xl font-black text-yellow-400 mt-1">
-                      {activeRun.tokens_per_watt != null ? `${activeRun.tokens_per_watt.toFixed(2)}` : '—'}
-                    </div>
-                    <span className="text-[10px] text-gray-500">tok/s · W⁻¹</span>
-                  </div>
+
 
                   <div className="bg-gray-800/60 p-3 rounded-xl border border-gray-700/50 text-center">
                     <span className="text-[11px] uppercase tracking-wider text-gray-400 font-semibold">P50 / P99</span>

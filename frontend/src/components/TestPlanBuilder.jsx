@@ -30,7 +30,6 @@ const ALL_LISTENERS = [
   { id: 'summary_table', label: 'Summary Table', desc: 'Per-group aggregated table with overall totals row' },
   { id: 'latency_chart', label: 'Latency Chart', desc: 'Average and p95 latency curve across concurrency tiers' },
   { id: 'token_throughput', label: 'Token Throughput', desc: 'Input, output, and total tokens per second breakdown' },
-  { id: 'cost_report', label: 'Cost & Power Report', desc: 'Hardware, token billing, and token/watt energy report' },
   { id: 'error_log', label: 'Error Log', desc: 'Categorized failure list with abort reasons and error types' },
   { id: 'percentile_chart', label: 'Percentile Chart', desc: 'p95 TTFT, avg TTFT, TPOT, and error rates per concurrency' },
   { id: 'assertion_report', label: 'Assertion Report', desc: 'SLA threshold verification and pass/fail summary' },

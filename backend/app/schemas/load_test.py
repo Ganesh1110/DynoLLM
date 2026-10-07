@@ -170,7 +170,7 @@ class LoadTestPlanCreate(BaseModel):
     assertions: list[AssertionConfigSchema] = []
     listeners: list[str] = [
         "summary_table", "latency_chart", "token_throughput",
-        "cost_report", "error_log", "percentile_chart", "assertion_report",
+        "error_log", "percentile_chart", "assertion_report",
     ]
 
 

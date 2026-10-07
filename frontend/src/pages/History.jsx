@@ -249,7 +249,6 @@ export function History() {
                     <th className="p-3">Requests (OK/Fail)</th>
                     <th className="p-3">RPS</th>
                     <th className="p-3">Tokens (In/Out)</th>
-                    <th className="p-3">Run Cost</th>
                     <th className="p-3">P95 Latency</th>
                     <th className="p-3 rounded-r-lg text-right">Actions</th>
                   </tr>
@@ -272,9 +271,6 @@ export function History() {
                       <td className="p-3 text-emerald-400 font-bold">{fmt(run.requests_per_second, 2)}</td>
                       <td className="p-3 text-indigo-300">
                         {formatTokenCount(run.total_prompt_tokens)} / {formatTokenCount(run.total_completion_tokens)}
-                      </td>
-                      <td className="p-3 text-emerald-400">
-                        {run.cost_estimate != null ? `$${run.cost_estimate.toFixed(4)}` : '—'}
                       </td>
                       <td className="p-3 text-amber-400">{fmtMs(run.p95_latency_ms)}</td>
                       <td className="p-3 text-right">

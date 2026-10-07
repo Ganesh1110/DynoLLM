@@ -3,7 +3,6 @@ import {
   Table,
   LineChart as LineChartIcon,
   BarChart3,
-  DollarSign,
   AlertOctagon,
   Percent,
   ShieldCheck,
@@ -38,7 +37,6 @@ const TABS = [
   { id: 'summary_table', label: 'Summary Table', icon: Table },
   { id: 'latency_chart', label: 'Latency Chart', icon: LineChartIcon },
   { id: 'token_throughput', label: 'Token Throughput', icon: BarChart3 },
-  { id: 'cost_report', label: 'Cost & Power', icon: DollarSign },
   { id: 'error_log', label: 'Error Log', icon: AlertOctagon },
   { id: 'percentile_chart', label: 'Percentile Chart', icon: Percent },
   { id: 'assertion_report', label: 'SLA Assertions', icon: ShieldCheck },
@@ -54,7 +52,6 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
   const summaryTable = listenerReports.summary_table || []
   const latencyChartData = listenerReports.latency_chart || []
   const tokenThroughputData = listenerReports.token_throughput || []
-  const costReportData = listenerReports.cost_report || { groups: [] }
   const errorLogData = listenerReports.error_log || []
   const percentileChartData = listenerReports.percentile_chart || []
   const assertionResults =
@@ -553,79 +550,7 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
         </div>
       )}
 
-      {/* 4. Cost & Power Report */}
-      {activeTab === 'cost_report' && (
-        <div className="card space-y-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-white">Cost &amp; Energy Efficiency</h3>
-            <span className="text-xs text-gray-500">Financial expenditure and power consumption telemetry</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="p-4 rounded-xl bg-gradient-to-br from-emerald-950/50 to-gray-950 border border-emerald-800/40">
-              <span className="text-xs text-emerald-400 font-medium block">Total Estimated Cost</span>
-              <span className="text-2xl font-bold text-white mt-1 block">
-                ${fmt(costReportData.total_cost_estimate_usd, 4)}
-              </span>
-              <span className="text-[10px] text-gray-400 block mt-1">Blended tokens &amp; GPU runtime</span>
-            </div>
-
-            <div className="p-4 rounded-xl bg-gray-950/70 border border-gray-800">
-              <span className="text-xs text-gray-400 font-medium block">Total Prompt Tokens</span>
-              <span className="text-2xl font-bold text-sky-400 mt-1 block font-mono">
-                {costReportData.total_prompt_tokens ?? '—'}
-              </span>
-              <span className="text-[10px] text-gray-500 block mt-1">Ingested context</span>
-            </div>
-
-            <div className="p-4 rounded-xl bg-gray-950/70 border border-gray-800">
-              <span className="text-xs text-gray-400 font-medium block">Total Completion Tokens</span>
-              <span className="text-2xl font-bold text-purple-400 mt-1 block font-mono">
-                {costReportData.total_completion_tokens ?? '—'}
-              </span>
-              <span className="text-[10px] text-gray-500 block mt-1">Synthesized output</span>
-            </div>
-          </div>
-
-          {/* Group details table */}
-          {costReportData.groups && costReportData.groups.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-gray-950/80 text-gray-400 uppercase text-[10px] border-b border-gray-800">
-                  <tr>
-                    <th className="py-2.5 px-3">Thread Group</th>
-                    <th className="py-2.5 px-3 text-right">Prompt Tokens</th>
-                    <th className="py-2.5 px-3 text-right">Completion Tokens</th>
-                    <th className="py-2.5 px-3 text-right">Cost Estimate</th>
-                    <th className="py-2.5 px-3 text-right">Avg Power (Watts)</th>
-                    <th className="py-2.5 px-3 text-right">Tokens / Watt</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-800 font-mono">
-                  {costReportData.groups.map((g, idx) => (
-                    <tr key={idx} className="hover:bg-gray-800/30 text-gray-300">
-                      <td className="py-2.5 px-3 font-sans font-medium text-white">{g.thread_group}</td>
-                      <td className="py-2.5 px-3 text-right">{g.total_prompt_tokens ?? '—'}</td>
-                      <td className="py-2.5 px-3 text-right">{g.total_completion_tokens ?? '—'}</td>
-                      <td className="py-2.5 px-3 text-right text-emerald-400">
-                        ${fmt(g.cost_estimate_usd, 4)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-amber-300">
-                        {g.avg_power_watts ? `${fmt(g.avg_power_watts, 1)} W` : '—'}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-cyan-300">
-                        {g.tokens_per_watt ? fmt(g.tokens_per_watt, 2) : '—'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* 5. Error Log */}
+      {/* 4. Error Log */}
       {activeTab === 'error_log' && (
         <div className="card space-y-4">
           <div className="flex items-center justify-between">

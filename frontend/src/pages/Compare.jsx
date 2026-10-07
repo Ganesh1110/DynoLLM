@@ -78,7 +78,6 @@ export function Compare() {
       : 0,
     ttft: r.avg_ttft_ms ? +r.avg_ttft_ms.toFixed(1) : 0,
     p95: r.p95_latency_ms ? +r.p95_latency_ms.toFixed(1) : 0,
-    efficiency: r.tokens_per_watt ? +r.tokens_per_watt.toFixed(2) : 0,
   }));
 
   // Determine Leaderboard Winners
@@ -91,10 +90,6 @@ export function Compare() {
   );
   const lowestP95 = Math.min(
     ...selectedRuns.map((r) => r.p95_latency_ms || Infinity),
-  );
-  const highestEfficiency = Math.max(
-    ...selectedRuns.map((r) => r.tokens_per_watt || 0),
-    0,
   );
 
   // Determine Cost-per-million for each run
@@ -189,7 +184,7 @@ export function Compare() {
       ) : (
         <div className="space-y-6">
           {/* Comparative Leaderboard Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="card space-y-2 border-emerald-900/40 bg-emerald-950/10">
               <div className="flex items-center space-x-2 text-emerald-400">
                 <Award className="w-4 h-4" />
@@ -266,28 +261,6 @@ export function Compare() {
                     ? selectedRuns.find((r) => costMap[r.id] === lowestCost)
                         ?.model
                     : "—"}
-                </strong>
-              </div>
-            </div>
-
-            <div className="card space-y-2 border-purple-900/40 bg-purple-950/10">
-              <div className="flex items-center space-x-2 text-purple-400">
-                <Cpu className="w-4 h-4" />
-                <span className="text-xs uppercase font-bold tracking-wider">
-                  Tokens / Watt
-                </span>
-              </div>
-              <div className="text-2xl font-black text-white font-mono">
-                {highestEfficiency > 0 ? fmt(highestEfficiency, 2) : "N/A"}
-              </div>
-              <div className="text-xs text-gray-400 truncate">
-                Leader:{" "}
-                <strong className="text-purple-300">
-                  {highestEfficiency > 0
-                    ? selectedRuns.find(
-                        (r) => r.tokens_per_watt === highestEfficiency,
-                      )?.model
-                    : "Host CPU"}
                 </strong>
               </div>
             </div>
@@ -469,18 +442,7 @@ export function Compare() {
                       </td>
                     ))}
                   </tr>
-                  <tr>
-                    <td className="p-3 text-gray-400 font-sans font-medium">
-                      Tokens / Watt
-                    </td>
-                    {selectedRuns.map((r) => (
-                      <td key={r.id} className="p-3 text-purple-400">
-                        {r.tokens_per_watt
-                          ? `${fmt(r.tokens_per_watt, 2)} tok/W`
-                          : "Unified Memory"}
-                      </td>
-                    ))}
-                  </tr>
+
                   <tr>
                     <td className="p-3 text-gray-400 font-sans font-medium">
                       Quality Integrity Rate

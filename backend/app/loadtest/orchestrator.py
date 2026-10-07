@@ -50,7 +50,7 @@ async def run_plan(
     plan_assertions = plan_config.get("assertions", [])
     active_listeners = plan_config.get("listeners", [
         "summary_table", "latency_chart", "token_throughput",
-        "cost_report", "error_log", "percentile_chart",
+        "error_log", "percentile_chart",
     ])
 
     result = PlanRunResult(plan_id=plan_id)

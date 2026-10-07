@@ -28,9 +28,6 @@ def build_listener_reports(
     if "token_throughput" in active_listeners:
         reports["token_throughput"] = _token_throughput(thread_group_results)
 
-    if "cost_report" in active_listeners:
-        reports["cost_report"] = _cost_report(thread_group_results, merged_aggregates)
-
     if "error_log" in active_listeners:
         reports["error_log"] = _error_log(thread_group_results)
 
@@ -122,25 +119,7 @@ def _token_throughput(thread_group_results: list) -> list[dict]:
     return rows
 
 
-def _cost_report(thread_group_results: list, merged_aggregates: dict) -> dict:
-    """Cost Report listener: per-group and total cost breakdown."""
-    groups = []
-    for tgr in thread_group_results:
-        a = tgr.aggregates
-        groups.append({
-            "thread_group": tgr.thread_group_name,
-            "total_prompt_tokens": a.get("total_prompt_tokens"),
-            "total_completion_tokens": a.get("total_completion_tokens"),
-            "cost_estimate_usd": a.get("cost_estimate"),
-            "avg_power_watts": a.get("avg_power_watts"),
-            "tokens_per_watt": a.get("tokens_per_watt"),
-        })
-    return {
-        "groups": groups,
-        "total_cost_estimate_usd": merged_aggregates.get("cost_estimate"),
-        "total_prompt_tokens": merged_aggregates.get("total_prompt_tokens"),
-        "total_completion_tokens": merged_aggregates.get("total_completion_tokens"),
-    }
+
 
 
 def _error_log(thread_group_results: list) -> list[dict]:
