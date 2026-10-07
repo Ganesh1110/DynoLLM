@@ -26,12 +26,20 @@ import {
   Code,
   Download,
   Eye,
+  EyeOff,
   Settings,
   Activity,
   Check,
   X,
   FileCode,
   Sparkles,
+  FlaskConical,
+  Gauge,
+  Radio,
+  FileJson,
+  Cpu,
+  CornerDownRight,
+  PlayCircle,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -44,9 +52,11 @@ import {
 } from 'recharts'
 import { useLoadTestPlanStore } from '../stores/loadTestPlanStore'
 import { useRuntimeStore } from '../stores/runtimeStore'
+import { loadTestPlansApi } from '../services/api'
 import { Spinner, Alert } from './ui'
 import {
   JMETER_BLUEPRINTS,
+  PROMPT_SUITES,
   computeWorkloadTopology,
   exportPlanToJmx,
   generateSnippets,
@@ -66,13 +76,21 @@ const DEFAULT_THREAD_GROUP = {
   name: 'Thread Group 1',
   runtime_id: '',
   model: '',
+  sampler_type: 'chat',
   pattern: 'rampup',
   target_users: 10,
   duration_seconds: 60,
   rampup_step_users: 5,
   rampup_step_seconds: 10,
+  rampdown_seconds: 0,
+  loop_count: null,
+  target_rps: null,
   system_prompt: '',
   temperature: 0.7,
+  top_p: 1.0,
+  frequency_penalty: 0.0,
+  presence_penalty: 0.0,
+  streaming: true,
   max_tokens: 256,
   request_timeout: 120.0,
   enabled: true,
@@ -103,7 +121,20 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
   
   // Layout view: 'workbench' (JMeter tree + inspector) vs 'flow' (stacked full cards)
   const [viewMode, setViewMode] = useState('workbench')
-  const [selectedNode, setSelectedNode] = useState('plan_root') // 'plan_root' | 'tg-0' | 'ce-0' | 'as-0' | 'listeners' | 'topology'
+  const [selectedNode, setSelectedNode] = useState('plan_root')
+
+  // Topology Chart metric view: 'users' | 'rps' | 'tokens'
+  const [topologyMetric, setTopologyMetric] = useState('users')
+
+  // Thread Group Inspector sub-tab: 'schedule' | 'hyperparams' | 'payload_preview'
+  const [activeTgTab, setActiveTgTab] = useState('schedule')
+
+  // Validation Probe modal & single sampler probe state
+  const [showProbeModal, setShowProbeModal] = useState(false)
+  const [isProbing, setIsProbing] = useState(false)
+  const [probeReport, setProbeReport] = useState(null)
+  const [isProbingSampler, setIsProbingSampler] = useState(false)
+  const [singleSamplerProbeResult, setSingleSamplerProbeResult] = useState(null)
 
   // Modals & Popovers
   const [showBlueprintsModal, setShowBlueprintsModal] = useState(false)
@@ -111,7 +142,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
   const [showImportModal, setShowImportModal] = useState(false)
   const [importJsonText, setImportJsonText] = useState('')
   const [copiedSnippet, setCopiedSnippet] = useState(false)
-  const [activeSnippetTab, setActiveSnippetTab] = useState('curl')
+  const [activeSnippetTab, setActiveSnippetTab] = useState('curl') // 'curl' | 'python' | 'k6' | 'cli'
 
   // Dropdown states
   const [showConfigDropdown, setShowConfigDropdown] = useState(false)
@@ -138,6 +169,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
     id: null,
     name: 'LLM Multi-Group Test Plan',
     description: 'JMeter-style orchestrated load testing plan for LLM endpoints',
+    serialize_threadgroups: false,
     thread_groups: [{ ...DEFAULT_THREAD_GROUP }],
     config_elements: [],
     assertions: [
@@ -145,11 +177,13 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
         type: 'latency',
         name: 'Latency p95 SLA',
         p95_max_ms: 2500,
+        enabled: true,
       },
       {
         type: 'error_rate',
         name: 'Error Rate SLA',
         max_pct: 5.0,
+        enabled: true,
       },
     ],
     listeners: ALL_LISTENERS.map((l) => l.id),
@@ -199,6 +233,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
         id: activePlan.id,
         name: activePlan.name || 'Unnamed Plan',
         description: activePlan.description || '',
+        serialize_threadgroups: !!cfg.serialize_threadgroups,
         thread_groups: Array.isArray(cfg.thread_groups) && cfg.thread_groups.length > 0
           ? cfg.thread_groups.map((tg, i) => ({
               ...DEFAULT_THREAD_GROUP,
@@ -207,8 +242,12 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               enabled: tg.enabled !== false,
             }))
           : [{ ...DEFAULT_THREAD_GROUP, id: 'tg-1' }],
-        config_elements: Array.isArray(cfg.config_elements) ? cfg.config_elements : [],
-        assertions: Array.isArray(cfg.assertions) ? cfg.assertions : [],
+        config_elements: Array.isArray(cfg.config_elements)
+          ? cfg.config_elements.map((ce) => ({ ...ce, enabled: ce.enabled !== false }))
+          : [],
+        assertions: Array.isArray(cfg.assertions)
+          ? cfg.assertions.map((a) => ({ ...a, enabled: a.enabled !== false }))
+          : [],
         listeners: Array.isArray(cfg.listeners) && cfg.listeners.length > 0
           ? cfg.listeners
           : ALL_LISTENERS.map((l) => l.id),
@@ -226,6 +265,28 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
     return computeWorkloadTopology(planForm)
   }, [planForm])
 
+  // Toggle enabled state of a tree node
+  const handleToggleNodeEnabled = (nodeType, index) => {
+    setPlanForm((prev) => {
+      if (nodeType === 'thread_group') {
+        const updated = [...prev.thread_groups]
+        updated[index] = { ...updated[index], enabled: updated[index].enabled === false }
+        return { ...prev, thread_groups: updated }
+      }
+      if (nodeType === 'config_element') {
+        const updated = [...prev.config_elements]
+        updated[index] = { ...updated[index], enabled: updated[index].enabled === false }
+        return { ...prev, config_elements: updated }
+      }
+      if (nodeType === 'assertion') {
+        const updated = [...prev.assertions]
+        updated[index] = { ...updated[index], enabled: updated[index].enabled === false }
+        return { ...prev, assertions: updated }
+      }
+      return prev
+    })
+  }
+
   // Handlers for Thread Groups
   const handleAddThreadGroup = () => {
     const newIdx = planForm.thread_groups.length
@@ -237,12 +298,14 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
       id: newId,
       name: `Thread Group ${newIdx + 1}`,
       runtime_id: defaultRt,
+      model: modelsCache[defaultRt]?.[0]?.name || '',
     }
     setPlanForm((prev) => ({
       ...prev,
       thread_groups: [...prev.thread_groups, newGroup],
     }))
     setSelectedNode(`tg-${newIdx}`)
+    setActiveTgTab('schedule')
   }
 
   const handleUpdateThreadGroup = (index, field, value) => {
@@ -287,7 +350,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
   const handleAddConfigElement = (type) => {
     const base = { type, enabled: true }
     if (type === 'csv_data_set') {
-      base.data = 'What is the capital of France?\nExplain quantum computing in simple terms.\nWrite a python quicksort function.'
+      base.data = PROMPT_SUITES[0].prompts.join('\n')
       base.column = ''
       base.mode = 'random'
     } else if (type === 'think_time' || type === 'timer') {
@@ -299,6 +362,11 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
     } else if (type === 'auth_header') {
       base.key = 'Authorization'
       base.value = 'Bearer custom-token-here'
+    } else if (type === 'header_manager') {
+      base.headers = {
+        'Content-Type': 'application/json',
+        'X-Client-Version': '1.0.0',
+      }
     } else if (type === 'token_budget') {
       base.max_tokens = 512
       base.temperature = 0.5
@@ -307,6 +375,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
         MODEL_NAME: 'meta-llama/Llama-3-8B',
         DEFAULT_TEMP: '0.7',
         API_TOKEN: 'sk-prod-dynollm-token',
+        SYSTEM_ROLE: 'expert software architect',
       }
     }
 
@@ -368,6 +437,12 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
     } else if (type === 'tokens_per_second') {
       base.name = 'Minimum Token Throughput'
       base.min_tps = 15.0
+    } else if (type === 'response_content') {
+      base.name = 'Response Content Validation'
+      base.content_pattern = ''
+    } else if (type === 'status_code') {
+      base.name = 'HTTP 200 OK Assertion'
+      base.expected_status = 200
     }
 
     const newIdx = planForm.assertions.length
@@ -432,21 +507,22 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
       id: null,
       name: blueprint.config.name,
       description: blueprint.config.description,
+      serialize_threadgroups: false,
       thread_groups: updatedGroups,
-      config_elements: blueprint.config.config_elements || [],
-      assertions: blueprint.config.assertions || [],
+      config_elements: (blueprint.config.config_elements || []).map((c) => ({ ...c, enabled: true })),
+      assertions: (blueprint.config.assertions || []).map((a) => ({ ...a, enabled: true })),
       listeners: ALL_LISTENERS.map((l) => l.id),
     })
 
     setShowBlueprintsModal(false)
     setSelectedNode('plan_root')
-    setSaveSuccessMsg(`Loaded template: "${blueprint.title}"`)
+    setSaveSuccessMsg(`Loaded blueprint: "${blueprint.title}"`)
     setTimeout(() => setSaveSuccessMsg(''), 4000)
   }
 
   // Export Apache JMeter JMX
   const handleExportJmx = () => {
-    const xml = exportPlanToJmx(planForm, runtimes)
+    const xml = exportPlanToJmx(buildPlanPayload(), runtimes)
     const blob = new Blob([xml], { type: 'application/xml;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const dlAnchor = document.createElement('a')
@@ -478,14 +554,15 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
         id: null,
         name: parsed.name,
         description: parsed.description || '',
+        serialize_threadgroups: !!parsed.serialize_threadgroups,
         thread_groups: parsed.thread_groups.map((tg, i) => ({
           ...DEFAULT_THREAD_GROUP,
           ...tg,
           id: tg.id || `tg-${i + 1}`,
-          enabled: true,
+          enabled: tg.enabled !== false,
         })),
-        config_elements: parsed.config_elements || [],
-        assertions: parsed.assertions || [],
+        config_elements: (parsed.config_elements || []).map((ce) => ({ ...ce, enabled: ce.enabled !== false })),
+        assertions: (parsed.assertions || []).map((a) => ({ ...a, enabled: a.enabled !== false })),
         listeners: parsed.listeners || ALL_LISTENERS.map((l) => l.id),
       })
       setShowImportModal(false)
@@ -524,63 +601,73 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
   }
 
   const buildPlanPayload = () => {
-    const enabledGroups = planForm.thread_groups.filter((g) => g.enabled !== false)
     return {
       id: planForm.id || undefined,
       name: planForm.name,
       description: planForm.description,
-      thread_groups: enabledGroups.map((tg) => ({
+      serialize_threadgroups: !!planForm.serialize_threadgroups,
+      thread_groups: planForm.thread_groups.map((tg) => ({
         id: tg.id,
         name: tg.name,
+        enabled: tg.enabled !== false,
         runtime_id: tg.runtime_id,
         model: tg.model,
+        sampler_type: tg.sampler_type || 'chat',
         pattern: tg.pattern || 'rampup',
         target_users: Number(tg.target_users) || 10,
         duration_seconds: Number(tg.duration_seconds) || 60,
         rampup_step_users: Number(tg.rampup_step_users) || 5,
         rampup_step_seconds: Number(tg.rampup_step_seconds) || 10,
+        rampdown_seconds: Number(tg.rampdown_seconds) || 0,
+        loop_count: tg.loop_count ? Number(tg.loop_count) : undefined,
+        target_rps: tg.target_rps ? Number(tg.target_rps) : undefined,
         system_prompt: tg.system_prompt || undefined,
         temperature: Number(tg.temperature) || 0.7,
+        top_p: tg.top_p != null ? Number(tg.top_p) : 1.0,
+        frequency_penalty: Number(tg.frequency_penalty) || 0.0,
+        presence_penalty: Number(tg.presence_penalty) || 0.0,
+        seed: tg.seed ? Number(tg.seed) : undefined,
+        streaming: tg.streaming !== false,
         max_tokens: Number(tg.max_tokens) || 256,
         request_timeout: Number(tg.request_timeout) || 120.0,
       })),
-      config_elements: planForm.config_elements
-        .filter((ce) => ce.enabled !== false)
-        .map((ce) => {
-          const item = { type: ce.type }
-          if (ce.type === 'csv_data_set') {
-            item.data = ce.data
-            item.column = ce.column || undefined
-            item.mode = ce.mode || 'random'
-          } else if (ce.type === 'think_time' || ce.type === 'timer') {
-            item.timer_type = ce.timer_type || 'uniform'
-            item.min_ms = Number(ce.min_ms) || 0
-            item.max_ms = Number(ce.max_ms) || 0
-            item.delay_ms = Number(ce.delay_ms) || undefined
-            item.deviation_ms = Number(ce.deviation_ms) || undefined
-          } else if (ce.type === 'auth_header') {
-            item.key = ce.key
-            item.value = ce.value
-          } else if (ce.type === 'token_budget') {
-            item.max_tokens = ce.max_tokens ? Number(ce.max_tokens) : undefined
-            item.temperature = ce.temperature != null ? Number(ce.temperature) : undefined
-          } else if (ce.type === 'user_defined_variables') {
-            item.variables = ce.variables || {}
-          }
-          return item
-        }),
-      assertions: planForm.assertions
-        .filter((a) => a.enabled !== false)
-        .map((a) => {
-          const item = { type: a.type, name: a.name }
-          if (a.type === 'latency') item.p95_max_ms = Number(a.p95_max_ms)
-          else if (a.type === 'p99_latency') item.p99_max_ms = Number(a.p99_max_ms)
-          else if (a.type === 'error_rate') item.max_pct = Number(a.max_pct)
-          else if (a.type === 'quality') item.min_rate = Number(a.min_rate)
-          else if (a.type === 'ttft') item.max_ms = Number(a.max_ms)
-          else if (a.type === 'tokens_per_second') item.min_tps = Number(a.min_tps)
-          return item
-        }),
+      config_elements: planForm.config_elements.map((ce) => {
+        const item = { type: ce.type, enabled: ce.enabled !== false }
+        if (ce.type === 'csv_data_set') {
+          item.data = ce.data
+          item.column = ce.column || undefined
+          item.mode = ce.mode || 'random'
+        } else if (ce.type === 'think_time' || ce.type === 'timer') {
+          item.timer_type = ce.timer_type || 'uniform'
+          item.min_ms = Number(ce.min_ms) || 0
+          item.max_ms = Number(ce.max_ms) || 0
+          item.delay_ms = Number(ce.delay_ms) || undefined
+          item.deviation_ms = Number(ce.deviation_ms) || undefined
+        } else if (ce.type === 'auth_header') {
+          item.key = ce.key
+          item.value = ce.value
+        } else if (ce.type === 'header_manager') {
+          item.headers = ce.headers || {}
+        } else if (ce.type === 'token_budget') {
+          item.max_tokens = ce.max_tokens ? Number(ce.max_tokens) : undefined
+          item.temperature = ce.temperature != null ? Number(ce.temperature) : undefined
+        } else if (ce.type === 'user_defined_variables') {
+          item.variables = ce.variables || {}
+        }
+        return item
+      }),
+      assertions: planForm.assertions.map((a) => {
+        const item = { type: a.type, name: a.name, enabled: a.enabled !== false }
+        if (a.type === 'latency') item.p95_max_ms = Number(a.p95_max_ms)
+        else if (a.type === 'p99_latency') item.p99_max_ms = Number(a.p99_max_ms)
+        else if (a.type === 'error_rate') item.max_pct = Number(a.max_pct)
+        else if (a.type === 'quality') item.min_rate = Number(a.min_rate)
+        else if (a.type === 'ttft') item.max_ms = Number(a.max_ms)
+        else if (a.type === 'tokens_per_second') item.min_tps = Number(a.min_tps)
+        else if (a.type === 'response_content') item.content_pattern = a.content_pattern
+        else if (a.type === 'status_code') item.expected_status = Number(a.expected_status) || 200
+        return item
+      }),
       listeners: planForm.listeners,
     }
   }
@@ -622,6 +709,55 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
     }
   }
 
+  // Handle Full Plan Probe Validation (Dry-Run)
+  const handleProbePlan = async () => {
+    if (!validateForm()) return
+    setIsProbing(true)
+    setProbeReport(null)
+    setShowProbeModal(true)
+    try {
+      const payload = buildPlanPayload()
+      const result = await loadTestPlansApi.probe(payload)
+      setProbeReport(result)
+    } catch (err) {
+      setProbeReport({
+        success: false,
+        overall_passed: false,
+        error_message: err.message || 'Probe validation failed',
+        probe_results: [],
+      })
+    } finally {
+      setIsProbing(false)
+    }
+  }
+
+  // Handle Single Sampler Probe Test inside Thread Group Inspector
+  const handleProbeSingleSampler = async (tg) => {
+    if (!tg.runtime_id || !tg.model) {
+      alert('Please select a valid Runtime Endpoint and Model first.')
+      return
+    }
+    setIsProbingSampler(true)
+    setSingleSamplerProbeResult(null)
+    try {
+      const singleTgPlan = {
+        ...buildPlanPayload(),
+        thread_groups: [{ ...tg, enabled: true }],
+      }
+      const result = await loadTestPlansApi.probe(singleTgPlan)
+      if (result.probe_results && result.probe_results.length > 0) {
+        setSingleSamplerProbeResult(result.probe_results[0])
+      }
+    } catch (err) {
+      setSingleSamplerProbeResult({
+        success: false,
+        error_message: err.message || 'Sampler probe failed',
+      })
+    } finally {
+      setIsProbingSampler(false)
+    }
+  }
+
   const handleResetToNew = () => {
     resetActivePlan()
     const defaultRt = runtimes[0]?.id || ''
@@ -630,11 +766,13 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
       id: null,
       name: 'New Concurrency Test Plan',
       description: 'Orchestrated JMeter-style test plan',
+      serialize_threadgroups: false,
       thread_groups: [
         {
           ...DEFAULT_THREAD_GROUP,
           id: 'tg-1',
           runtime_id: defaultRt,
+          model: modelsCache[defaultRt]?.[0]?.name || '',
         },
       ],
       config_elements: [],
@@ -643,11 +781,13 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
           type: 'latency',
           name: 'Latency p95 SLA',
           p95_max_ms: 2500,
+          enabled: true,
         },
         {
           type: 'error_rate',
           name: 'Error Rate SLA',
           max_pct: 5.0,
+          enabled: true,
         },
       ],
       listeners: ALL_LISTENERS.map((l) => l.id),
@@ -666,6 +806,38 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
     } catch (e) {
       setFormError(e.message || 'Failed to delete plan')
     }
+  }
+
+  // Interpolated Sampler Payload Preview
+  const getSamplerPayloadPreview = (tg) => {
+    const udvElement = planForm.config_elements.find(
+      (ce) => ce.type === 'user_defined_variables' && ce.enabled !== false
+    )
+    const vars = udvElement?.variables || {}
+
+    let modelName = tg.model || 'meta-llama/Llama-3-8B'
+    let systemPrompt = tg.system_prompt || ''
+    Object.entries(vars).forEach(([k, v]) => {
+      const ph = `\${${k}}`
+      modelName = modelName.replaceAll(ph, v)
+      systemPrompt = systemPrompt.replaceAll(ph, v)
+    })
+
+    const payloadObj = {
+      model: modelName,
+      messages: [
+        ...(systemPrompt ? [{ role: 'system', content: systemPrompt }] : []),
+        { role: 'user', content: 'What is the speed of light in vacuum?' },
+      ],
+      stream: tg.streaming !== false,
+      temperature: Number(tg.temperature) || 0.7,
+      max_tokens: Number(tg.max_tokens) || 256,
+      top_p: Number(tg.top_p) || 1.0,
+      frequency_penalty: Number(tg.frequency_penalty) || 0.0,
+      presence_penalty: Number(tg.presence_penalty) || 0.0,
+    }
+
+    return JSON.stringify(payloadObj, null, 2)
   }
 
   // Snippets
@@ -738,7 +910,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               )}
             </div>
             <p className="text-xs text-gray-400 mt-1">
-              Hierarchical Workbench tree, interactive workload schedule curve preview, and developer-grade assertions.
+              Hierarchical Workbench tree, interactive workload schedule curve preview, 1-shot validation probes, and developer-grade assertions.
             </p>
           </div>
 
@@ -774,7 +946,19 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               </button>
             </div>
 
-            {/* Blueprints / Templates Button */}
+            {/* Validation Probe Button */}
+            <button
+              type="button"
+              onClick={handleProbePlan}
+              disabled={isProbing || isExecuting}
+              className="btn-secondary text-xs py-1.5 px-3 flex items-center space-x-1.5 border border-purple-500/40 text-purple-300 hover:text-white hover:bg-purple-950/40 shadow-sm"
+              title="Execute a single 1-shot dry-run probe to validate endpoints, authentication, and token generation"
+            >
+              <FlaskConical className="w-3.5 h-3.5 text-purple-400" />
+              <span>Validate Plan (Probe)</span>
+            </button>
+
+            {/* Blueprints Button */}
             <button
               type="button"
               onClick={() => setShowBlueprintsModal(true)}
@@ -784,7 +968,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               <span>Blueprints</span>
             </button>
 
-            {/* JMX & JSON Export/Import */}
+            {/* JMX & Snippets Export */}
             <button
               type="button"
               onClick={handleExportJmx}
@@ -799,10 +983,10 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               type="button"
               onClick={() => setShowExportModal(true)}
               className="btn-secondary text-xs py-1.5 px-2.5 flex items-center space-x-1 text-gray-300 hover:text-white"
-              title="View JSON and cURL snippet"
+              title="View cURL, Python, k6 and JMeter CLI commands"
             >
               <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-              <span>cURL</span>
+              <span>Code &amp; CLI</span>
             </button>
 
             <button
@@ -890,19 +1074,52 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
           <div className="flex items-center space-x-2">
             <Activity className="w-4 h-4 text-sky-400" />
             <h3 className="text-sm font-bold text-white">Workload Concurrency Topology Preview</h3>
-            <span className="text-[11px] px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800">
-              Stepping Thread Schedule
-            </span>
+            
+            {/* Metric Mode Switcher */}
+            <div className="flex items-center bg-gray-900 border border-gray-800 rounded p-0.5 ml-2">
+              <button
+                type="button"
+                onClick={() => setTopologyMetric('users')}
+                className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${
+                  topologyMetric === 'users' ? 'bg-sky-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                VUs (Threads)
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopologyMetric('rps')}
+                className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${
+                  topologyMetric === 'rps' ? 'bg-sky-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                Req/s
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopologyMetric('tokens')}
+                className={`text-[10px] px-2 py-0.5 rounded font-mono transition-colors ${
+                  topologyMetric === 'tokens' ? 'bg-sky-600 text-white font-bold' : 'text-gray-400 hover:text-gray-200'
+                }`}
+              >
+                Tokens/s
+              </button>
+            </div>
           </div>
-          <div className="flex items-center space-x-4 text-xs">
+
+          {/* Dynamic Calculated Statistics */}
+          <div className="flex flex-wrap items-center gap-3 text-xs">
             <div className="text-gray-400">
               Duration: <span className="text-white font-mono font-semibold">{topology.totalDurationSeconds}s</span>
             </div>
             <div className="text-gray-400">
-              Peak VUs: <span className="text-sky-300 font-mono font-semibold">{topology.peakUsers} threads</span>
+              Peak Concurrency: <span className="text-sky-300 font-mono font-semibold">{topology.peakUsers} VUs</span>
             </div>
             <div className="text-gray-400">
               Est. Invocations: <span className="text-emerald-300 font-mono font-semibold">~{topology.totalEstimatedRequests} reqs</span>
+            </div>
+            <div className="text-gray-400">
+              Est. Tokens: <span className="text-amber-300 font-mono font-semibold">~{Math.round(topology.totalEstimatedTokens / 1000)}k tokens</span>
             </div>
           </div>
         </div>
@@ -913,8 +1130,16 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
             <AreaChart data={topology.timelineData} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
               <defs>
                 <linearGradient id="topologyGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#0284c7" stopOpacity={0.6} />
-                  <stop offset="95%" stopColor="#0284c7" stopOpacity={0.0} />
+                  <stop
+                    offset="5%"
+                    stopColor={topologyMetric === 'tokens' ? '#f59e0b' : topologyMetric === 'rps' ? '#10b981' : '#0284c7'}
+                    stopOpacity={0.6}
+                  />
+                  <stop
+                    offset="95%"
+                    stopColor={topologyMetric === 'tokens' ? '#f59e0b' : topologyMetric === 'rps' ? '#10b981' : '#0284c7'}
+                    stopOpacity={0.0}
+                  />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
@@ -927,12 +1152,17 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                     return (
                       <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow-xl text-xs space-y-1 font-mono">
                         <div className="text-gray-400 font-sans font-semibold">Elapsed: {label} ({data.second}s)</div>
-                        <div className="text-sky-400 font-bold">Total Virtual Users: {data.totalUsers}</div>
-                        {topology.groupSchedules.map((g) => (
-                          <div key={g.id} className="text-[11px] text-gray-300">
-                            {g.name}: <span className="text-white">{data[g.name] || 0} VUs</span>
-                          </div>
-                        ))}
+                        <div className="text-sky-400 font-bold">Total Virtual Users: {data.totalUsers} VUs</div>
+                        <div className="text-emerald-400">Projected Rate: ~{data.totalRps} req/s</div>
+                        <div className="text-amber-400">Token Bandwidth: ~{data.totalTokensPerSec} tokens/s</div>
+                        <div className="pt-1 border-t border-gray-800 space-y-0.5">
+                          {topology.groupSchedules.map((g) => (
+                            <div key={g.id} className="text-[11px] text-gray-300 flex justify-between gap-4">
+                              <span>{g.name}:</span>
+                              <span className="text-white font-semibold">{data[g.name] || 0} VUs</span>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )
                   }
@@ -941,12 +1171,12 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               />
               <Area
                 type="stepAfter"
-                dataKey="totalUsers"
-                stroke="#38bdf8"
+                dataKey={topologyMetric === 'tokens' ? 'totalTokensPerSec' : topologyMetric === 'rps' ? 'totalRps' : 'totalUsers'}
+                stroke={topologyMetric === 'tokens' ? '#fbbf24' : topologyMetric === 'rps' ? '#34d399' : '#38bdf8'}
                 strokeWidth={2}
                 fillOpacity={1}
                 fill="url(#topologyGrad)"
-                name="Total Concurrent Users"
+                name={topologyMetric === 'tokens' ? 'Tokens per Second' : topologyMetric === 'rps' ? 'Requests per Second' : 'Concurrent VUs'}
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -965,7 +1195,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                 <span>Test Plan Workbench Tree</span>
               </div>
               <span className="text-[10px] text-gray-500 font-mono">
-                {planForm.thread_groups.length} TG • {planForm.config_elements.length} CE • {planForm.assertions.length} AS
+                {planForm.thread_groups.filter((g) => g.enabled !== false).length}/{planForm.thread_groups.length} TG
               </span>
             </div>
 
@@ -1002,43 +1232,62 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                   </button>
                 </div>
 
-                {planForm.config_elements.map((ce, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setSelectedNode(`ce-${idx}`)}
-                    className={`w-full text-left pl-3 pr-2 py-1 rounded-md flex items-center justify-between transition-colors ${
-                      selectedNode === `ce-${idx}`
-                        ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-700 font-medium'
-                        : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 truncate">
-                      {ce.type === 'csv_data_set' && <Database className="w-3 h-3 text-emerald-400 shrink-0" />}
-                      {(ce.type === 'think_time' || ce.type === 'timer') && <Clock className="w-3 h-3 text-cyan-400 shrink-0" />}
-                      {ce.type === 'auth_header' && <Key className="w-3 h-3 text-amber-400 shrink-0" />}
-                      {ce.type === 'token_budget' && <Sliders className="w-3 h-3 text-purple-400 shrink-0" />}
-                      {ce.type === 'user_defined_variables' && <Code className="w-3 h-3 text-sky-400 shrink-0" />}
-                      <span className="truncate font-sans text-xs">
-                        {ce.type === 'csv_data_set' && 'CSV Data Set'}
-                        {(ce.type === 'think_time' || ce.type === 'timer') && `Pacing (${ce.timer_type || 'uniform'})`}
-                        {ce.type === 'auth_header' && 'HTTP Auth Header'}
-                        {ce.type === 'token_budget' && 'Token Budget'}
-                        {ce.type === 'user_defined_variables' && 'User Variables (UDV)'}
-                      </span>
-                    </div>
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleRemoveConfigElement(idx)
-                      }}
-                      className="text-gray-500 hover:text-red-400 p-0.5 rounded"
-                      title="Remove"
+                {planForm.config_elements.map((ce, idx) => {
+                  const isEnabled = ce.enabled !== false
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setSelectedNode(`ce-${idx}`)}
+                      className={`w-full text-left pl-3 pr-2 py-1 rounded-md flex items-center justify-between transition-colors ${
+                        selectedNode === `ce-${idx}`
+                          ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-700 font-medium'
+                          : isEnabled
+                          ? 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                          : 'text-gray-600 line-through hover:bg-gray-900/50'
+                      }`}
                     >
-                      <Trash2 className="w-3 h-3" />
-                    </span>
-                  </button>
-                ))}
+                      <div className="flex items-center space-x-1.5 truncate">
+                        {ce.type === 'csv_data_set' && <Database className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-emerald-400' : 'text-gray-600'}`} />}
+                        {(ce.type === 'think_time' || ce.type === 'timer') && <Clock className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-cyan-400' : 'text-gray-600'}`} />}
+                        {ce.type === 'auth_header' && <Key className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-amber-400' : 'text-gray-600'}`} />}
+                        {ce.type === 'header_manager' && <Sliders className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-indigo-400' : 'text-gray-600'}`} />}
+                        {ce.type === 'token_budget' && <Sliders className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-purple-400' : 'text-gray-600'}`} />}
+                        {ce.type === 'user_defined_variables' && <Code className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-sky-400' : 'text-gray-600'}`} />}
+                        <span className="truncate font-sans text-xs">
+                          {ce.type === 'csv_data_set' && 'CSV Data Set'}
+                          {(ce.type === 'think_time' || ce.type === 'timer') && `Pacing (${ce.timer_type || 'uniform'})`}
+                          {ce.type === 'auth_header' && 'HTTP Auth Header'}
+                          {ce.type === 'header_manager' && 'Header Manager'}
+                          {ce.type === 'token_budget' && 'Token Budget'}
+                          {ce.type === 'user_defined_variables' && 'User Variables (UDV)'}
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleToggleNodeEnabled('config_element', idx)
+                          }}
+                          className={`p-0.5 rounded hover:text-white ${isEnabled ? 'text-gray-400' : 'text-gray-600'}`}
+                          title={isEnabled ? 'Disable element' : 'Enable element'}
+                        >
+                          {isEnabled ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        </span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRemoveConfigElement(idx)
+                          }}
+                          className="text-gray-500 hover:text-red-400 p-0.5 rounded"
+                          title="Remove"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
 
               {/* SECTION: Thread Groups */}
@@ -1055,35 +1304,57 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                   </button>
                 </div>
 
-                {planForm.thread_groups.map((tg, idx) => (
-                  <div key={tg.id || idx} className="space-y-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedNode(`tg-${idx}`)}
-                      className={`w-full text-left pl-3 pr-2 py-1 rounded-md flex items-center justify-between transition-colors ${
-                        selectedNode === `tg-${idx}`
-                          ? 'bg-indigo-950/80 text-indigo-200 border border-indigo-700 font-medium'
-                          : 'text-gray-300 hover:bg-gray-900 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-1.5 truncate">
-                        <Users className="w-3 h-3 text-indigo-400 shrink-0" />
-                        <span className="truncate font-sans text-xs font-semibold">{tg.name}</span>
-                      </div>
-                      <span className="text-[10px] text-gray-400 font-mono">
-                        {tg.target_users} VU
-                      </span>
-                    </button>
+                {planForm.thread_groups.map((tg, idx) => {
+                  const isEnabled = tg.enabled !== false
+                  return (
+                    <div key={tg.id || idx} className="space-y-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedNode(`tg-${idx}`)}
+                        className={`w-full text-left pl-3 pr-2 py-1 rounded-md flex items-center justify-between transition-colors ${
+                          selectedNode === `tg-${idx}`
+                            ? 'bg-indigo-950/80 text-indigo-200 border border-indigo-700 font-medium'
+                            : isEnabled
+                            ? 'text-gray-300 hover:bg-gray-900 hover:text-white'
+                            : 'text-gray-600 line-through hover:bg-gray-900/50'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-1.5 truncate">
+                          <Users className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-indigo-400' : 'text-gray-600'}`} />
+                          <span className="truncate font-sans text-xs font-semibold">{tg.name}</span>
+                        </div>
+                        <div className="flex items-center space-x-1.5 shrink-0">
+                          <span className="text-[10px] text-gray-400 font-mono">
+                            {tg.target_users} VU
+                          </span>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleToggleNodeEnabled('thread_group', idx)
+                            }}
+                            className={`p-0.5 rounded hover:text-white ${isEnabled ? 'text-gray-400' : 'text-gray-600'}`}
+                            title={isEnabled ? 'Disable Thread Group' : 'Enable Thread Group'}
+                          >
+                            {isEnabled ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                          </span>
+                        </div>
+                      </button>
 
-                    {/* Child Sampler Node */}
-                    <div className="pl-5">
-                      <div className="flex items-center space-x-1.5 text-[11px] text-gray-400 py-0.5">
-                        <Zap className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                        <span className="truncate font-mono">{tg.model || 'Sampler (LLM Chat)'}</span>
+                      {/* Child Sampler Node */}
+                      <div className="pl-5">
+                        <div className={`flex items-center space-x-1.5 text-[11px] py-0.5 ${isEnabled ? 'text-gray-400' : 'text-gray-600'}`}>
+                          <Zap className={`w-2.5 h-2.5 shrink-0 ${isEnabled ? 'text-amber-400' : 'text-gray-600'}`} />
+                          <span className="truncate font-mono">{tg.model || 'LLM Sampler (Chat)'}</span>
+                          {tg.streaming !== false && (
+                            <span className="text-[9px] px-1 rounded bg-sky-950 text-sky-400 border border-sky-800">
+                              stream
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
 
               {/* SECTION: Assertions */}
@@ -1100,33 +1371,50 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                   </button>
                 </div>
 
-                {planForm.assertions.map((a, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setSelectedNode(`as-${idx}`)}
-                    className={`w-full text-left pl-3 pr-2 py-1 rounded-md flex items-center justify-between transition-colors ${
-                      selectedNode === `as-${idx}`
-                        ? 'bg-amber-950/80 text-amber-200 border border-amber-700 font-medium'
-                        : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-1.5 truncate">
-                      <ShieldCheck className="w-3 h-3 text-amber-400 shrink-0" />
-                      <span className="truncate font-sans text-xs">{a.name || a.type}</span>
-                    </div>
-                    <span
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleRemoveAssertion(idx)
-                      }}
-                      className="text-gray-500 hover:text-red-400 p-0.5 rounded"
-                      title="Remove"
+                {planForm.assertions.map((a, idx) => {
+                  const isEnabled = a.enabled !== false
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setSelectedNode(`as-${idx}`)}
+                      className={`w-full text-left pl-3 pr-2 py-1 rounded-md flex items-center justify-between transition-colors ${
+                        selectedNode === `as-${idx}`
+                          ? 'bg-amber-950/80 text-amber-200 border border-amber-700 font-medium'
+                          : isEnabled
+                          ? 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                          : 'text-gray-600 line-through hover:bg-gray-900/50'
+                      }`}
                     >
-                      <Trash2 className="w-3 h-3" />
-                    </span>
-                  </button>
-                ))}
+                      <div className="flex items-center space-x-1.5 truncate">
+                        <ShieldCheck className={`w-3 h-3 shrink-0 ${isEnabled ? 'text-amber-400' : 'text-gray-600'}`} />
+                        <span className="truncate font-sans text-xs">{a.name || a.type}</span>
+                      </div>
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleToggleNodeEnabled('assertion', idx)
+                          }}
+                          className={`p-0.5 rounded hover:text-white ${isEnabled ? 'text-gray-400' : 'text-gray-600'}`}
+                          title={isEnabled ? 'Disable assertion' : 'Enable assertion'}
+                        >
+                          {isEnabled ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                        </span>
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleRemoveAssertion(idx)
+                          }}
+                          className="text-gray-500 hover:text-red-400 p-0.5 rounded"
+                          title="Remove"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
               </div>
 
               {/* SECTION: Listeners */}
@@ -1148,7 +1436,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               </div>
             </div>
 
-            {/* Tree Add Elements Bar */}
+            {/* Tree Quick Add Elements Bar */}
             <div className="pt-2 border-t border-gray-800 grid grid-cols-2 gap-1.5">
               <button
                 type="button"
@@ -1179,7 +1467,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                     <Layers className="w-5 h-5 text-sky-400" />
                     <div>
                       <h3 className="text-base font-bold text-white">Test Plan Configuration</h3>
-                      <p className="text-xs text-gray-400">Global settings and shared execution parameters.</p>
+                      <p className="text-xs text-gray-400">Global orchestrator settings and concurrency execution policy.</p>
                     </div>
                   </div>
                   <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-gray-800 text-gray-300">
@@ -1206,6 +1494,20 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                       onChange={(e) => setPlanForm({ ...planForm, description: e.target.value })}
                     />
                   </div>
+
+                  {/* Execution Mode */}
+                  <div className="p-3 rounded-xl bg-gray-900/60 border border-gray-800 space-y-2">
+                    <div className="text-xs font-semibold text-gray-200">Execution Policy</div>
+                    <label className="flex items-center space-x-2.5 cursor-pointer text-xs text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={planForm.serialize_threadgroups}
+                        onChange={(e) => setPlanForm({ ...planForm, serialize_threadgroups: e.target.checked })}
+                        className="rounded border-gray-700 bg-gray-800 text-sky-600 focus:ring-sky-600"
+                      />
+                      <span>Run Thread Groups consecutively (one by one) instead of simultaneously</span>
+                    </label>
+                  </div>
                 </div>
 
                 {/* Quick Add Shortcuts */}
@@ -1228,11 +1530,19 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                   </button>
                   <button
                     type="button"
+                    onClick={() => handleAddConfigElement('header_manager')}
+                    className="btn-secondary text-xs py-1 px-2.5 flex items-center space-x-1.5"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>+ Add Header Manager</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => handleAddAssertion('latency')}
                     className="btn-secondary text-xs py-1 px-2.5 flex items-center space-x-1.5"
                   >
                     <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
-                    <span>+ Add Latency Assertion</span>
+                    <span>+ Add Latency SLA</span>
                   </button>
                 </div>
               </div>
@@ -1253,11 +1563,27 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                         {tgIdx + 1}
                       </span>
                       <div>
-                        <h3 className="text-base font-bold text-white">Thread Group: {tg.name}</h3>
+                        <div className="flex items-center space-x-2">
+                          <h3 className="text-base font-bold text-white">{tg.name}</h3>
+                          {tg.enabled === false && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-950 text-red-300 border border-red-800">
+                              Disabled
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-400">Concurrency profile and LLM Chat Sampler parameters.</p>
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNodeEnabled('thread_group', tgIdx)}
+                        className="btn-secondary text-xs py-1 px-2.5 flex items-center space-x-1"
+                        title={tg.enabled !== false ? 'Disable Thread Group' : 'Enable Thread Group'}
+                      >
+                        {tg.enabled !== false ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{tg.enabled !== false ? 'Disable' : 'Enable'}</span>
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleDuplicateThreadGroup(tgIdx)}
@@ -1280,201 +1606,395 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                     </div>
                   </div>
 
-                  {/* Thread Group Name */}
-                  <div>
-                    <label className="text-[11px] font-medium text-gray-400 mb-1 block">Group Name</label>
-                    <input
-                      type="text"
-                      className="input text-xs font-semibold py-1.5"
-                      value={tg.name}
-                      onChange={(e) => handleUpdateThreadGroup(tgIdx, 'name', e.target.value)}
-                    />
+                  {/* Sub-tab Navigation for Thread Group */}
+                  <div className="flex items-center space-x-1 border-b border-gray-800 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTgTab('schedule')}
+                      className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
+                        activeTgTab === 'schedule'
+                          ? 'bg-sky-600 text-white font-semibold shadow-sm'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      1. Concurrency &amp; Schedule
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTgTab('hyperparams')}
+                      className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
+                        activeTgTab === 'hyperparams'
+                          ? 'bg-sky-600 text-white font-semibold shadow-sm'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      2. LLM Sampler &amp; Hyperparameters
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTgTab('payload_preview')}
+                      className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
+                        activeTgTab === 'payload_preview'
+                          ? 'bg-sky-600 text-white font-semibold shadow-sm'
+                          : 'text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      3. Live JSON &amp; Probe Tester
+                    </button>
                   </div>
 
-                  {/* Runtime & Model */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-[11px] font-medium text-gray-400 mb-1 block">Runtime Endpoint</label>
-                      <select
-                        className="select text-xs py-1.5"
-                        value={tg.runtime_id}
-                        onChange={(e) => handleUpdateThreadGroup(tgIdx, 'runtime_id', e.target.value)}
-                      >
-                        <option value="">-- Select Runtime --</option>
-                        {runtimes.map((rt) => (
-                          <option key={rt.id} value={rt.id}>
-                            {rt.name} ({rt.runtime_type})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-medium text-gray-400 mb-1 block">Model Sampler</label>
-                      {availableModels.length > 0 ? (
-                        <select
-                          className="select text-xs py-1.5 font-mono"
-                          value={tg.model}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'model', e.target.value)}
-                        >
-                          <option value="">-- Select Model --</option>
-                          {availableModels.map((m) => (
-                            <option key={m.name} value={m.name}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
+                  {/* TAB 1: Schedule */}
+                  {activeTgTab === 'schedule' && (
+                    <div className="space-y-3.5">
+                      <div>
+                        <label className="text-[11px] font-medium text-gray-400 mb-1 block">Group Name</label>
                         <input
                           type="text"
-                          className="input text-xs py-1.5 font-mono"
-                          placeholder="e.g. meta-llama/Llama-3-8B"
-                          value={tg.model}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'model', e.target.value)}
+                          className="input text-xs font-semibold py-1.5"
+                          value={tg.name}
+                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'name', e.target.value)}
                         />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="text-[11px] font-medium text-gray-400 mb-1 block">Traffic Pattern</label>
+                          <select
+                            className="select text-xs py-1.5"
+                            value={tg.pattern}
+                            onChange={(e) => handleUpdateThreadGroup(tgIdx, 'pattern', e.target.value)}
+                          >
+                            <option value="rampup">Ramp-up (Stepped staircase increase)</option>
+                            <option value="constant">Constant (Steady sustained concurrency)</option>
+                            <option value="spike">Spike (Sudden pulse burst)</option>
+                            <option value="stress">Stress (Continuous saturation steps)</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-medium text-gray-400 mb-1 block">
+                            Target RPS Cap (Optional Pacing)
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            placeholder="Unconstrained (Max throughput)"
+                            className="input text-xs py-1.5"
+                            value={tg.target_rps || ''}
+                            onChange={(e) => handleUpdateThreadGroup(tgIdx, 'target_rps', parseFloat(e.target.value) || undefined)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Stepping Profile */}
+                      <div className="p-3.5 rounded-xl bg-gray-900/60 border border-gray-800 space-y-3">
+                        <div className="text-xs font-semibold text-gray-200 flex items-center space-x-2">
+                          <Clock className="w-3.5 h-3.5 text-sky-400" />
+                          <span>Concurrency Stepping Schedule</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Target VUs (Threads)
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              className="input text-xs py-1 px-2"
+                              value={tg.target_users}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'target_users', parseInt(e.target.value) || 1)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Duration (seconds)
+                            </label>
+                            <input
+                              type="number"
+                              min="5"
+                              className="input text-xs py-1 px-2"
+                              value={tg.duration_seconds}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'duration_seconds', parseInt(e.target.value) || 10)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Ramp Step VUs
+                            </label>
+                            <input
+                              type="number"
+                              min="1"
+                              className="input text-xs py-1 px-2"
+                              value={tg.rampup_step_users}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'rampup_step_users', parseInt(e.target.value) || 1)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Ramp Step Time (s)
+                            </label>
+                            <input
+                              type="number"
+                              min="2"
+                              className="input text-xs py-1 px-2"
+                              value={tg.rampup_step_seconds}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'rampup_step_seconds', parseInt(e.target.value) || 5)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Cooldown / Rampdown (s)
+                            </label>
+                            <input
+                              type="number"
+                              min="0"
+                              className="input text-xs py-1 px-2"
+                              value={tg.rampdown_seconds || 0}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'rampdown_seconds', parseInt(e.target.value) || 0)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 2: Hyperparameters & Sampler */}
+                  {activeTgTab === 'hyperparams' && (
+                    <div className="space-y-3.5">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[11px] font-medium text-gray-400 mb-1 block">Runtime Endpoint</label>
+                          <select
+                            className="select text-xs py-1.5"
+                            value={tg.runtime_id}
+                            onChange={(e) => handleUpdateThreadGroup(tgIdx, 'runtime_id', e.target.value)}
+                          >
+                            <option value="">-- Select Runtime --</option>
+                            {runtimes.map((rt) => (
+                              <option key={rt.id} value={rt.id}>
+                                {rt.name} ({rt.runtime_type})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-medium text-gray-400 mb-1 block">Model Sampler</label>
+                          {availableModels.length > 0 ? (
+                            <select
+                              className="select text-xs py-1.5 font-mono"
+                              value={tg.model}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'model', e.target.value)}
+                            >
+                              <option value="">-- Select Model --</option>
+                              {availableModels.map((m) => (
+                                <option key={m.name} value={m.name}>
+                                  {m.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              className="input text-xs py-1.5 font-mono"
+                              placeholder="e.g. meta-llama/Llama-3-8B"
+                              value={tg.model}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'model', e.target.value)}
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-medium text-gray-400 mb-1 block">Endpoint Type</label>
+                          <select
+                            className="select text-xs py-1.5 font-mono"
+                            value={tg.sampler_type || 'chat'}
+                            onChange={(e) => handleUpdateThreadGroup(tgIdx, 'sampler_type', e.target.value)}
+                          >
+                            <option value="chat">/v1/chat/completions (Chat)</option>
+                            <option value="completion">/v1/completions (Raw text)</option>
+                            <option value="embedding">/v1/embeddings (Vector)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Hyperparameters Grid */}
+                      <div className="p-3.5 rounded-xl bg-gray-900/60 border border-gray-800 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-semibold text-gray-200 flex items-center space-x-2">
+                            <Zap className="w-3.5 h-3.5 text-amber-400" />
+                            <span>LLM Sampler Hyperparameters</span>
+                          </div>
+                          <label className="flex items-center space-x-2 cursor-pointer text-xs text-sky-300">
+                            <input
+                              type="checkbox"
+                              checked={tg.streaming !== false}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'streaming', e.target.checked)}
+                              className="rounded border-gray-700 bg-gray-800 text-sky-600 focus:ring-sky-600"
+                            />
+                            <span>Stream Response (Calculates TTFT)</span>
+                          </label>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Max Tokens
+                            </label>
+                            <input
+                              type="number"
+                              min="16"
+                              className="input text-xs py-1 px-2"
+                              value={tg.max_tokens}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'max_tokens', parseInt(e.target.value) || 128)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Temperature
+                            </label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="2"
+                              className="input text-xs py-1 px-2"
+                              value={tg.temperature}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'temperature', parseFloat(e.target.value) || 0.7)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Top-P Sampling
+                            </label>
+                            <input
+                              type="number"
+                              step="0.05"
+                              min="0"
+                              max="1"
+                              className="input text-xs py-1 px-2"
+                              value={tg.top_p ?? 1.0}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'top_p', parseFloat(e.target.value) || 1.0)}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
+                              Timeout (s)
+                            </label>
+                            <input
+                              type="number"
+                              min="5"
+                              className="input text-xs py-1 px-2"
+                              value={tg.request_timeout}
+                              onChange={(e) => handleUpdateThreadGroup(tgIdx, 'request_timeout', parseFloat(e.target.value) || 120)}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-medium text-gray-400 mb-1 block">
+                            System Prompt / Preamble (Supports <code className="text-sky-300 font-mono">${'{VAR}'}</code>)
+                          </label>
+                          <textarea
+                            rows={2}
+                            className="input text-xs font-mono w-full"
+                            placeholder="e.g. You are an expert AI assistant specializing in ${SYSTEM_ROLE}."
+                            value={tg.system_prompt || ''}
+                            onChange={(e) => handleUpdateThreadGroup(tgIdx, 'system_prompt', e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TAB 3: Live JSON Payload Preview & 1-Shot Sampler Probe */}
+                  {activeTgTab === 'payload_preview' && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between pb-2 border-b border-gray-800">
+                        <div>
+                          <h4 className="text-xs font-bold text-white flex items-center space-x-1.5">
+                            <FileJson className="w-4 h-4 text-emerald-400" />
+                            <span>Live HTTP JSON Request Body</span>
+                          </h4>
+                          <p className="text-[11px] text-gray-400">
+                            Variables from User Defined Variables (UDVs) are dynamically substituted.
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleProbeSingleSampler(tg)}
+                          disabled={isProbingSampler}
+                          className="btn-primary text-xs py-1.5 px-3 flex items-center space-x-1.5 shadow-md"
+                        >
+                          {isProbingSampler ? (
+                            <>
+                              <Spinner size="xs" />
+                              <span>Probing Sampler...</span>
+                            </>
+                          ) : (
+                            <>
+                              <FlaskConical className="w-3.5 h-3.5 text-purple-200" />
+                              <span>Test Sampler Probe (1-Shot)</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* JSON Code Viewer */}
+                      <pre className="p-3 bg-gray-950 rounded-xl border border-gray-800 text-xs font-mono text-emerald-300 overflow-x-auto max-h-52">
+                        {getSamplerPayloadPreview(tg)}
+                      </pre>
+
+                      {/* Probe Result Terminal Viewer */}
+                      {singleSamplerProbeResult && (
+                        <div className="p-3.5 rounded-xl bg-gray-900 border border-gray-700/80 space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-white flex items-center space-x-1.5">
+                              {singleSamplerProbeResult.success ? (
+                                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <AlertTriangle className="w-4 h-4 text-rose-400" />
+                              )}
+                              <span>Probe Result ({singleSamplerProbeResult.status_code || (singleSamplerProbeResult.success ? 200 : 'Error')})</span>
+                            </span>
+                            <div className="flex items-center space-x-3 text-[11px] font-mono">
+                              {singleSamplerProbeResult.ttft_ms && (
+                                <span className="text-cyan-300">TTFT: {singleSamplerProbeResult.ttft_ms}ms</span>
+                              )}
+                              {singleSamplerProbeResult.total_latency_ms && (
+                                <span className="text-sky-300">Total: {singleSamplerProbeResult.total_latency_ms}ms</span>
+                              )}
+                              {singleSamplerProbeResult.tokens_per_second && (
+                                <span className="text-emerald-300">Speed: {singleSamplerProbeResult.tokens_per_second} TPS</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {singleSamplerProbeResult.error_message ? (
+                            <div className="text-xs text-rose-300 font-mono bg-rose-950/60 p-2.5 rounded-lg border border-rose-800">
+                              {singleSamplerProbeResult.error_message}
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="text-[10px] text-gray-400 mb-1 uppercase font-semibold">Response Content:</div>
+                              <div className="text-xs text-gray-200 font-mono bg-gray-950 p-2.5 rounded-lg border border-gray-800 max-h-32 overflow-y-auto">
+                                {singleSamplerProbeResult.response_preview || '(No content returned)'}
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-
-                    <div>
-                      <label className="text-[11px] font-medium text-gray-400 mb-1 block">Traffic Pattern</label>
-                      <select
-                        className="select text-xs py-1.5"
-                        value={tg.pattern}
-                        onChange={(e) => handleUpdateThreadGroup(tgIdx, 'pattern', e.target.value)}
-                      >
-                        <option value="rampup">Ramp-up (Stepped increase)</option>
-                        <option value="constant">Constant (Steady sustained concurrency)</option>
-                        <option value="spike">Spike (Sudden pulse surge)</option>
-                        <option value="stress">Stress (Step to saturation)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Stepping Thread Schedule Parameters */}
-                  <div className="p-3.5 rounded-xl bg-gray-900/60 border border-gray-800 space-y-3">
-                    <div className="text-xs font-semibold text-gray-200 flex items-center space-x-2">
-                      <Clock className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Concurrency &amp; Stepping Profile</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div>
-                        <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
-                          Target Users (Threads)
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          className="input text-xs py-1 px-2"
-                          value={tg.target_users}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'target_users', parseInt(e.target.value) || 1)}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
-                          Duration (seconds)
-                        </label>
-                        <input
-                          type="number"
-                          min="5"
-                          className="input text-xs py-1 px-2"
-                          value={tg.duration_seconds}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'duration_seconds', parseInt(e.target.value) || 10)}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
-                          Ramp Step Users
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          className="input text-xs py-1 px-2"
-                          value={tg.rampup_step_users}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'rampup_step_users', parseInt(e.target.value) || 1)}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
-                          Ramp Step Time (s)
-                        </label>
-                        <input
-                          type="number"
-                          min="2"
-                          className="input text-xs py-1 px-2"
-                          value={tg.rampup_step_seconds}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'rampup_step_seconds', parseInt(e.target.value) || 5)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* LLM Generation Hyperparameters */}
-                  <div className="p-3.5 rounded-xl bg-gray-900/60 border border-gray-800 space-y-3">
-                    <div className="text-xs font-semibold text-gray-200 flex items-center space-x-2">
-                      <Zap className="w-3.5 h-3.5 text-amber-400" />
-                      <span>LLM Sampler Hyperparameters</span>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
-                          Max Tokens
-                        </label>
-                        <input
-                          type="number"
-                          min="16"
-                          className="input text-xs py-1 px-2"
-                          value={tg.max_tokens}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'max_tokens', parseInt(e.target.value) || 128)}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
-                          Temperature
-                        </label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min="0"
-                          max="2"
-                          className="input text-xs py-1 px-2"
-                          value={tg.temperature}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'temperature', parseFloat(e.target.value) || 0.7)}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-gray-400 uppercase font-medium block mb-1">
-                          Request Timeout (s)
-                        </label>
-                        <input
-                          type="number"
-                          min="5"
-                          className="input text-xs py-1 px-2"
-                          value={tg.request_timeout}
-                          onChange={(e) => handleUpdateThreadGroup(tgIdx, 'request_timeout', parseFloat(e.target.value) || 120)}
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-medium text-gray-400 mb-1 block">
-                        System Prompt / Preamble (Optional)
-                      </label>
-                      <textarea
-                        rows={2}
-                        className="input text-xs font-mono w-full"
-                        placeholder="e.g. You are a helpful AI assistant. Answer concisely using ${USER_VARIABLE}."
-                        value={tg.system_prompt || ''}
-                        onChange={(e) => handleUpdateThreadGroup(tgIdx, 'system_prompt', e.target.value)}
-                      />
-                    </div>
-                  </div>
+                  )}
                 </div>
               )
             })()}
@@ -1492,6 +2012,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                       {ce.type === 'csv_data_set' && <Database className="w-5 h-5 text-emerald-400" />}
                       {(ce.type === 'think_time' || ce.type === 'timer') && <Clock className="w-5 h-5 text-cyan-400" />}
                       {ce.type === 'auth_header' && <Key className="w-5 h-5 text-amber-400" />}
+                      {ce.type === 'header_manager' && <Sliders className="w-5 h-5 text-indigo-400" />}
                       {ce.type === 'token_budget' && <Sliders className="w-5 h-5 text-purple-400" />}
                       {ce.type === 'user_defined_variables' && <Code className="w-5 h-5 text-sky-400" />}
                       <div>
@@ -1499,20 +2020,31 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                           {ce.type === 'csv_data_set' && 'CSV Prompt Data Set'}
                           {(ce.type === 'think_time' || ce.type === 'timer') && 'Pacing Timer (Think Time)'}
                           {ce.type === 'auth_header' && 'HTTP Authorization Header'}
+                          {ce.type === 'header_manager' && 'HTTP Header Manager'}
                           {ce.type === 'token_budget' && 'Token Budget Override'}
                           {ce.type === 'user_defined_variables' && 'User Defined Variables (UDV)'}
                         </h3>
                         <p className="text-xs text-gray-400">JMeter Config Element transformation.</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveConfigElement(ceIdx)}
-                      className="btn-danger text-xs py-1 px-2.5 flex items-center space-x-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Remove Element</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNodeEnabled('config_element', ceIdx)}
+                        className="btn-secondary text-xs py-1 px-2.5 flex items-center space-x-1"
+                      >
+                        {ce.enabled !== false ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{ce.enabled !== false ? 'Disable' : 'Enable'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveConfigElement(ceIdx)}
+                        className="btn-danger text-xs py-1 px-2.5 flex items-center space-x-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* USER DEFINED VARIABLES (UDVs) */}
@@ -1522,6 +2054,25 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                         Define variables referenced in system prompts, headers, or models via syntax{' '}
                         <code className="text-sky-300 font-mono">${'{VAR_NAME}'}</code>.
                       </p>
+
+                      {/* Quick variable insert chips */}
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="text-gray-500 text-[11px]">Quick Templates:</span>
+                        {['MODEL_NAME', 'BASE_URL', 'SYSTEM_ROLE', 'API_KEY', 'MAX_TOKENS'].map((template) => (
+                          <button
+                            key={template}
+                            type="button"
+                            onClick={() => {
+                              const updated = { ...ce.variables, [template]: '' }
+                              handleUpdateConfigElement(ceIdx, 'variables', updated)
+                            }}
+                            className="px-2 py-0.5 rounded text-[10px] font-mono bg-gray-900 border border-gray-700 text-gray-300 hover:text-white hover:border-sky-500"
+                          >
+                            +{template}
+                          </button>
+                        ))}
+                      </div>
+
                       <div className="space-y-2">
                         {Object.entries(ce.variables || {}).map(([k, v], vIdx) => (
                           <div key={vIdx} className="grid grid-cols-12 gap-2 items-center">
@@ -1580,6 +2131,26 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                   {/* CSV DATA SET */}
                   {ce.type === 'csv_data_set' && (
                     <div className="space-y-3 text-xs">
+                      {/* Built-in Prompt Suites Selector */}
+                      <div className="p-3 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
+                        <div className="text-gray-300 font-semibold flex items-center space-x-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Load Pre-Built Prompt Suite</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {PROMPT_SUITES.map((ps) => (
+                            <button
+                              key={ps.id}
+                              type="button"
+                              onClick={() => handleUpdateConfigElement(ceIdx, 'data', ps.prompts.join('\n'))}
+                              className="text-[11px] px-2.5 py-1 rounded-lg bg-gray-950 border border-gray-700/80 hover:border-amber-500/50 text-gray-300 hover:text-amber-300 transition-colors"
+                            >
+                              {ps.name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                           <label className="text-gray-400 block mb-1">Sampling Mode</label>
@@ -1621,7 +2192,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                         <div className="flex justify-between text-[11px] text-gray-400 mb-1">
                           <span>Prompt Dataset (one per line):</span>
                           <span className="font-mono text-emerald-400">
-                            {ce.data ? ce.data.split('\n').filter((l) => l.trim()).length : 0} items
+                            {ce.data ? ce.data.split('\n').filter((l) => l.trim()).length : 0} items loaded
                           </span>
                         </div>
                         <textarea
@@ -1741,6 +2312,64 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                     </div>
                   )}
 
+                  {/* HEADER MANAGER */}
+                  {ce.type === 'header_manager' && (
+                    <div className="space-y-3 text-xs">
+                      <div className="space-y-2">
+                        {Object.entries(ce.headers || {}).map(([hk, hv], hIdx) => (
+                          <div key={hIdx} className="grid grid-cols-12 gap-2 items-center">
+                            <input
+                              type="text"
+                              className="col-span-5 input text-xs font-mono py-1"
+                              placeholder="Header-Name"
+                              value={hk}
+                              onChange={(e) => {
+                                const newKey = e.target.value
+                                const updatedHeaders = { ...ce.headers }
+                                delete updatedHeaders[hk]
+                                updatedHeaders[newKey] = hv
+                                handleUpdateConfigElement(ceIdx, 'headers', updatedHeaders)
+                              }}
+                            />
+                            <input
+                              type="text"
+                              className="col-span-6 input text-xs font-mono py-1"
+                              placeholder="Value"
+                              value={hv}
+                              onChange={(e) => {
+                                const updatedHeaders = { ...ce.headers, [hk]: e.target.value }
+                                handleUpdateConfigElement(ceIdx, 'headers', updatedHeaders)
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updatedHeaders = { ...ce.headers }
+                                delete updatedHeaders[hk]
+                                handleUpdateConfigElement(ceIdx, 'headers', updatedHeaders)
+                              }}
+                              className="col-span-1 p-1 text-gray-500 hover:text-red-400 flex justify-center"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updatedHeaders = { ...ce.headers, [`X-Custom-${Date.now().toString().slice(-4)}`]: '' }
+                          handleUpdateConfigElement(ceIdx, 'headers', updatedHeaders)
+                        }}
+                        className="btn-secondary text-xs py-1 px-2.5 flex items-center space-x-1"
+                      >
+                        <Plus className="w-3 h-3 text-indigo-400" />
+                        <span>Add Header</span>
+                      </button>
+                    </div>
+                  )}
+
                   {/* TOKEN BUDGET */}
                   {ce.type === 'token_budget' && (
                     <div className="grid grid-cols-2 gap-3 text-xs">
@@ -1788,14 +2417,24 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                         <p className="text-xs text-gray-400">Strict pass/fail criteria evaluation.</p>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAssertion(asIdx)}
-                      className="btn-danger text-xs py-1 px-2.5 flex items-center space-x-1"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Remove Assertion</span>
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToggleNodeEnabled('assertion', asIdx)}
+                        className="btn-secondary text-xs py-1 px-2.5 flex items-center space-x-1"
+                      >
+                        {a.enabled !== false ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{a.enabled !== false ? 'Disable' : 'Enable'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAssertion(asIdx)}
+                        className="btn-danger text-xs py-1 px-2.5 flex items-center space-x-1"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-3">
@@ -1882,6 +2521,29 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                           <span className="text-xs text-gray-400">rate of valid non-empty responses (0.95 = 95%)</span>
                         </div>
                       )}
+                      {a.type === 'response_content' && (
+                        <div className="space-y-1">
+                          <input
+                            type="text"
+                            placeholder="Substring or regex pattern that must be present in response"
+                            className="input text-xs py-1 font-mono w-full"
+                            value={a.content_pattern ?? ''}
+                            onChange={(e) => handleUpdateAssertion(asIdx, 'content_pattern', e.target.value)}
+                          />
+                          <span className="text-[11px] text-gray-500">Fails if response does not contain this text</span>
+                        </div>
+                      )}
+                      {a.type === 'status_code' && (
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="number"
+                            className="input text-xs py-1 w-24"
+                            value={a.expected_status ?? 200}
+                            onChange={(e) => handleUpdateAssertion(asIdx, 'expected_status', parseInt(e.target.value) || 200)}
+                          />
+                          <span className="text-xs text-gray-400">Expected HTTP Status Code</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1943,7 +2605,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
       ) : (
         /* FULL FLOW STACK VIEW (ALL EXPANDED) */
         <div className="space-y-6">
-          {/* Section 1: Thread Groups */}
+          {/* Thread Groups */}
           <div className="card space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-gray-800">
               <div className="flex items-center space-x-2">
@@ -2132,196 +2794,30 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               })}
             </div>
           </div>
-
-          {/* Section 2: Config Elements */}
-          <div className="card space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-800">
-              <div className="flex items-center space-x-2">
-                <Sliders className="w-5 h-5 text-emerald-400" />
-                <div>
-                  <h3 className="text-base font-bold text-white">Config Elements ({planForm.config_elements.length})</h3>
-                  <p className="text-xs text-gray-400">Timers, User Defined Variables, CSV pools, and auth headers.</p>
-                </div>
-              </div>
-
-              {/* Add Dropdown */}
-              <div className="relative" ref={configDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowConfigDropdown((prev) => !prev)}
-                  className="btn-secondary text-xs py-1.5 px-3 flex items-center space-x-1.5 border border-emerald-500/30 text-emerald-300"
-                >
-                  <Plus className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Add Config Element</span>
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </button>
-
-                {showConfigDropdown && (
-                  <div className="absolute right-0 mt-1.5 w-64 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-30 py-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddConfigElement('user_defined_variables')
-                        setShowConfigDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2.5"
-                    >
-                      <Code className="w-4 h-4 text-sky-400" />
-                      <div>
-                        <div className="font-medium text-white">User Defined Variables (UDV)</div>
-                        <div className="text-[10px] text-gray-400">Key-value parameters (${'{VAR}'})</div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddConfigElement('think_time')
-                        setShowConfigDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2.5"
-                    >
-                      <Clock className="w-4 h-4 text-cyan-400" />
-                      <div>
-                        <div className="font-medium text-white">Pacing Timer (Think Time)</div>
-                        <div className="text-[10px] text-gray-400">Uniform, Gaussian, or Constant delay</div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddConfigElement('csv_data_set')
-                        setShowConfigDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2.5"
-                    >
-                      <Database className="w-4 h-4 text-emerald-400" />
-                      <div>
-                        <div className="font-medium text-white">CSV Prompt Data Set</div>
-                        <div className="text-[10px] text-gray-400">Custom user prompts from file</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {planForm.config_elements.map((ce, idx) => (
-              <div key={idx} className="p-3.5 rounded-xl bg-gray-950/70 border border-gray-800 flex items-center justify-between">
-                <span className="text-xs font-semibold text-white">
-                  {ce.type === 'csv_data_set' && 'CSV Data Set Config'}
-                  {(ce.type === 'think_time' || ce.type === 'timer') && `Pacing Timer (${ce.timer_type || 'uniform'})`}
-                  {ce.type === 'user_defined_variables' && 'User Defined Variables'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveConfigElement(idx)}
-                  className="p-1 text-gray-400 hover:text-red-400"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {/* Section 3: Assertions */}
-          <div className="card space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-800">
-              <div className="flex items-center space-x-2">
-                <ShieldCheck className="w-5 h-5 text-amber-400" />
-                <div>
-                  <h3 className="text-base font-bold text-white">SLA Assertions ({planForm.assertions.length})</h3>
-                  <p className="text-xs text-gray-400">Response time, error rate, and throughput thresholds.</p>
-                </div>
-              </div>
-
-              <div className="relative" ref={assertionDropdownRef}>
-                <button
-                  type="button"
-                  onClick={() => setShowAssertionDropdown((prev) => !prev)}
-                  className="btn-secondary text-xs py-1.5 px-3 flex items-center space-x-1.5 border border-amber-500/30 text-amber-300"
-                >
-                  <Plus className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Add Assertion</span>
-                  <ChevronDown className="w-3.5 h-3.5" />
-                </button>
-
-                {showAssertionDropdown && (
-                  <div className="absolute right-0 mt-1.5 w-64 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-30 py-1.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddAssertion('latency')
-                        setShowAssertionDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2.5"
-                    >
-                      <Clock className="w-4 h-4 text-amber-400" />
-                      <div>
-                        <div className="font-medium text-white">Latency p95 SLA</div>
-                        <div className="text-[10px] text-gray-400">Response time threshold (ms)</div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddAssertion('p99_latency')
-                        setShowAssertionDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2.5"
-                    >
-                      <Clock className="w-4 h-4 text-orange-400" />
-                      <div>
-                        <div className="font-medium text-white">Latency p99 SLA</div>
-                        <div className="text-[10px] text-gray-400">Tail latency limit (ms)</div>
-                      </div>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddAssertion('error_rate')
-                        setShowAssertionDropdown(false)
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2.5"
-                    >
-                      <AlertTriangle className="w-4 h-4 text-rose-400" />
-                      <div>
-                        <div className="font-medium text-white">Error Rate (%)</div>
-                        <div className="text-[10px] text-gray-400">Max failure rate cap</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {planForm.assertions.map((a, idx) => (
-                <div key={idx} className="p-3 rounded-xl bg-gray-950/70 border border-gray-800 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-semibold text-white">{a.name}</span>
-                    <span className="text-gray-400 ml-2 font-mono">({a.type})</span>
-                  </div>
-                  <button type="button" onClick={() => handleRemoveAssertion(idx)} className="p-1 text-gray-400 hover:text-red-400">
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
       {/* ACTION FOOTER */}
       <div className="card flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="text-xs text-gray-400">
-          <span>{planForm.thread_groups.length} Thread Group(s)</span>
+          <span>{planForm.thread_groups.filter((g) => g.enabled !== false).length} Active Thread Group(s)</span>
           <span className="mx-2">•</span>
-          <span>{planForm.config_elements.length} Config Element(s)</span>
+          <span>{planForm.config_elements.filter((c) => c.enabled !== false).length} Active Config Element(s)</span>
           <span className="mx-2">•</span>
-          <span>{planForm.assertions.length} SLA Assertion(s)</span>
+          <span>{planForm.assertions.filter((a) => a.enabled !== false).length} SLA Assertion(s)</span>
         </div>
 
         <div className="flex items-center space-x-3 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={handleProbePlan}
+            disabled={isProbing || isExecuting || !!runningPlan}
+            className="btn-secondary text-sm py-2 px-3.5 flex items-center justify-center space-x-1.5 border border-purple-500/40 text-purple-300 hover:text-white"
+          >
+            <FlaskConical className="w-4 h-4 text-purple-400" />
+            <span>Validate (Probe)</span>
+          </button>
+
           <button
             type="button"
             onClick={handleSave}
@@ -2352,6 +2848,154 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
           </button>
         </div>
       </div>
+
+      {/* VALIDATION PROBE REPORT MODAL */}
+      {showProbeModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-3xl w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-800">
+              <div className="flex items-center space-x-2.5">
+                <FlaskConical className="w-5 h-5 text-purple-400" />
+                <div>
+                  <h3 className="text-base font-bold text-white">Validation Probe Dry-Run</h3>
+                  <p className="text-xs text-gray-400">1-shot endpoint check across enabled Thread Groups.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowProbeModal(false)}
+                className="p-1 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {isProbing ? (
+              <div className="py-12 flex flex-col items-center justify-center space-y-3">
+                <Spinner size="lg" />
+                <span className="text-sm font-medium text-purple-300">
+                  Sending validation probes to LLM inference runtimes...
+                </span>
+                <span className="text-xs text-gray-500">Measuring TTFT, testing variables, and verifying tokens</span>
+              </div>
+            ) : probeReport ? (
+              <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+                {/* Overall Banner */}
+                <div
+                  className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+                    probeReport.overall_passed
+                      ? 'bg-emerald-950/70 border-emerald-500/50 text-emerald-200'
+                      : 'bg-rose-950/70 border-rose-500/50 text-rose-200'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2">
+                    {probeReport.overall_passed ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-rose-400" />
+                    )}
+                    <span>
+                      {probeReport.overall_passed
+                        ? 'All probed Thread Groups & SLA assertions passed successfully!'
+                        : 'Validation probe encountered errors or breached SLA thresholds.'}
+                    </span>
+                  </div>
+                  <span className="font-mono text-[11px] opacity-80">
+                    {probeReport.probe_results?.length || 0} group(s) probed
+                  </span>
+                </div>
+
+                {/* Per-group Results */}
+                {probeReport.probe_results?.map((res, rIdx) => (
+                  <div
+                    key={rIdx}
+                    className="p-4 rounded-xl bg-gray-950/80 border border-gray-800 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-bold text-white">{res.thread_group_name}</span>
+                        <span className="text-xs text-gray-400 font-mono">({res.model})</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                            res.success
+                              ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                              : 'bg-rose-950 text-rose-300 border border-rose-800'
+                          }`}
+                        >
+                          HTTP {res.status_code}
+                        </span>
+                      </div>
+                    </div>
+
+                    {res.error_message ? (
+                      <div className="p-3 rounded-lg bg-rose-950/50 border border-rose-800 text-xs text-rose-300 font-mono">
+                        {res.error_message}
+                      </div>
+                    ) : (
+                      <>
+                        {/* Metrics Bar */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+                          <div className="p-2 rounded bg-gray-900 border border-gray-800">
+                            <span className="text-[10px] text-gray-400 block font-sans">TTFT</span>
+                            <span className="text-cyan-300 font-bold">{res.ttft_ms} ms</span>
+                          </div>
+                          <div className="p-2 rounded bg-gray-900 border border-gray-800">
+                            <span className="text-[10px] text-gray-400 block font-sans">Total Latency</span>
+                            <span className="text-sky-300 font-bold">{res.total_latency_ms} ms</span>
+                          </div>
+                          <div className="p-2 rounded bg-gray-900 border border-gray-800">
+                            <span className="text-[10px] text-gray-400 block font-sans">Tokens Generated</span>
+                            <span className="text-amber-300 font-bold">{res.completion_tokens} tok</span>
+                          </div>
+                          <div className="p-2 rounded bg-gray-900 border border-gray-800">
+                            <span className="text-[10px] text-gray-400 block font-sans">Throughput</span>
+                            <span className="text-emerald-300 font-bold">{res.tokens_per_second} TPS</span>
+                          </div>
+                        </div>
+
+                        {/* Prompt & Response Preview */}
+                        <div className="space-y-1.5 text-xs">
+                          <div className="text-[10px] text-gray-500 uppercase font-semibold">Sample Prompt:</div>
+                          <div className="p-2 rounded bg-gray-900/60 font-mono text-gray-300 text-[11px] truncate">
+                            {res.prompt_sample}
+                          </div>
+                          <div className="text-[10px] text-gray-500 uppercase font-semibold">Model Response:</div>
+                          <div className="p-2 rounded bg-gray-900/60 font-mono text-gray-200 text-[11px] max-h-24 overflow-y-auto">
+                            {res.response_preview}
+                          </div>
+                        </div>
+
+                        {/* Assertion Checks */}
+                        {res.assertion_results?.length > 0 && (
+                          <div className="pt-2 border-t border-gray-800/80 space-y-1">
+                            <div className="text-[10px] text-gray-500 uppercase font-semibold">SLA Checks:</div>
+                            <div className="space-y-1">
+                              {res.assertion_results.map((as, aIdx) => (
+                                <div
+                                  key={aIdx}
+                                  className={`text-xs flex items-center space-x-1.5 ${
+                                    as.passed ? 'text-emerald-300' : 'text-rose-300'
+                                  }`}
+                                >
+                                  <span>{as.passed ? '✓' : '✗'}</span>
+                                  <span>{as.name}:</span>
+                                  <span className="font-mono">{as.message}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
 
       {/* BLUEPRINTS / TEMPLATES MODAL */}
       {showBlueprintsModal && (
@@ -2414,7 +3058,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
             <div className="flex items-center justify-between pb-3 border-b border-gray-800">
               <div className="flex items-center space-x-2.5">
                 <Terminal className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-bold text-white">Execution Code &amp; API Snippets</h3>
+                <h3 className="text-base font-bold text-white">Execution Code &amp; CLI Commands</h3>
               </div>
               <button
                 type="button"
@@ -2446,21 +3090,50 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               </button>
               <button
                 type="button"
+                onClick={() => setActiveSnippetTab('k6')}
+                className={`text-xs px-3 py-1 rounded font-medium ${
+                  activeSnippetTab === 'k6' ? 'bg-sky-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Grafana k6 Script
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveSnippetTab('cli')}
+                className={`text-xs px-3 py-1 rounded font-medium ${
+                  activeSnippetTab === 'cli' ? 'bg-sky-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Apache JMeter CLI
+              </button>
+              <button
+                type="button"
                 onClick={handleExportJson}
                 className="text-xs px-3 py-1 text-gray-400 hover:text-white ml-auto"
               >
-                Download JSON Plan
+                Download JSON
               </button>
             </div>
 
             <div className="relative">
-              <pre className="p-3 bg-gray-950 rounded-xl border border-gray-800 text-xs font-mono text-emerald-300 overflow-x-auto max-h-64">
-                {activeSnippetTab === 'curl' ? snippets.curl : snippets.python}
+              <pre className="p-3 bg-gray-950 rounded-xl border border-gray-800 text-xs font-mono text-emerald-300 overflow-x-auto max-h-72">
+                {activeSnippetTab === 'curl' && snippets.curl}
+                {activeSnippetTab === 'python' && snippets.python}
+                {activeSnippetTab === 'k6' && snippets.k6}
+                {activeSnippetTab === 'cli' && snippets.cli}
               </pre>
               <button
                 type="button"
                 onClick={() => {
-                  navigator.clipboard.writeText(activeSnippetTab === 'curl' ? snippets.curl : snippets.python)
+                  const textToCopy =
+                    activeSnippetTab === 'curl'
+                      ? snippets.curl
+                      : activeSnippetTab === 'python'
+                      ? snippets.python
+                      : activeSnippetTab === 'k6'
+                      ? snippets.k6
+                      : snippets.cli
+                  navigator.clipboard.writeText(textToCopy)
                   setCopiedSnippet(true)
                   setTimeout(() => setCopiedSnippet(false), 2500)
                 }}

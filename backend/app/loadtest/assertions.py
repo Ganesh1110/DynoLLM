@@ -25,6 +25,8 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
     results: list[AssertionResult] = []
 
     for a in plan_assertions:
+        if a.get("enabled") is False:
+            continue
         atype = a.get("type", "")
 
         if atype in ("latency", "p95_latency"):

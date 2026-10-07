@@ -109,3 +109,77 @@ def test_plan_schema_validation():
     assert schema.name == "Production JMeter Plan"
     assert len(schema.config_elements) == 2
     assert schema.config_elements[0].variables["API_KEY"] == "secret"
+
+
+def test_disabled_elements_and_header_manager():
+    tg_config = {"model": "llama3"}
+    config_elements = [
+        {
+            "type": "think_time",
+            "enabled": False,
+            "min_ms": 1000,
+            "max_ms": 2000,
+        },
+        {
+            "type": "header_manager",
+            "enabled": True,
+            "headers": {"X-Test-Id": "12345", "X-Custom-Env": "staging"},
+        },
+    ]
+
+    updated_tg, _ = apply_config_elements(tg_config, config_elements)
+    # Disabled think_time should NOT be applied
+    assert "think_time_min_ms" not in updated_tg
+    # header_manager should be applied
+    assert updated_tg["extra_headers"]["X-Test-Id"] == "12345"
+    assert updated_tg["extra_headers"]["X-Custom-Env"] == "staging"
+
+
+def test_disabled_assertions_skipped():
+    aggregates = {"p95_latency_ms": 4000.0}
+    assertions = [
+        {"type": "latency", "name": "Strict Latency", "p95_max_ms": 2000.0, "enabled": False},
+        {"type": "latency", "name": "Relaxed Latency", "p95_max_ms": 5000.0, "enabled": True},
+    ]
+
+    results = evaluate_assertions(assertions, aggregates)
+    # Only the enabled assertion should be evaluated
+    assert len(results) == 1
+    assert results[0].name == "Relaxed Latency"
+    assert results[0].passed is True
+
+
+def test_advanced_thread_group_fields_schema():
+    plan_data = {
+        "name": "Advanced Tuned Plan",
+        "serialize_threadgroups": True,
+        "thread_groups": [
+            {
+                "id": "tg-tuned",
+                "name": "Tuned Group",
+                "runtime_id": "rt-mock",
+                "model": "meta-llama/Llama-3-8B",
+                "sampler_type": "chat",
+                "pattern": "rampup",
+                "target_users": 15,
+                "duration_seconds": 60,
+                "rampdown_seconds": 15,
+                "loop_count": 5,
+                "target_rps": 25.0,
+                "top_p": 0.9,
+                "streaming": True,
+                "enabled": True,
+            }
+        ],
+    }
+
+    schema = LoadTestPlanCreate(**plan_data)
+    assert schema.serialize_threadgroups is True
+    tg = schema.thread_groups[0]
+    assert tg.rampdown_seconds == 15
+    assert tg.loop_count == 5
+    assert tg.target_rps == 25.0
+    assert tg.top_p == 0.9
+    assert tg.streaming is True
+    assert tg.enabled is True
+

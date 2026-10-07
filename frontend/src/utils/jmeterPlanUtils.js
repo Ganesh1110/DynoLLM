@@ -212,19 +212,112 @@ export const JMETER_BLUEPRINTS = [
   },
 ]
 
+export const PROMPT_SUITES = [
+  {
+    id: 'general_qa',
+    name: 'General & Conversational QA (20 prompts)',
+    category: 'Conversational',
+    prompts: [
+      'What are the core differences between TCP and UDP?',
+      'Explain the concept of entropy in information theory.',
+      'How does public key cryptography work?',
+      'Describe the lifecycle of a thread in an operating system.',
+      'What is the purpose of an index in a relational database?',
+      'Explain how DNS resolution works step by step.',
+      'What are the ACID properties of database transactions?',
+      'How does garbage collection work in modern runtimes?',
+      'What is the difference between synchronous and asynchronous I/O?',
+      'Explain the difference between a process and a thread.',
+      'How does HTTPS establish a secure session via TLS handshake?',
+      'What is consistent hashing and where is it used?',
+      'Explain how a B-tree index is structured.',
+      'What are the trade-offs between monolithic and microservices architectures?',
+      'How do container runtimes isolate processes using cgroups and namespaces?',
+      'Explain the CAP theorem with practical distributed system examples.',
+      'How does tokenization work in Large Language Models?',
+      'What is FlashAttention and why does it speed up transformer inference?',
+      'Explain PagedAttention and how vLLM reduces KV cache fragmentation.',
+      'What are the differences between FP16, BF16, and FP8 precision?',
+    ],
+  },
+  {
+    id: 'code_engineering',
+    name: 'Code Generation & Systems Programming (15 prompts)',
+    category: 'Coding',
+    prompts: [
+      'Write a Python decorator that implements an in-memory LRU cache with TTL expiration.',
+      'Implement a thread-safe producer-consumer queue in Go using channels.',
+      'Write an async Python client using httpx with exponential backoff and jitter.',
+      'Implement a trie (prefix tree) in TypeScript with insert, search, and startsWith methods.',
+      'Write a Rust function that safely reads a memory-mapped binary file and parses headers.',
+      'Implement quicksort with randomized pivot in Python and explain its worst-case complexity.',
+      'Write a SQL query to calculate a 7-day rolling average of daily user signups.',
+      'Write a Dockerfile optimizing multi-stage build caching for a Python FastAPI application.',
+      'Implement an HTTP rate-limiter using the Token Bucket algorithm in Python.',
+      'Write a Bash script to monitor GPU memory utilization and alert when VRAM exceeds 90%.',
+      'Implement a binary search tree validator in Python verifying min/max boundaries.',
+      'Write a Python generator function to stream large JSON lines files line by line.',
+      'Implement a priority queue in Python using heapq for task scheduling.',
+      'Write a Kubernetes deployment and HPA manifest scaling based on request latency.',
+      'Implement an efficient matrix multiplication routine in C with cache-friendly loop tiling.',
+    ],
+  },
+  {
+    id: 'rag_retrieval',
+    name: 'RAG Knowledge & Document Retrieval (12 prompts)',
+    category: 'RAG',
+    prompts: [
+      'Given the context of cloud architecture, summarize key strategies to mitigate DDoS attacks.',
+      'Context: vLLM utilizes PagedAttention to partition KV caches into virtual blocks. Question: How does this reduce memory waste compared to contiguous pre-allocation?',
+      'Context: Tensor parallelism shards linear layers across multiple GPUs via All-Reduce operations. Question: When should pipeline parallelism be preferred over tensor parallelism?',
+      'Context: Quantization methods like AWQ and GPTQ compress model weights to 4-bit integers. Question: How does AWQ preserve salient weights without degrading perplexity?',
+      'Context: Continuous batching dynamically inserts new requests into running iterations. Question: How does iteration-level scheduling improve GPU compute occupancy?',
+      'Context: Speculative decoding employs a small draft model to generate candidate tokens verified in parallel by a larger target model. Question: Under what conditions does speculative decoding achieve speedup?',
+      'Explain the difference between chunking strategies: fixed-size chunking vs semantic sentence boundary chunking in RAG pipelines.',
+      'How does hybrid search combining BM25 keyword matching and dense vector embeddings outperform vector-only search?',
+      'What techniques mitigate hallucination when generating answers from retrieved context?',
+      'Compare re-ranking algorithms (Cross-Encoders vs ColBERT) in information retrieval pipelines.',
+      'How do multi-turn conversational agents maintain session state across stateless LLM inference calls?',
+      'Context: KV cache compression techniques like StreamingLLM retain attention sinks. Question: How do attention sinks prevent perplexity explosion in infinite context?',
+    ],
+  },
+  {
+    id: 'reasoning_math',
+    name: 'Reasoning, Math & Complex Logic (10 prompts)',
+    category: 'Reasoning',
+    prompts: [
+      'A server pool has 4 nodes each handling 250 requests/sec with 99.9% uptime. What is the probability that at least 2 nodes fail concurrently during a 24-hour window?',
+      'Solve the following step by step: In an LLM with 8B parameters in FP16, how many gigabytes of VRAM are required for weights, and what is the KV cache size per token for 32 layers, hidden size 4096, 32 attention heads?',
+      'Prove that the square root of 2 is irrational using proof by contradiction.',
+      'A train leaves city A at 60 mph. Two hours later, a faster train leaves city A at 90 mph on a parallel track. At what distance from city A does the second train overtake the first?',
+      'Explain why the Halting Problem is undecidable using a diagonal argument.',
+      'Calculate the expected number of coin tosses until observing the sequence Heads followed immediately by Tails.',
+      'If an LLM generates tokens with an average latency of 25ms per token, how many concurrent users can a single GPU support before TTFT exceeds 1.5 seconds assuming a batch size limit of 64?',
+      'Analyze the time complexity of the Floyd-Warshall all-pairs shortest path algorithm vs running Dijkstra from every vertex with a Fibonacci heap.',
+      'Given a distributed hash ring with 1024 virtual nodes across 8 physical servers, calculate the standard deviation of key distribution under uniform hash distribution.',
+      'Step-by-step logic puzzle: Three boxes labeled Apples, Oranges, and Mixed are all labeled incorrectly. You can draw one fruit from one box. How do you determine the correct labels for all three?',
+    ],
+  },
+]
+
 /**
  * Calculates second-by-second simulated concurrency topology for all thread groups.
  * Used for the interactive Recharts visualizer.
  */
 export function computeWorkloadTopology(plan) {
-  const groups = Array.isArray(plan?.thread_groups) ? plan.thread_groups : []
+  const rawGroups = Array.isArray(plan?.thread_groups) ? plan.thread_groups : []
+  const groups = rawGroups.filter((g) => g.enabled !== false)
   if (groups.length === 0) {
     return {
       totalDurationSeconds: 0,
       peakUsers: 0,
       totalEstimatedRequests: 0,
+      totalEstimatedTokens: 0,
+      peakEstimatedTokensPerSec: 0,
+      peakEstimatedRps: 0,
       stagesCount: 0,
       timelineData: [],
+      groupSchedules: [],
     }
   }
 
@@ -236,9 +329,11 @@ export function computeWorkloadTopology(plan) {
     const duration = Math.max(10, Number(g.duration_seconds) || 60)
     const stepUsers = Math.max(1, Number(g.rampup_step_users) || 5)
     const stepSeconds = Math.max(1, Number(g.rampup_step_seconds) || 10)
+    const rampdownSeconds = Math.max(0, Number(g.rampdown_seconds) || 0)
     const pattern = g.pattern || 'rampup'
+    const maxTokens = Number(g.max_tokens) || 256
 
-    maxDuration = Math.max(maxDuration, duration)
+    maxDuration = Math.max(maxDuration, duration + rampdownSeconds)
     cumulativeDuration += duration
 
     return {
@@ -248,16 +343,20 @@ export function computeWorkloadTopology(plan) {
       duration,
       stepUsers,
       stepSeconds,
+      rampdownSeconds,
       pattern,
+      maxTokens,
     }
   })
 
-  // We sample 25-40 discrete points across total duration for smooth curve
+  // We sample 30-50 discrete points across total duration for smooth curve
   const sampleSteps = 35
   const stepInterval = Math.max(1, Math.ceil(maxDuration / sampleSteps))
   const samplePoints = []
 
   let peakUsers = 0
+  let peakEstimatedRps = 0
+  let peakEstimatedTokensPerSec = 0
   let sumUsersSeconds = 0
 
   for (let sec = 0; sec <= maxDuration; sec += stepInterval) {
@@ -265,6 +364,8 @@ export function computeWorkloadTopology(plan) {
       second: sec,
       time: formatSecondsToMMSS(sec),
       totalUsers: 0,
+      totalRps: 0,
+      totalTokensPerSec: 0,
     }
 
     groupSchedules.forEach((g) => {
@@ -291,17 +392,32 @@ export function computeWorkloadTopology(plan) {
             usersAtSec = baseline
           }
         } else if (g.pattern === 'stress') {
-          // Continuous staircase stepping up to and beyond
           const currentStep = Math.floor(sec / g.stepSeconds) + 1
           usersAtSec = Math.min(Math.round(g.target * 1.3), currentStep * g.stepUsers)
         }
+      } else if (g.rampdownSeconds > 0 && sec <= g.duration + g.rampdownSeconds) {
+        // Ramp down phase
+        const elapsedRampdown = sec - g.duration
+        const fraction = 1 - elapsedRampdown / g.rampdownSeconds
+        usersAtSec = Math.max(0, Math.round(g.target * fraction))
       }
 
       point[g.name] = usersAtSec
       point.totalUsers += usersAtSec
+
+      // Approximate 0.8 req/sec per user and generated tokens
+      const estGroupRps = usersAtSec * 0.85
+      const estGroupTokensSec = estGroupRps * (g.maxTokens * 0.45)
+      point.totalRps += estGroupRps
+      point.totalTokensPerSec += estGroupTokensSec
     })
 
+    point.totalRps = Math.round(point.totalRps * 10) / 10
+    point.totalTokensPerSec = Math.round(point.totalTokensPerSec)
+
     peakUsers = Math.max(peakUsers, point.totalUsers)
+    peakEstimatedRps = Math.max(peakEstimatedRps, point.totalRps)
+    peakEstimatedTokensPerSec = Math.max(peakEstimatedTokensPerSec, point.totalTokensPerSec)
     sumUsersSeconds += point.totalUsers * stepInterval
     samplePoints.push(point)
   }
@@ -312,22 +428,27 @@ export function computeWorkloadTopology(plan) {
       second: maxDuration,
       time: formatSecondsToMMSS(maxDuration),
       totalUsers: 0,
+      totalRps: 0,
+      totalTokensPerSec: 0,
     }
     groupSchedules.forEach((g) => {
-      const users = g.duration >= maxDuration ? (g.pattern === 'constant' ? g.target : g.target) : 0
-      finalPoint[g.name] = users
-      finalPoint.totalUsers += users
+      finalPoint[g.name] = 0
     })
     samplePoints.push(finalPoint)
   }
 
-  // Estimated requests based on 1.2 req/sec per user average
-  const totalEstimatedRequests = Math.round((sumUsersSeconds * 0.9) / 1)
+  const totalEstimatedRequests = Math.round((sumUsersSeconds * 0.85) / 1)
+  const avgMaxTokens =
+    groupSchedules.reduce((acc, g) => acc + g.maxTokens, 0) / (groupSchedules.length || 1)
+  const totalEstimatedTokens = Math.round(totalEstimatedRequests * (avgMaxTokens * 0.5))
 
   return {
     totalDurationSeconds: maxDuration,
     peakUsers,
-    totalEstimatedRequests: Math.max(10, totalEstimatedRequests),
+    peakEstimatedRps,
+    peakEstimatedTokensPerSec,
+    totalEstimatedRequests: Math.max(1, totalEstimatedRequests),
+    totalEstimatedTokens: Math.max(1, totalEstimatedTokens),
     stagesCount: groupSchedules.length,
     timelineData: samplePoints,
     groupSchedules,
@@ -605,5 +726,59 @@ response = requests.post(url, json=payload)
 print("Plan execution started:", response.json())
 `
 
-  return { curl, python }
+  const planFilename = `${(plan.name || 'test_plan').toLowerCase().replace(/\s+/g, '_')}.jmx`
+  const cli = `# 1. Download the exported .jmx file (${planFilename})
+# 2. Run headless test and generate full HTML report dashboard:
+jmeter -n -t ${planFilename} -l results.jtl -e -o ./jmeter_report_dashboard
+
+# View live progress in CLI terminal:
+tail -f results.jtl`
+
+  const firstTg = plan.thread_groups?.[0] || {}
+  const targetUsers = firstTg.target_users || 10
+  const duration = firstTg.duration_seconds || 60
+  const k6 = `import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+// Grafana k6 Load Test Script generated from DynoLLM Test Plan Studio
+export const options = {
+  stages: [
+    { duration: '${Math.max(5, Math.round(duration * 0.2))}s', target: ${targetUsers} }, // Ramp-up
+    { duration: '${Math.max(10, Math.round(duration * 0.6))}s', target: ${targetUsers} }, // Steady-state
+    { duration: '${Math.max(5, Math.round(duration * 0.2))}s', target: 0 },             // Ramp-down
+  ],
+  thresholds: {
+    http_req_duration: ['p(95)<2500'], // 95% of requests must complete below 2.5s
+    http_req_failed: ['rate<0.05'],    // Error rate must be under 5%
+  },
+};
+
+export default function () {
+  const url = '${baseUrl}/api/proxy/v1/chat/completions';
+  const payload = JSON.stringify({
+    model: '${firstTg.model || 'default-model'}',
+    messages: [{ role: 'user', content: 'Explain transformers in 2 sentences.' }],
+    max_tokens: ${firstTg.max_tokens || 256},
+    temperature: ${firstTg.temperature || 0.7},
+  });
+
+  const params = {
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    timeout: '${firstTg.request_timeout || 120}s',
+  };
+
+  const res = http.post(url, payload, params);
+  check(res, {
+    'status is 200': (r) => r.status === 200,
+    'has generated content': (r) => r.body && r.body.length > 0,
+  });
+
+  sleep(0.5); // Pacing think time
 }
+`
+
+  return { curl, python, k6, cli }
+}
+

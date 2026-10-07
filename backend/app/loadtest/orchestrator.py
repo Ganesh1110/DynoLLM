@@ -45,7 +45,8 @@ async def run_plan(
     Execute a test plan: run each thread group sequentially,
     merge aggregates, evaluate assertions, and produce listener reports.
     """
-    thread_groups = plan_config.get("thread_groups", [])
+    raw_thread_groups = plan_config.get("thread_groups", [])
+    thread_groups = [tg for tg in raw_thread_groups if tg.get("enabled") is not False]
     config_elements = plan_config.get("config_elements", [])
     plan_assertions = plan_config.get("assertions", [])
     active_listeners = plan_config.get("listeners", [

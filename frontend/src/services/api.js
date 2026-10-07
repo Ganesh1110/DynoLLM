@@ -132,6 +132,7 @@ export const loadTestPlansApi = {
   delete: (id) => request(`/api/load-test-plans/${id}`, { method: 'DELETE' }),
   run: (id) => request(`/api/load-test-plans/${id}/run`, { method: 'POST' }),
   runInline: (plan) => request('/api/load-test-plans/run-inline', { method: 'POST', body: plan }),
+  probe: (plan) => request('/api/load-test-plans/probe', { method: 'POST', body: plan }),
 }
 
 export const monitoringApi = {

@@ -35,6 +35,8 @@ def apply_config_elements(tg_config: dict, elements: list[dict]) -> tuple[dict, 
     pool: Optional[PromptPool] = None
 
     for el in elements:
+        if el.get("enabled") is False:
+            continue
         etype = el.get("type", "")
 
         if etype == "csv_data_set":
@@ -64,6 +66,14 @@ def apply_config_elements(tg_config: dict, elements: list[dict]) -> tuple[dict, 
             # Stored in tg for adapter to pick up if supported
             tg.setdefault("extra_headers", {})
             tg["extra_headers"][el.get("key", "Authorization")] = el.get("value", "")
+
+        elif etype == "header_manager":
+            tg.setdefault("extra_headers", {})
+            headers_map = el.get("headers", {})
+            if isinstance(headers_map, dict):
+                for hk, hv in headers_map.items():
+                    if hk and hv:
+                        tg["extra_headers"][hk] = hv
 
         elif etype == "token_budget":
             if "max_tokens" in el and el["max_tokens"] is not None:
