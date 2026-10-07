@@ -30,7 +30,6 @@ import {
 } from "../components/ui";
 import {
   classifyWorkload,
-  calcTokenCosts,
   formatTokenCount,
 } from "../utils/tokenMetrics";
 
@@ -91,27 +90,6 @@ export function Compare() {
   const lowestP95 = Math.min(
     ...selectedRuns.map((r) => r.p95_latency_ms || Infinity),
   );
-
-  // Determine Cost-per-million for each run
-  const costMap = useMemo(() => {
-    const map = {};
-    selectedRuns.forEach((r) => {
-      const pt = r.avg_prompt_tokens || 0;
-      const ct = r.avg_completion_tokens || 0;
-      if (pt > 0 || ct > 0) {
-        map[r.id] = calcTokenCosts({
-          promptTokens: pt,
-          completionTokens: ct,
-        }).effectiveCostPerMillion;
-      } else {
-        map[r.id] = null;
-      }
-    });
-    return map;
-  }, [selectedRuns]);
-
-  const validCosts = Object.values(costMap).filter((c) => c !== null);
-  const lowestCost = validCosts.length > 0 ? Math.min(...validCosts) : null;
 
   return (
     <div className="space-y-6">
@@ -184,7 +162,7 @@ export function Compare() {
       ) : (
         <div className="space-y-6">
           {/* Comparative Leaderboard Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div className="card space-y-2 border-emerald-900/40 bg-emerald-950/10">
               <div className="flex items-center space-x-2 text-emerald-400">
                 <Award className="w-4 h-4" />
@@ -240,27 +218,6 @@ export function Compare() {
                 <strong className="text-amber-300">
                   {selectedRuns.find((r) => r.p95_latency_ms === lowestP95)
                     ?.model || "—"}
-                </strong>
-              </div>
-            </div>
-
-            <div className="card space-y-2 border-rose-900/40 bg-rose-950/10">
-              <div className="flex items-center space-x-2 text-rose-400">
-                <DollarSign className="w-4 h-4" />
-                <span className="text-xs uppercase font-bold tracking-wider">
-                  Lowest Cost / 1M
-                </span>
-              </div>
-              <div className="text-2xl font-black text-white font-mono">
-                {lowestCost != null ? `$${lowestCost.toFixed(2)}` : "—"}
-              </div>
-              <div className="text-xs text-gray-400 truncate">
-                Leader:{" "}
-                <strong className="text-rose-300">
-                  {lowestCost != null
-                    ? selectedRuns.find((r) => costMap[r.id] === lowestCost)
-                        ?.model
-                    : "—"}
                 </strong>
               </div>
             </div>
@@ -424,24 +381,7 @@ export function Compare() {
                       );
                     })}
                   </tr>
-                  <tr>
-                    <td className="p-3 text-gray-400 font-sans font-medium">
-                      Cost / 1M Tokens
-                    </td>
-                    {selectedRuns.map((r) => (
-                      <td
-                        key={r.id}
-                        className={`p-3 ${costMap[r.id] === lowestCost && lowestCost != null ? "text-rose-400 font-bold" : "text-gray-300"}`}
-                      >
-                        {costMap[r.id] != null
-                          ? `$${costMap[r.id].toFixed(2)}`
-                          : "—"}
-                        {costMap[r.id] === lowestCost &&
-                          lowestCost != null &&
-                          " 💎"}
-                      </td>
-                    ))}
-                  </tr>
+
 
                   <tr>
                     <td className="p-3 text-gray-400 font-sans font-medium">

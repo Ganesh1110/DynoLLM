@@ -152,7 +152,6 @@ export function getGpuArchitecture(gpuName) {
       sm: 'SM 9.0+',
       fp8Native: true,
       peakTflops: 989,
-      hourlyCost: 3.25,
       fp8GemmSpeedup: '2.0x native FP8 Tensor Core GEMM',
       recommendedQuant: 'FP8 (W8A8)',
     }
@@ -171,7 +170,6 @@ export function getGpuArchitecture(gpuName) {
       sm: 'SM 8.9',
       fp8Native: true,
       peakTflops: n.includes('4090') ? 165 : 120,
-      hourlyCost: n.includes('4090') ? 0.65 : 0.75,
       fp8GemmSpeedup: '1.9x native FP8 Tensor Core GEMM',
       recommendedQuant: 'FP8 (W8A8)',
     }
@@ -190,7 +188,6 @@ export function getGpuArchitecture(gpuName) {
       sm: 'SM 8.0/8.6',
       fp8Native: false,
       peakTflops: n.includes('a100') ? 312 : 125,
-      hourlyCost: n.includes('a100') ? 1.85 : 0.95,
       fp8GemmSpeedup: 'Weight-only Marlin fallback (No FP8 GEMM speedup)',
       recommendedQuant: 'INT4 AWQ / GPTQ (W4A16)',
     }
@@ -201,7 +198,6 @@ export function getGpuArchitecture(gpuName) {
       sm: 'SM 7.0/7.5',
       fp8Native: false,
       peakTflops: 65,
-      hourlyCost: 0.35,
       fp8GemmSpeedup: 'No FP8 Support',
       recommendedQuant: 'INT4 GPTQ / AWQ',
     }
@@ -211,7 +207,6 @@ export function getGpuArchitecture(gpuName) {
     sm: 'Unknown',
     fp8Native: false,
     peakTflops: 100,
-    hourlyCost: 1.0,
     fp8GemmSpeedup: 'Standard FP16 Kernels',
     recommendedQuant: 'INT4 AWQ',
   }

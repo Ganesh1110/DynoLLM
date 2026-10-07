@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { benchmarksApi, loadTestsApi } from '../services/api'
-import { classifyWorkload, calcTokenCosts, formatTokenCount } from '../utils/tokenMetrics'
+import { classifyWorkload, formatTokenCount } from '../utils/tokenMetrics'
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -87,7 +87,6 @@ import {
   buildContextScalingCurve,
   buildTpScalingData,
   buildRooflineModel,
-  buildCostEfficiencyCurve,
   buildConcurrencyChartData,
   buildVramBreakdown,
   buildMatchmakerRecommendations,
@@ -132,7 +131,6 @@ export function VllmOptimizer() {
   const [concurrency, setConcurrency] = useState(10)
   const [scalingMode, setScalingMode] = useState('tp') // 'tp' | 'replicas'
   const [replicaCount, setReplicaCount] = useState(1)
-  const [customHourlyCost, setCustomHourlyCost] = useState(null)
 
   // 4. User Customizable Engine Flags State
   const [flags, setFlags] = useState({ ...DEFAULT_VLLM_FLAGS })
@@ -196,7 +194,6 @@ export function VllmOptimizer() {
       concurrency: runConcurrency,
       totalPromptTokens: run.total_prompt_tokens,
       totalCompletionTokens: run.total_completion_tokens,
-      costEstimate: run.cost_estimate,
       durationSeconds: run.duration_seconds,
       tokensInPerSec: run.tokens_in_per_second,
       tokensOutPerSec: run.tokens_out_per_second,
@@ -492,9 +489,6 @@ export function VllmOptimizer() {
   // GPU Architecture Detection
   const gpuArch = useMemo(() => getGpuArchitecture(targetGpu.name), [targetGpu])
 
-  // Hourly cost calculation
-  const effectiveGpuHourlyCost = customHourlyCost ?? gpuArch.hourlyCost
-
   // Guardrail: Validate Tensor Parallelism vs Attention Heads
   const tpValidation = useMemo(
     () => validateTpConfig(targetGpu, flags.tensorParallelSize, selectedModel),
@@ -664,21 +658,7 @@ export function VllmOptimizer() {
     [targetGpu, flags.tensorParallelSize, gpuArch, scalingMode, concurrency]
   )
 
-  // ==========================================
-  // CHART 5: CONCURRENCY VS COST PER 1M TOKENS
-  // ==========================================
-  const costCurveData = useMemo(
-    () =>
-      buildCostEfficiencyCurve({
-        effectiveGpuHourlyCost,
-        scalingMode,
-        tensorParallelSize: flags.tensorParallelSize,
-        replicaCount,
-        maxSafeConcurrency,
-        estimatedDecodeTps,
-      }),
-    [effectiveGpuHourlyCost, scalingMode, flags.tensorParallelSize, replicaCount, maxSafeConcurrency, estimatedDecodeTps]
-  )
+
 
   // ==========================================
   // CHART 0: THROUGHPUT & LATENCY COMPOSED DATA
@@ -1435,9 +1415,6 @@ export function VllmOptimizer() {
                   >
                     {rec.tag}
                   </span>
-                  <span className="text-xs font-mono font-bold text-gray-300">
-                    {rec.costEstimate}
-                  </span>
                 </div>
 
                 <div>
@@ -1496,7 +1473,7 @@ export function VllmOptimizer() {
                   {scalingMode === 'replicas' && replicaCount > 1 && ` (${replicaCount}x Replicas)`}
                 </h3>
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  Roofline estimates, memory bandwidth ceilings, and cost curves.
+                  Roofline estimates, memory bandwidth ceilings, and throughput scaling.
                 </p>
               </div>
 
@@ -1638,18 +1615,6 @@ export function VllmOptimizer() {
                 >
                   <Gauge className="w-3 h-3 inline mr-1" />
                   Roofline Model
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveChartTab('cost')}
-                  className={`px-2.5 py-1 rounded text-xs font-medium whitespace-nowrap transition-colors border ${
-                    activeChartTab === 'cost'
-                      ? 'bg-rose-500/20 border-rose-500 text-rose-300 font-bold'
-                      : 'bg-gray-950 border-gray-800 text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <DollarSign className="w-3 h-3 inline mr-1" />
-                  Cost / 1M Tokens
                 </button>
               </div>
 
@@ -2135,172 +2100,7 @@ export function VllmOptimizer() {
                 </div>
               )}
 
-              {/* ---------------------------------------------------- */}
-              {/* TAB 5: CONCURRENCY VS COST PER 1M TOKENS             */}
-              {/* ---------------------------------------------------- */}
-              {activeChartTab === 'cost' && (
-                <div className="space-y-1.5 pt-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-semibold text-gray-300 flex items-center gap-1.5">
-                        <DollarSign className="w-3.5 h-3.5 text-rose-400" />
-                        Concurrency vs. Cost per 1 Million Generated Tokens
-                      </span>
-                      <p className="text-[11px] text-gray-400">
-                        Economic sweet-spot: cost drops steeply as batching saturates memory bandwidth.
-                      </p>
-                    </div>
 
-                    <div className="flex items-center gap-1 text-xs font-mono">
-                      <span className="text-gray-400">GPU $/hr:</span>
-                      <input
-                        type="number"
-                        step={0.1}
-                        value={effectiveGpuHourlyCost}
-                        onChange={(e) => setCustomHourlyCost(parseFloat(e.target.value) || 0.1)}
-                        className="input font-mono text-xs py-0.5 px-1.5 w-16 text-right"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="h-64 w-full bg-gray-950/60 rounded-xl p-2.5 border border-gray-800">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={costCurveData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.5} />
-                        <XAxis
-                          dataKey="concurrency"
-                          stroke="#9ca3af"
-                          fontSize={10}
-                          tickLine={false}
-                          label={{
-                            value: 'Concurrent Virtual Users',
-                            position: 'insideBottom',
-                            offset: -5,
-                            fill: '#9ca3af',
-                            fontSize: 10,
-                          }}
-                        />
-                        <YAxis
-                          stroke="#f43f5e"
-                          fontSize={10}
-                          tickLine={false}
-                          label={{
-                            value: 'Cost ($ / 1M Tokens)',
-                            angle: -90,
-                            position: 'insideLeft',
-                            fill: '#f43f5e',
-                            fontSize: 9,
-                          }}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            backgroundColor: '#111827',
-                            borderColor: '#374151',
-                            borderRadius: '0.5rem',
-                            fontSize: '11px',
-                          }}
-                          formatter={(val) => `$${val}`}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey="costPerMillion"
-                          name="Cost / 1M Tokens ($)"
-                          stroke="#f43f5e"
-                          strokeWidth={2.5}
-                          dot={{ r: 3 }}
-                        />
-                        {maxSafeConcurrency > 0 && (
-                          <ReferenceLine
-                            x={maxSafeConcurrency}
-                            stroke="#ef4444"
-                            strokeDasharray="3 3"
-                            label={{
-                              value: 'Saturation Knee',
-                              fill: '#ef4444',
-                              fontSize: 9,
-                              position: 'top',
-                            }}
-                          />
-                        )}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  {/* Predicted vs Measured Reality Comparison Card */}
-                  <div className="p-3.5 bg-gray-950/80 rounded-xl border border-gray-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Sparkles className="w-4 h-4 text-emerald-400" />
-                        <span className="text-xs font-bold text-white">Closed-Loop Reality: Modeled vs. Measured Cost</span>
-                        {realTrafficProfile ? (
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                            Source: {realTrafficProfile.source} ({realTrafficProfile.model})
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-gray-500">No empirical run linked yet</span>
-                        )}
-                      </div>
-                      {!realTrafficProfile && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            fetchRecentRuns()
-                            setShowRunPicker(true)
-                          }}
-                          className="btn-secondary text-[11px] py-1 px-2.5 flex items-center gap-1 text-sky-400 border-sky-500/30"
-                        >
-                          <Zap className="w-3 h-3" />
-                          <span>Link Real Run</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {realTrafficProfile ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-mono pt-1">
-                        <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
-                          <span className="text-[10px] text-gray-400 block font-sans">Predicted Hardware Cost</span>
-                          <span className="text-base font-bold text-rose-400">
-                            ${costCurveData.find((d) => d.concurrency === concurrency)?.costPerMillion ?? costCurveData[costCurveData.length - 1]?.costPerMillion ?? '—'}
-                          </span>
-                          <span className="text-[10px] text-gray-500 block font-sans">/ 1M tokens (at {concurrency} users, ${effectiveGpuHourlyCost.toFixed(2)}/hr)</span>
-                        </div>
-
-                        <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
-                          <span className="text-[10px] text-gray-400 block font-sans">
-                            {realTrafficProfile.totalTokensPerSec > 0 ? 'Empirical Hardware Rate' : 'Cloud API Equivalent'}
-                          </span>
-                          <span className="text-base font-bold text-emerald-400">
-                            {realTrafficProfile.totalTokensPerSec > 0
-                              ? `$${((effectiveGpuHourlyCost / (realTrafficProfile.totalTokensPerSec * 3600)) * 1_000_000).toFixed(2)}`
-                              : realTrafficProfile.costEstimate && (realTrafficProfile.totalCompletionTokens || realTrafficProfile.totalPromptTokens)
-                              ? `$${((realTrafficProfile.costEstimate / (realTrafficProfile.totalCompletionTokens + (realTrafficProfile.totalPromptTokens || 0))) * 1_000_000).toFixed(2)}`
-                              : '—'}
-                          </span>
-                          <span className="text-[10px] text-gray-500 block font-sans">
-                            {realTrafficProfile.totalTokensPerSec > 0
-                              ? `/ 1M tok (observed ${Math.round(realTrafficProfile.totalTokensPerSec)} tok/s)`
-                              : `/ 1M tok (${realTrafficProfile.promptTokens} in / ${realTrafficProfile.completionTokens} out)`}
-                          </span>
-                        </div>
-
-                        <div className="bg-gray-900/80 p-2.5 rounded-lg border border-gray-800">
-                          <span className="text-[10px] text-gray-400 block font-sans">Workload Classification</span>
-                          <span className="text-sm font-bold text-indigo-300">
-                            {realTrafficProfile.workload?.badge || 'Measured Profile'}
-                          </span>
-                          <span className="text-[10px] text-gray-400 block font-sans truncate">
-                            {realTrafficProfile.workload?.regime === 'prefill' ? 'Prefill-bound (chunked prefill rec.)' : 'Decode-bound (memory bw critical)'}
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-gray-400 leading-relaxed font-sans">
-                        Compare DynoLLM’s mathematical cost prediction against real empirical benchmarks or load test runs. Click "Populate from Last Run" at the top or "Link Real Run" above to import your actual prompts and concurrency.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* VRAM Memory Allocation Breakdown */}

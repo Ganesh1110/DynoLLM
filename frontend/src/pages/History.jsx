@@ -4,7 +4,7 @@ import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
 import { benchmarksApi, loadTestsApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
-import { classifyWorkload, calcTokenCosts, formatTokenCount } from '../utils/tokenMetrics'
+import { classifyWorkload, formatTokenCount } from '../utils/tokenMetrics'
 
 export function History() {
   const [tab, setTab] = useState('benchmarks') // 'benchmarks' | 'loadtests'
@@ -149,7 +149,6 @@ export function History() {
                     <th className="p-3">Avg TTFT</th>
                     <th className="p-3">Speed (tok/s)</th>
                     <th className="p-3">Tokens (In/Out)</th>
-                    <th className="p-3">Cost / 1M</th>
                     <th className="p-3">P95 Latency</th>
                     <th className="p-3 rounded-r-lg text-right">Actions</th>
                   </tr>
@@ -169,9 +168,6 @@ export function History() {
                       <td className="p-3 text-emerald-400 font-bold">{fmt(run.avg_generation_tokens_per_second)}</td>
                       <td className="p-3 text-indigo-300">
                         {run.avg_prompt_tokens ? Math.round(run.avg_prompt_tokens) : '—'} / {run.avg_completion_tokens ? Math.round(run.avg_completion_tokens) : '—'}
-                      </td>
-                      <td className="p-3 text-rose-400">
-                        ${calcTokenCosts({ promptTokens: run.avg_prompt_tokens || 0, completionTokens: run.avg_completion_tokens || 0 }).effectiveCostPerMillion.toFixed(2)}
                       </td>
                       <td className="p-3 text-amber-400">{fmtMs(run.p95_latency_ms)}</td>
                       <td className="p-3 text-right">

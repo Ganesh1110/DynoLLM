@@ -306,40 +306,7 @@ export function buildRooflineModel({
   }
 }
 
-/**
- * Build Concurrency vs Cost per 1M Tokens Data
- */
-export function buildCostEfficiencyCurve({
-  effectiveGpuHourlyCost,
-  scalingMode = 'tp',
-  tensorParallelSize = 1,
-  replicaCount = 1,
-  maxSafeConcurrency = 1,
-  estimatedDecodeTps = 30,
-}) {
-  const steps = [1, 2, 4, 8, 12, 16, 24, 32, 48, 64]
-  const effectiveCostPerHour =
-    effectiveGpuHourlyCost * (scalingMode === 'tp' ? tensorParallelSize : replicaCount)
 
-  return steps.map((u) => {
-    const isSaturated = u > maxSafeConcurrency
-    const batchEfficiency = Math.min(1.0, 0.45 + Math.log10(u) * 0.35)
-    const systemThroughput = isSaturated
-      ? Math.round(estimatedDecodeTps * Math.max(1, maxSafeConcurrency) * 0.75)
-      : Math.round(estimatedDecodeTps * u * batchEfficiency * (scalingMode === 'replicas' ? replicaCount : 1))
-
-    const tokensPerHour = systemThroughput * 3600
-    const millionTokensPerHour = Math.max(0.001, tokensPerHour / 1000000)
-    const costPerMillion = Number((effectiveCostPerHour / millionTokensPerHour).toFixed(3))
-
-    return {
-      concurrency: u,
-      costPerMillion,
-      systemThroughput,
-      isSaturated,
-    }
-  })
-}
 
 /**
  * Build Concurrency Chart Data (Throughput & Latency)
@@ -414,7 +381,7 @@ export function getRecommendedGpuForModel(model, gpuCatalog = GPU_CATALOG) {
   if (params <= 4) {
     preferredName = 'NVIDIA RTX 4060 Ti (16GB)'
     suggestedTp = 1
-    reason = `Compact ${params}B model fits comfortably on cost-effective 16GB VRAM with fast single-user latency.`
+    reason = `Compact ${params}B model fits comfortably on 16GB VRAM with fast single-user latency.`
   } else if (params <= 9) {
     preferredName = 'NVIDIA RTX 3090 / 4090'
     suggestedTp = 1
@@ -461,13 +428,13 @@ export function buildMatchmakerRecommendations({
   let valueRecipeId = 'int4_awq'
   let valueTp = 1
   let valueScaling = 'tp'
-  let valueReason = 'Lowest cloud hourly cost (~$1.00/hr) with INT4 AWQ fitting smoothly on a single 24GB node.'
+  let valueReason = 'Efficient single-node deployment with INT4 AWQ fitting smoothly on a 24GB VRAM GPU.'
 
   if (params <= 9) {
     valueGpuName = 'NVIDIA L4 (24GB Ada)'
     valueRecipeId = 'int4_awq'
     valueTp = 1
-    valueReason = 'Lowest cloud hourly cost (~$0.65/hr) with INT4 AWQ. Fits comfortably on 24GB VRAM with ample KV headroom.'
+    valueReason = 'High-efficiency deployment with INT4 AWQ. Fits comfortably on 24GB VRAM with ample KV headroom.'
   } else if (params <= 16) {
     valueGpuName = 'NVIDIA RTX 3090 / 4090'
     valueRecipeId = 'int4_awq'
@@ -516,14 +483,13 @@ export function buildMatchmakerRecommendations({
 
   return [
     {
-      tag: 'Best Value / Budget',
+      tag: 'Memory-Optimized / Efficient',
       tagColor: 'emerald',
       gpu: valueGpu,
       recipe: valueRecipe,
       tp: valueTp,
       scaling: valueScaling,
       rationale: valueReason,
-      costEstimate: params <= 9 ? '~$0.65/hr' : params <= 35 ? '~$1.50/hr' : '~$2.80/hr',
       estDecode: params <= 9 ? '~68 tok/s' : params <= 35 ? '~54 tok/s' : '~32 tok/s',
     },
     {
@@ -534,7 +500,6 @@ export function buildMatchmakerRecommendations({
       tp: speedTp,
       scaling: 'tp',
       rationale: speedReason,
-      costEstimate: speedTp > 1 ? `~$${(3.85 * speedTp).toFixed(2)}/hr (${speedTp}x H100)` : '~$3.85/hr',
       estDecode: params <= 9 ? '~210 tok/s' : params <= 35 ? '~135 tok/s' : '~82 tok/s',
     },
     {
@@ -545,7 +510,6 @@ export function buildMatchmakerRecommendations({
       tp: scaleTp,
       scaling: 'tp',
       rationale: scaleReason,
-      costEstimate: scaleTp > 1 ? `~$${(2.40 * scaleTp).toFixed(2)}/hr (${scaleTp}x A100)` : '~$2.40/hr',
       estDecode: params <= 9 ? '~130 tok/s' : params <= 35 ? '~92 tok/s' : '~58 tok/s',
     },
   ]
