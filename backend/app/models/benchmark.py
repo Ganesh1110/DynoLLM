@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey, Boolean
+from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey, Boolean, Index
 from app.core.database import Base
 
 
@@ -12,9 +12,9 @@ class BenchmarkRun(Base):
     __tablename__ = "benchmark_runs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    runtime_id = Column(String, ForeignKey("runtimes.id"), nullable=False)
+    runtime_id = Column(String, ForeignKey("runtimes.id"), nullable=False, index=True)
     model = Column(String, nullable=False)
-    status = Column(String, default="pending")  # pending, running, completed, failed, stopped
+    status = Column(String, default="pending", index=True)  # pending, running, completed, failed, stopped
     scenario = Column(String, nullable=False)   # short, medium, long, rag, conversation, json, streaming
     prompt = Column(Text, nullable=True)
     system_prompt = Column(Text, nullable=True)
@@ -26,7 +26,7 @@ class BenchmarkRun(Base):
     context_lengths = Column(JSON, nullable=True)     # list of ints, e.g. [100, 500, 1000, 2000]
     template_id = Column(String, nullable=True)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Aggregate results (computed after all runs)
@@ -49,9 +49,12 @@ class BenchmarkRun(Base):
 
 class BenchmarkResult(Base):
     __tablename__ = "benchmark_results"
+    __table_args__ = (
+        Index("ix_benchmark_results_run_idx", "run_id", "run_index"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id = Column(String, ForeignKey("benchmark_runs.id"), nullable=False)
+    run_id = Column(String, ForeignKey("benchmark_runs.id"), nullable=False, index=True)
     run_index = Column(Integer, nullable=False)
     ttft_ms = Column(Float, nullable=True)
     total_latency_ms = Column(Float, nullable=False)
@@ -67,4 +70,4 @@ class BenchmarkResult(Base):
     prompt_length_target = Column(Integer, nullable=True)
     error = Column(Text, nullable=True)
     raw_response = Column(JSON, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)

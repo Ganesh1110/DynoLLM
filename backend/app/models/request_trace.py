@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey
+from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey, Index
 from app.core.database import Base
 
 
@@ -10,12 +10,15 @@ def utcnow():
 
 class RequestTrace(Base):
     __tablename__ = "request_traces"
+    __table_args__ = (
+        Index("ix_request_traces_source_started", "source", "started_at"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     source = Column(String, nullable=False, index=True)  # benchmark, load_test, proxy
     run_id = Column(String, nullable=True, index=True)   # links to benchmark_runs or load_test_runs
     runtime_id = Column(String, ForeignKey("runtimes.id"), nullable=False, index=True)
-    model = Column(String, nullable=False)
+    model = Column(String, nullable=False, index=True)
     started_at = Column(DateTime(timezone=True), default=utcnow, index=True)
 
     prompt_text = Column(Text, nullable=True)

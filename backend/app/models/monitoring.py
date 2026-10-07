@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Float, Integer, JSON
+from sqlalchemy import Column, String, DateTime, Float, Integer, JSON, Index
 from app.core.database import Base
 
 
@@ -10,12 +10,15 @@ def utcnow():
 
 class HardwareSnapshot(Base):
     __tablename__ = "hardware_snapshots"
+    __table_args__ = (
+        Index("ix_hardware_snapshots_run_ts", "run_id", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id = Column(String, nullable=True)       # associated benchmark/load test run (optional)
-    run_type = Column(String, nullable=True)     # benchmark | load_test | idle
+    run_id = Column(String, nullable=True, index=True)       # associated benchmark/load test run (optional)
+    run_type = Column(String, nullable=True, index=True)     # benchmark | load_test | idle
 
-    timestamp = Column(DateTime(timezone=True), default=utcnow)
+    timestamp = Column(DateTime(timezone=True), default=utcnow, index=True)
 
     # CPU
     cpu_percent = Column(Float, nullable=True)

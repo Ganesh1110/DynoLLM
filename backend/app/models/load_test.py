@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey, Boolean
+from sqlalchemy import Column, String, DateTime, Float, Integer, Text, JSON, ForeignKey, Boolean, Index
 from app.core.database import Base
 
 
@@ -12,9 +12,9 @@ class LoadTestRun(Base):
     __tablename__ = "load_test_runs"
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    runtime_id = Column(String, ForeignKey("runtimes.id"), nullable=False)
+    runtime_id = Column(String, ForeignKey("runtimes.id"), nullable=False, index=True)
     model = Column(String, nullable=False)
-    status = Column(String, default="pending")  # pending, running, completed, failed, stopped
+    status = Column(String, default="pending", index=True)  # pending, running, completed, failed, stopped
     pattern = Column(String, nullable=False)     # constant, rampup, spike, stress
     target_users = Column(Integer, nullable=False)
     duration_seconds = Column(Integer, nullable=False)
@@ -26,7 +26,7 @@ class LoadTestRun(Base):
     max_tokens = Column(Integer, default=256)
     request_timeout = Column(Float, default=120.0)
     error = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(DateTime(timezone=True), default=utcnow, index=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 
     # Aggregated results
@@ -78,17 +78,20 @@ class LoadTestPlan(Base):
     name        = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     config      = Column(JSON, nullable=False)   # full plan JSON (thread_groups, config_elements, assertions, listeners)
-    created_at  = Column(DateTime(timezone=True), default=utcnow)
+    created_at  = Column(DateTime(timezone=True), default=utcnow, index=True)
     updated_at  = Column(DateTime(timezone=True), nullable=True)
 
 
 class LoadTestResult(Base):
     __tablename__ = "load_test_results"
+    __table_args__ = (
+        Index("ix_load_test_results_run_ts", "run_id", "timestamp"),
+    )
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    run_id = Column(String, ForeignKey("load_test_runs.id"), nullable=False)
-    timestamp = Column(DateTime(timezone=True), default=utcnow)
-    concurrent_users = Column(Integer, nullable=False)
+    run_id = Column(String, ForeignKey("load_test_runs.id"), nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=True), default=utcnow, index=True)
+    concurrent_users = Column(Integer, nullable=False, index=True)
     ttft_ms = Column(Float, nullable=True)
     total_latency_ms = Column(Float, nullable=False)
     prompt_tokens = Column(Integer, nullable=True)

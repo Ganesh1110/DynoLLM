@@ -7,16 +7,54 @@ class Base(DeclarativeBase):
     pass
 
 
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    connect_args={
+from sqlalchemy.pool import AsyncAdaptedQueuePool, NullPool
+from sqlalchemy import event, text
+
+is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+engine_kwargs = {
+    "echo": settings.DEBUG,
+}
+
+if is_sqlite:
+    engine_kwargs["connect_args"] = {
         "check_same_thread": False,
-        # WAL mode: allows one writer + concurrent readers.
-        # Prevents read queries from blocking the per-tier bulk insert during load tests.
         "timeout": 30,
-    },
-)
+    }
+    if ":memory:" not in settings.DATABASE_URL:
+        # High-performance async connection pool for file-based SQLite:
+        # Prevents reopening file handles on every query and enables concurrent read pooling.
+        engine_kwargs["poolclass"] = AsyncAdaptedQueuePool
+        engine_kwargs["pool_size"] = 20
+        engine_kwargs["max_overflow"] = 30
+        engine_kwargs["pool_timeout"] = 30
+        engine_kwargs["pool_pre_ping"] = True
+        engine_kwargs["pool_recycle"] = 3600
+    else:
+        engine_kwargs["poolclass"] = NullPool
+
+engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
+
+if is_sqlite:
+    @event.listens_for(engine.sync_engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            # 1. WAL Mode: High-concurrency Write-Ahead Logging (readers never block writers)
+            cursor.execute("PRAGMA journal_mode = WAL")
+            # 2. NORMAL Sync: Safe with WAL; minimizes disk fsync latency overhead
+            cursor.execute("PRAGMA synchronous = NORMAL")
+            # 3. 64MB Cache: -64000 = 64,000 KiB RAM cache (default SQLite cache is only 2MB)
+            cursor.execute("PRAGMA cache_size = -64000")
+            # 4. In-Memory Temp Tables: Sort operations, GROUP BY, and temp tables execute in RAM
+            cursor.execute("PRAGMA temp_store = MEMORY")
+            # 5. 256MB MMAP: Zero-copy direct memory-mapped file I/O for lightning-fast reads
+            cursor.execute("PRAGMA mmap_size = 268435456")
+            # 6. Busy Timeout: Wait up to 30s before throwing database lock errors during bursts
+            cursor.execute("PRAGMA busy_timeout = 30000")
+            # 7. WAL auto-checkpoint: Prevent unbound WAL file growth
+            cursor.execute("PRAGMA wal_autocheckpoint = 1000")
+        finally:
+            cursor.close()
 
 AsyncSessionLocal = async_sessionmaker(
     engine,
@@ -222,6 +260,53 @@ def _migrate_columns_sync(conn):
     )
     if cur.fetchone():
         pass  # table exists; future column migrations go here
+
+    # ─── High-Performance Database Indexes ─────────────────────────────────────────
+    # Accelerates lookup by run_id, date range, source, model, and status across all tables.
+    perf_indexes = [
+        # Load test results & runs
+        "CREATE INDEX IF NOT EXISTS ix_load_test_results_run_id ON load_test_results(run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_load_test_results_timestamp ON load_test_results(timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_load_test_results_run_ts ON load_test_results(run_id, timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_load_test_results_cu ON load_test_results(concurrent_users)",
+        "CREATE INDEX IF NOT EXISTS ix_load_test_runs_created_at ON load_test_runs(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_load_test_runs_runtime_id ON load_test_runs(runtime_id)",
+        "CREATE INDEX IF NOT EXISTS ix_load_test_runs_status ON load_test_runs(status)",
+        # Benchmark results & runs
+        "CREATE INDEX IF NOT EXISTS ix_benchmark_results_run_id ON benchmark_results(run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_benchmark_results_created_at ON benchmark_results(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_benchmark_results_run_idx ON benchmark_results(run_id, run_index)",
+        "CREATE INDEX IF NOT EXISTS ix_benchmark_runs_created_at ON benchmark_runs(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_benchmark_runs_runtime_id ON benchmark_runs(runtime_id)",
+        "CREATE INDEX IF NOT EXISTS ix_benchmark_runs_status ON benchmark_runs(status)",
+        # Telemetry snapshots
+        "CREATE INDEX IF NOT EXISTS ix_hardware_snapshots_run_id ON hardware_snapshots(run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_hardware_snapshots_timestamp ON hardware_snapshots(timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_hardware_snapshots_run_type ON hardware_snapshots(run_type)",
+        "CREATE INDEX IF NOT EXISTS ix_hardware_snapshots_run_ts ON hardware_snapshots(run_id, timestamp)",
+        # Request traces
+        "CREATE INDEX IF NOT EXISTS ix_request_traces_source ON request_traces(source)",
+        "CREATE INDEX IF NOT EXISTS ix_request_traces_run_id ON request_traces(run_id)",
+        "CREATE INDEX IF NOT EXISTS ix_request_traces_runtime_id ON request_traces(runtime_id)",
+        "CREATE INDEX IF NOT EXISTS ix_request_traces_model ON request_traces(model)",
+        "CREATE INDEX IF NOT EXISTS ix_request_traces_started_at ON request_traces(started_at)",
+        "CREATE INDEX IF NOT EXISTS ix_request_traces_source_started ON request_traces(source, started_at)",
+        # Plans & templates
+        "CREATE INDEX IF NOT EXISTS ix_load_test_plans_created_at ON load_test_plans(created_at)",
+        "CREATE INDEX IF NOT EXISTS ix_prompt_templates_scenario ON prompt_templates(scenario)",
+        "CREATE INDEX IF NOT EXISTS ix_prompt_templates_created_at ON prompt_templates(created_at)",
+    ]
+    for idx_sql in perf_indexes:
+        try:
+            conn.execute(text(idx_sql))
+        except Exception:
+            pass
+
+    # Update SQLite query optimizer index statistics
+    try:
+        conn.execute(text("PRAGMA optimize"))
+    except Exception:
+        pass
 
     # Seed default templates if table empty
 
