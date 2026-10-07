@@ -3,6 +3,7 @@ import { createMonitoringWS, createEventsWS } from '../services/api'
 import { useMonitoringStore } from '../stores/monitoringStore'
 import { useBenchmarkStore } from '../stores/benchmarkStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
+import { useLoadTestPlanStore } from '../stores/loadTestPlanStore'
 
 const WATCHDOG_TIMEOUT_MS = 10000 // 10s without metric message triggers staleness watchdog
 
@@ -13,6 +14,7 @@ export function useWebSocket() {
   const handleMetrics = useMonitoringStore((s) => s.handleMetrics)
   const handleBenchEvent = useBenchmarkStore((s) => s.handleWebSocketEvent)
   const handleLoadEvent = useLoadTestStore((s) => s.handleWebSocketEvent)
+  const handlePlanEvent = useLoadTestPlanStore((s) => s.handleWebSocketEvent)
 
   useEffect(() => {
     let unmounted = false
@@ -81,6 +83,7 @@ export function useWebSocket() {
             evtDelay = 2000
             handleBenchEvent(data)
             handleLoadEvent(data)
+            handlePlanEvent(data)
           },
           () => {
             if (unmounted) return

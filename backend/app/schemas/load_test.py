@@ -106,3 +106,100 @@ class LiveLoadTestUpdate(BaseModel):
     total_completion_tokens: Optional[int] = None
     tokens_in_per_second: Optional[float] = None
     tokens_out_per_second: Optional[float] = None
+
+
+# ─── Test Plan Schemas ────────────────────────────────────────────────────────
+
+class ConfigElementSchema(BaseModel):
+    type: str                          # csv_data_set | think_time | auth_header | token_budget
+    # csv_data_set fields
+    data: Optional[str] = None         # raw CSV/newline-separated prompt text
+    column: Optional[str] = None       # column name in CSV
+    mode: Optional[str] = "random"     # random | sequential
+    # think_time fields
+    min_ms: Optional[int] = 0
+    max_ms: Optional[int] = 0
+    # auth_header fields
+    key: Optional[str] = None
+    value: Optional[str] = None
+    # token_budget fields
+    max_tokens: Optional[int] = None
+    temperature: Optional[float] = None
+
+
+class AssertionConfigSchema(BaseModel):
+    type: str                          # latency | error_rate | quality | ttft | tokens_per_second
+    name: Optional[str] = None
+    # latency
+    p95_max_ms: Optional[float] = None
+    # error_rate
+    max_pct: Optional[float] = None
+    # quality
+    min_rate: Optional[float] = None
+    # ttft
+    max_ms: Optional[float] = None
+    # tokens_per_second
+    min_tps: Optional[float] = None
+
+
+class ThreadGroupConfigSchema(BaseModel):
+    id: Optional[str] = None
+    name: str = "Thread Group"
+    runtime_id: str
+    runtime_type: Optional[str] = None    # will be resolved server-side from runtime_id
+    endpoint: Optional[str] = None        # will be resolved server-side
+    api_key: Optional[str] = None         # will be resolved server-side
+    model: str
+    pattern: str = "rampup"
+    target_users: int = 10
+    duration_seconds: int = 60
+    rampup_step_users: int = 5
+    rampup_step_seconds: int = 10
+    system_prompt: Optional[str] = None
+    prompt_mix: Optional[dict] = None
+    temperature: float = 0.7
+    max_tokens: int = 256
+    request_timeout: float = 120.0
+
+
+class LoadTestPlanCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    thread_groups: list[ThreadGroupConfigSchema]
+    config_elements: list[ConfigElementSchema] = []
+    assertions: list[AssertionConfigSchema] = []
+    listeners: list[str] = [
+        "summary_table", "latency_chart", "token_throughput",
+        "cost_report", "error_log", "percentile_chart", "assertion_report",
+    ]
+
+
+class LoadTestPlanOut(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    config: dict
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AssertionResultSchema(BaseModel):
+    name: str
+    assertion_type: str
+    passed: bool
+    actual_value: Optional[float] = None
+    threshold: float
+    message: str
+
+
+class PlanRunReportOut(BaseModel):
+    run_id: Optional[str] = None   # first thread group run_id, for reference
+    plan_id: Optional[str] = None
+    plan_name: Optional[str] = None
+    overall_passed: bool = True
+    thread_group_summaries: list[dict] = []
+    merged_aggregates: dict = {}
+    listeners: dict = {}
+    assertion_results: list[AssertionResultSchema] = []

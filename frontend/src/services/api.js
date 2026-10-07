@@ -124,6 +124,16 @@ export const loadTestsApi = {
   },
 }
 
+export const loadTestPlansApi = {
+  list: (limit = 50) => request(`/api/load-test-plans?limit=${limit}`),
+  get: (id) => request(`/api/load-test-plans/${id}`),
+  create: (plan) => request('/api/load-test-plans', { method: 'POST', body: plan }),
+  update: (id, plan) => request(`/api/load-test-plans/${id}`, { method: 'PUT', body: plan }),
+  delete: (id) => request(`/api/load-test-plans/${id}`, { method: 'DELETE' }),
+  run: (id) => request(`/api/load-test-plans/${id}/run`, { method: 'POST' }),
+  runInline: (plan) => request('/api/load-test-plans/run-inline', { method: 'POST', body: plan }),
+}
+
 export const monitoringApi = {
   current: () => request('/api/monitoring/current'),
   engineStats: () => request('/api/monitoring/engine-stats'),

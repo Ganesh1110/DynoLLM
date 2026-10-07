@@ -353,6 +353,8 @@ async def run_load_test(
     broadcast_fn: Optional[Callable[[dict], Awaitable[None]]] = None,
     db: Optional[AsyncSession] = None,
     runtime_id: Optional[str] = None,
+    prompt_pool=None,           # Optional[PromptPool] — overrides prompt_mix when set
+    think_time_range=None,      # Optional[tuple[int, int]] — (min_ms, max_ms) think time
 ) -> dict:
     """Run a load test and return aggregate metrics.
 
@@ -409,7 +411,12 @@ async def run_load_test(
 
             async def tier_worker():
                 while _ACTIVE_RUNS.get(run_id, False):
-                    prompt = _pick_prompt(prompt_mix)
+                    # Use prompt pool from CSV Data Set element if provided,
+                    # otherwise fall back to the standard prompt mix.
+                    if prompt_pool is not None:
+                        prompt = prompt_pool.next() or _pick_prompt(prompt_mix)
+                    else:
+                        prompt = _pick_prompt(prompt_mix)
                     # Hold the semaphore during actual request execution so in-flight
                     # count is bounded by n_users.
                     async with semaphore_holder[0]:
@@ -439,8 +446,16 @@ async def run_load_test(
                         elapsed_seconds=elapsed,
                         duration_seconds=duration_seconds,
                     )
-                    # Yield to event loop to allow watchdog, timeouts, and metrics to execute cleanly
-                    await asyncio.sleep(0.005)
+                    # Apply Think Time config element: pause between requests.
+                    if think_time_range and (think_time_range[0] or think_time_range[1]):
+                        think_ms = random.uniform(
+                            think_time_range[0],
+                            max(think_time_range[1], think_time_range[0]),
+                        )
+                        await asyncio.sleep(think_ms / 1000.0)
+                    else:
+                        # Yield to event loop to allow watchdog, timeouts, and metrics to execute cleanly
+                        await asyncio.sleep(0.005)
 
             tasks = [asyncio.create_task(tier_worker()) for _ in range(n_users)]
             t_tier_start = time.perf_counter()

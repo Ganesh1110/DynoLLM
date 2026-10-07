@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight, DollarSign, Layers, Sparkles, Copy, Check, Columns, Table, ShieldCheck, BarChart3, HelpCircle, Clock } from 'lucide-react'
+import { Zap, StopCircle, RefreshCw, Activity, Users, AlertCircle, Download, CheckCircle, TrendingUp, ArrowRight, DollarSign, Layers, Sparkles, Copy, Check, Columns, Table, ShieldCheck, BarChart3, HelpCircle, Clock, FileText } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { useRuntimeStore } from '../stores/runtimeStore'
 import { useLoadTestStore } from '../stores/loadTestStore'
 import { useMonitoringStore } from '../stores/monitoringStore'
+import { useLoadTestPlanStore } from '../stores/loadTestPlanStore'
+import { TestPlanBuilder } from '../components/TestPlanBuilder'
+import { ReportViewer } from '../components/ReportViewer'
 import { loadTestsApi, monitoringApi } from '../services/api'
 import { SectionHeader, StatusBadge, Spinner, Alert, fmt, fmtMs } from '../components/ui'
 import { parseModelName, calcVRAM, calcKvCachePerUser, evaluateHostFit } from '../utils/gpuSizer'
@@ -32,6 +35,11 @@ export function LoadTest() {
   const loading = useLoadTestStore((s) => s.loading)
   const error = useLoadTestStore((s) => s.error)
   const currentTelemetry = useMonitoringStore((s) => s.current)
+
+  const [activeMainTab, setActiveMainTab] = useState('builder') // 'builder' | 'standard' | 'reports'
+  const runningPlan = useLoadTestPlanStore((s) => s.runningPlan)
+  const currentThreadGroup = useLoadTestPlanStore((s) => s.currentThreadGroup)
+  const currentReport = useLoadTestPlanStore((s) => s.currentReport)
 
   const [availableModels, setAvailableModels] = useState([])
   const [loadingModels, setLoadingModels] = useState(false)
@@ -306,7 +314,113 @@ export function LoadTest() {
 
       {error && <Alert type="error">{error}</Alert>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Active Running Plan Banner */}
+      {runningPlan && (
+        <div className="p-4 rounded-xl bg-sky-950/80 border border-sky-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sky-200 shadow-lg">
+          <div className="flex items-center space-x-3">
+            <div className="w-3.5 h-3.5 rounded-full bg-sky-400 animate-ping flex-shrink-0" />
+            <div>
+              <div className="font-semibold text-white flex items-center space-x-2">
+                <span>JMeter Plan Running:</span>
+                <span className="font-mono text-sky-300">{runningPlan.plan_id}</span>
+              </div>
+              <div className="text-xs text-sky-300/80 mt-0.5">
+                {currentThreadGroup
+                  ? `Executing Thread Group: "${currentThreadGroup.name}" (Run ID: ${currentThreadGroup.run_id})`
+                  : 'Orchestrating thread group pipeline...'}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('standard')}
+              className="text-xs px-3 py-1.5 rounded-lg bg-sky-900/60 hover:bg-sky-900/90 text-sky-200 border border-sky-700/60 transition-colors"
+            >
+              Monitor Live Stream →
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveMainTab('reports')}
+              className="text-xs px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-medium transition-colors"
+            >
+              View Plan Reports →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Top-Level Tabs Switcher */}
+      <div className="flex items-center space-x-2 border-b border-gray-800 pb-3">
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('builder')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+            activeMainTab === 'builder'
+              ? 'bg-sky-600 text-white shadow-md'
+              : 'bg-gray-900 text-gray-400 hover:text-gray-200 border border-gray-800'
+          }`}
+        >
+          <Layers className="w-4 h-4" />
+          <span>JMeter Plan Builder</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('standard')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+            activeMainTab === 'standard'
+              ? 'bg-sky-600 text-white shadow-md'
+              : 'bg-gray-900 text-gray-400 hover:text-gray-200 border border-gray-800'
+          }`}
+        >
+          <Activity className="w-4 h-4" />
+          <span>Quick Run &amp; Live Monitor</span>
+          {activeRun?.status === 'running' && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse ml-1" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveMainTab('reports')}
+          className={`flex items-center space-x-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
+            activeMainTab === 'reports'
+              ? 'bg-sky-600 text-white shadow-md'
+              : 'bg-gray-900 text-gray-400 hover:text-gray-200 border border-gray-800'
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>Plan Reports</span>
+          {currentReport && (
+            <span
+              className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                currentReport.overall_passed
+                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                  : 'bg-rose-950 text-rose-300 border border-rose-800'
+              }`}
+            >
+              {currentReport.overall_passed ? 'PASS' : 'FAIL'}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeMainTab === 'builder' && (
+        <TestPlanBuilder
+          onPlanStarted={() => setActiveMainTab('reports')}
+          onViewReport={() => setActiveMainTab('reports')}
+        />
+      )}
+
+      {activeMainTab === 'reports' && (
+        <ReportViewer
+          onSwitchToBuilder={() => setActiveMainTab('builder')}
+        />
+      )}
+
+      {activeMainTab === 'standard' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Form Configuration */}
         <div className="card space-y-5">
           <h2 className="text-base font-bold text-white border-b border-gray-800 pb-2">
@@ -1477,6 +1591,7 @@ export function LoadTest() {
           )}
         </div>
       </div>
+      )}
 
       {/* Testing & Rating Guide Modal */}
       <TestingGuideModal

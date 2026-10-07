@@ -70,6 +70,18 @@ class LoadTestRun(Base):
     concurrency_breakdown = Column(JSON, nullable=True)
 
 
+class LoadTestPlan(Base):
+    """Saveable, reusable test plan (JMeter Test Plan equivalent)."""
+    __tablename__ = "load_test_plans"
+
+    id          = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    name        = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    config      = Column(JSON, nullable=False)   # full plan JSON (thread_groups, config_elements, assertions, listeners)
+    created_at  = Column(DateTime(timezone=True), default=utcnow)
+    updated_at  = Column(DateTime(timezone=True), nullable=True)
+
+
 class LoadTestResult(Base):
     __tablename__ = "load_test_results"
 

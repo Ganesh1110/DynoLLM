@@ -12,6 +12,7 @@ import app.models  # noqa: F401 — ensure all models are registered
 from app.api.runtimes import router as runtimes_router
 from app.api.benchmarks import router as benchmarks_router
 from app.api.load_tests import router as load_tests_router
+from app.api.load_test_plans import router as load_test_plans_router
 from app.api.monitoring import router as monitoring_router
 from app.api.export import router as export_router
 from app.api.prompt_templates import router as prompt_templates_router
@@ -67,6 +68,7 @@ app.include_router(runtimes_router, dependencies=[Depends(verify_api_key)])
 app.include_router(benchmarks_router, dependencies=[Depends(verify_api_key)])
 app.include_router(prompt_templates_router, dependencies=[Depends(verify_api_key)])
 app.include_router(load_tests_router, dependencies=[Depends(verify_api_key)])
+app.include_router(load_test_plans_router, dependencies=[Depends(verify_api_key)])
 app.include_router(monitoring_router)
 app.include_router(export_router, dependencies=[Depends(verify_export_api_key)])
 app.include_router(traces_router, dependencies=[Depends(verify_api_key)])

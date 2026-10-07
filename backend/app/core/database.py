@@ -214,7 +214,17 @@ def _migrate_columns_sync(conn):
         if col_name not in existing_lt_run_cols:
             conn.execute(text(f"ALTER TABLE load_test_runs ADD COLUMN {col_name} {col_type}"))
 
+    # Ensure load_test_plans table exists (new feature).
+    # The table is created by create_all above; no column migration is needed for
+    # brand-new tables. This block serves as the placeholder for future column additions.
+    cur = conn.execute(
+        text("SELECT name FROM sqlite_master WHERE type='table' AND name='load_test_plans'")
+    )
+    if cur.fetchone():
+        pass  # table exists; future column migrations go here
+
     # Seed default templates if table empty
+
     cur = conn.execute(text("SELECT COUNT(*) FROM prompt_templates"))
     count = cur.fetchone()[0]
     if count == 0:
