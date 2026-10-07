@@ -45,9 +45,20 @@ def apply_config_elements(tg_config: dict, elements: list[dict]) -> tuple[dict, 
             if prompts:
                 pool = PromptPool(prompts, mode=mode)
 
-        elif etype == "think_time":
-            tg["think_time_min_ms"] = el.get("min_ms", 0)
-            tg["think_time_max_ms"] = el.get("max_ms", 0)
+        elif etype in ("think_time", "timer"):
+            timer_type = el.get("timer_type", "uniform")
+            if timer_type == "constant":
+                delay = int(el.get("delay_ms") or el.get("min_ms") or 200)
+                tg["think_time_min_ms"] = delay
+                tg["think_time_max_ms"] = delay
+            elif timer_type == "gaussian":
+                mean_ms = int(el.get("delay_ms") or 500)
+                dev_ms = int(el.get("deviation_ms") or 150)
+                tg["think_time_min_ms"] = max(0, mean_ms - dev_ms)
+                tg["think_time_max_ms"] = mean_ms + dev_ms
+            else:
+                tg["think_time_min_ms"] = int(el.get("min_ms") or 0)
+                tg["think_time_max_ms"] = int(el.get("max_ms") or 0)
 
         elif etype == "auth_header":
             # Stored in tg for adapter to pick up if supported
@@ -55,10 +66,25 @@ def apply_config_elements(tg_config: dict, elements: list[dict]) -> tuple[dict, 
             tg["extra_headers"][el.get("key", "Authorization")] = el.get("value", "")
 
         elif etype == "token_budget":
-            if "max_tokens" in el:
+            if "max_tokens" in el and el["max_tokens"] is not None:
                 tg["max_tokens"] = el["max_tokens"]
-            if "temperature" in el:
+            if "temperature" in el and el["temperature"] is not None:
                 tg["temperature"] = el["temperature"]
+
+        elif etype == "user_defined_variables":
+            # JMeter User Defined Variables: interpolate ${VAR_NAME} into fields
+            vars_dict = el.get("variables", {})
+            if isinstance(vars_dict, dict):
+                for k, v in vars_dict.items():
+                    placeholder = f"${{{k}}}"
+                    val_str = str(v)
+                    for field in ["system_prompt", "model"]:
+                        if tg.get(field) and isinstance(tg[field], str):
+                            tg[field] = tg[field].replace(placeholder, val_str)
+                    if "extra_headers" in tg and isinstance(tg["extra_headers"], dict):
+                        for hk, hv in list(tg["extra_headers"].items()):
+                            if isinstance(hv, str):
+                                tg["extra_headers"][hk] = hv.replace(placeholder, val_str)
 
     return tg, pool
 

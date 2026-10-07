@@ -336,7 +336,7 @@ export function LoadTest() {
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>JMeter Plan Builder</span>
+          <span>JMeter Plan Studio</span>
         </button>
 
         <button

@@ -111,27 +111,33 @@ class LiveLoadTestUpdate(BaseModel):
 # ─── Test Plan Schemas ────────────────────────────────────────────────────────
 
 class ConfigElementSchema(BaseModel):
-    type: str                          # csv_data_set | think_time | auth_header | token_budget
+    type: str                          # csv_data_set | think_time | timer | auth_header | token_budget | user_defined_variables
     # csv_data_set fields
     data: Optional[str] = None         # raw CSV/newline-separated prompt text
     column: Optional[str] = None       # column name in CSV
     mode: Optional[str] = "random"     # random | sequential
-    # think_time fields
+    # think_time / timer fields
     min_ms: Optional[int] = 0
     max_ms: Optional[int] = 0
+    timer_type: Optional[str] = "uniform" # uniform | constant | gaussian
+    delay_ms: Optional[int] = None
+    deviation_ms: Optional[int] = None
     # auth_header fields
     key: Optional[str] = None
     value: Optional[str] = None
     # token_budget fields
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
+    # user_defined_variables fields
+    variables: Optional[dict[str, str]] = None
 
 
 class AssertionConfigSchema(BaseModel):
-    type: str                          # latency | error_rate | quality | ttft | tokens_per_second
+    type: str                          # latency | p99_latency | error_rate | quality | ttft | tokens_per_second
     name: Optional[str] = None
     # latency
     p95_max_ms: Optional[float] = None
+    p99_max_ms: Optional[float] = None
     # error_rate
     max_pct: Optional[float] = None
     # quality

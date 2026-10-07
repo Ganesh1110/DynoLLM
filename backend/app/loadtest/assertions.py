@@ -27,19 +27,35 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
     for a in plan_assertions:
         atype = a.get("type", "")
 
-        if atype == "latency":
+        if atype in ("latency", "p95_latency"):
             threshold = float(a.get("p95_max_ms", 2000))
             actual = aggregates.get("p95_latency_ms")
             passed = actual is not None and actual <= threshold
             results.append(AssertionResult(
                 name=a.get("name", "Latency p95"),
-                assertion_type=atype,
+                assertion_type="latency",
                 passed=passed,
                 actual_value=actual,
                 threshold=threshold,
                 message=(
                     f"p95 latency {actual:.0f}ms ≤ {threshold:.0f}ms ✓" if passed
                     else (f"p95 latency {actual:.0f}ms > {threshold:.0f}ms ✗" if actual is not None else "No latency data")
+                ),
+            ))
+
+        elif atype == "p99_latency":
+            threshold = float(a.get("p99_max_ms", 3500))
+            actual = aggregates.get("p99_latency_ms")
+            passed = actual is not None and actual <= threshold
+            results.append(AssertionResult(
+                name=a.get("name", "Latency p99"),
+                assertion_type=atype,
+                passed=passed,
+                actual_value=actual,
+                threshold=threshold,
+                message=(
+                    f"p99 latency {actual:.0f}ms ≤ {threshold:.0f}ms ✓" if passed
+                    else (f"p99 latency {actual:.0f}ms > {threshold:.0f}ms ✗" if actual is not None else "No p99 latency data")
                 ),
             ))
 
