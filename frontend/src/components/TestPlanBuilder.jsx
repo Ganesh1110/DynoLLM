@@ -60,6 +60,7 @@ import {
   computeWorkloadTopology,
   exportPlanToJmx,
   generateSnippets,
+  getPlanValidationWarnings,
 } from '../utils/jmeterPlanUtils'
 
 const ALL_LISTENERS = [
@@ -265,6 +266,11 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
     return computeWorkloadTopology(planForm)
   }, [planForm])
 
+  // Pre-flight Plan Validation Warnings
+  const planValidationWarnings = useMemo(() => {
+    return getPlanValidationWarnings(planForm, runtimes)
+  }, [planForm, runtimes])
+
   // Toggle enabled state of a tree node
   const handleToggleNodeEnabled = (nodeType, index) => {
     setPlanForm((prev) => {
@@ -418,7 +424,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
 
   // Handlers for Assertions
   const handleAddAssertion = (type) => {
-    const base = { type, enabled: true }
+    const base = { type, enabled: true, scope: 'all' }
     if (type === 'latency') {
       base.name = 'Latency p95 Threshold'
       base.p95_max_ms = 2500
@@ -657,7 +663,7 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
         return item
       }),
       assertions: planForm.assertions.map((a) => {
-        const item = { type: a.type, name: a.name, enabled: a.enabled !== false }
+        const item = { type: a.type, name: a.name, enabled: a.enabled !== false, scope: a.scope || 'all' }
         if (a.type === 'latency') item.p95_max_ms = Number(a.p95_max_ms)
         else if (a.type === 'p99_latency') item.p99_max_ms = Number(a.p99_max_ms)
         else if (a.type === 'error_rate') item.max_pct = Number(a.max_pct)
@@ -691,6 +697,11 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
 
   const handleRun = async (isAdHoc = false) => {
     if (!validateForm()) return
+    const errorWarnings = planValidationWarnings.filter((w) => w.type === 'error')
+    if (errorWarnings.length > 0) {
+      setFormError(errorWarnings[0].desc)
+      return
+    }
     setIsExecuting(true)
     setSaveSuccessMsg('')
     try {
@@ -1496,17 +1507,79 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                   </div>
 
                   {/* Execution Mode */}
-                  <div className="p-3 rounded-xl bg-gray-900/60 border border-gray-800 space-y-2">
-                    <div className="text-xs font-semibold text-gray-200">Execution Policy</div>
-                    <label className="flex items-center space-x-2.5 cursor-pointer text-xs text-gray-300">
+                  {/* Execution Mode */}
+                  <div className="p-3.5 rounded-xl bg-gray-900/60 border border-gray-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-gray-200">Execution Policy (JMeter Thread Group Scheduling)</div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                        planForm.serialize_threadgroups
+                          ? 'bg-amber-950 text-amber-300 border border-amber-800'
+                          : 'bg-sky-950 text-sky-300 border border-sky-800'
+                      }`}>
+                        {planForm.serialize_threadgroups ? 'Sequential (One-by-One)' : 'Parallel (Simultaneous Mixed Load)'}
+                      </span>
+                    </div>
+                    <label className="flex items-start space-x-2.5 cursor-pointer text-xs text-gray-300">
                       <input
                         type="checkbox"
                         checked={planForm.serialize_threadgroups}
                         onChange={(e) => setPlanForm({ ...planForm, serialize_threadgroups: e.target.checked })}
-                        className="rounded border-gray-700 bg-gray-800 text-sky-600 focus:ring-sky-600"
+                        className="rounded border-gray-700 bg-gray-800 text-sky-600 focus:ring-sky-600 mt-0.5"
                       />
-                      <span>Run Thread Groups consecutively (one by one) instead of simultaneously</span>
+                      <div>
+                        <span className="font-medium text-white">Serialize Thread Groups (Run consecutively instead of simultaneously)</span>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          When unchecked (default), all enabled Thread Groups run concurrently in parallel via <code className="text-sky-300">asyncio.gather</code> to simulate realistic mixed traffic contention. When checked, Thread Groups run one after another sequentially.
+                        </p>
+                      </div>
                     </label>
+                  </div>
+
+                  {/* Pre-flight Plan Validation Summary */}
+                  <div className="p-3.5 rounded-xl bg-gray-900/70 border border-gray-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-200 flex items-center space-x-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Pre-Flight Validation &amp; Configuration Health</span>
+                      </span>
+                      <span className="text-[10px] font-mono text-gray-400">
+                        {planValidationWarnings.filter((w) => w.type === 'error').length} Errors •{' '}
+                        {planValidationWarnings.filter((w) => w.type === 'warning').length} Warnings
+                      </span>
+                    </div>
+                    {planValidationWarnings.length === 0 ? (
+                      <div className="text-xs text-emerald-300 flex items-center space-x-1.5 bg-emerald-950/40 p-2 rounded-lg border border-emerald-800/60">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>Plan passes all pre-flight sanity checks. Ready to run or export to Apache JMeter.</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                        {planValidationWarnings.map((w) => (
+                          <div
+                            key={w.id}
+                            className={`p-2 rounded-lg text-xs flex items-start space-x-2 border ${
+                              w.type === 'error'
+                                ? 'bg-rose-950/50 border-rose-800/80 text-rose-200'
+                                : w.type === 'warning'
+                                ? 'bg-amber-950/40 border-amber-800/60 text-amber-200'
+                                : 'bg-sky-950/40 border-sky-800/60 text-sky-200'
+                            }`}
+                          >
+                            {w.type === 'error' ? (
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
+                            ) : w.type === 'warning' ? (
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                            ) : (
+                              <Info className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                            )}
+                            <div>
+                              <div className="font-semibold">{w.title}</div>
+                              <div className="text-[11px] opacity-90">{w.desc}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -2449,6 +2522,25 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
                     </div>
 
                     <div>
+                      <label className="text-[11px] font-medium text-gray-400 mb-1 block">Assertion Target Scope</label>
+                      <select
+                        className="select text-xs py-1.5 w-full font-sans"
+                        value={a.scope || 'all'}
+                        onChange={(e) => handleUpdateAssertion(asIdx, 'scope', e.target.value)}
+                      >
+                        <option value="all">Plan-wide (Merged Aggregates)</option>
+                        {planForm.thread_groups.map((tg, tgI) => (
+                          <option key={tg.id || tgI} value={tg.id || tg.name}>
+                            Target Group: {tg.name || `Thread Group ${tgI + 1}`}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[10px] text-gray-500 mt-1">
+                        Evaluate assertion strictly against this Thread Group (e.g. Chatbot vs Bulk Ingestion) or across the overall plan.
+                      </p>
+                    </div>
+
+                    <div>
                       <label className="text-[11px] font-medium text-gray-400 mb-1 block">Threshold SLA Limit</label>
                       {a.type === 'latency' && (
                         <div className="flex items-center space-x-2">
@@ -2794,6 +2886,48 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
               })}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PRE-FLIGHT VALIDATION CALLOUT */}
+      {planValidationWarnings.length > 0 && (
+        <div
+          className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+            planValidationWarnings.some((w) => w.type === 'error')
+              ? 'bg-rose-950/60 border-rose-800 text-rose-200'
+              : planValidationWarnings.some((w) => w.type === 'warning')
+              ? 'bg-amber-950/40 border-amber-800/80 text-amber-200'
+              : 'bg-sky-950/40 border-sky-800/60 text-sky-200'
+          }`}
+        >
+          <div className="flex items-start space-x-2.5">
+            {planValidationWarnings.some((w) => w.type === 'error') ? (
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+            ) : planValidationWarnings.some((w) => w.type === 'warning') ? (
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            ) : (
+              <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <span className="font-semibold text-white">Pre-Flight Validation Notice:</span>{' '}
+              <span>
+                {planValidationWarnings[0].title} — {planValidationWarnings[0].desc}
+              </span>
+              {planValidationWarnings.length > 1 && (
+                <span className="opacity-80 block text-[11px] mt-0.5">
+                  (+{planValidationWarnings.length - 1} more advisory item
+                  {planValidationWarnings.length > 2 ? 's' : ''} in Plan Root inspector)
+                </span>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedNode('plan_root')}
+            className="text-[11px] px-2.5 py-1 rounded bg-gray-900 border border-gray-700 hover:text-white shrink-0 self-start sm:self-auto"
+          >
+            Review Checks →
+          </button>
         </div>
       )}
 

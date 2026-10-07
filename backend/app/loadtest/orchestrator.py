@@ -42,13 +42,15 @@ async def run_plan(
     broadcast_fn: Optional[Callable[[dict], Awaitable[None]]] = None,
 ) -> PlanRunResult:
     """
-    Execute a test plan: run each thread group sequentially,
-    merge aggregates, evaluate assertions, and produce listener reports.
+    Execute a test plan: run thread groups in parallel (default) or sequentially
+    (if serialize_threadgroups is true), merge aggregates, evaluate assertions,
+    and produce listener reports.
     """
     raw_thread_groups = plan_config.get("thread_groups", [])
     thread_groups = [tg for tg in raw_thread_groups if tg.get("enabled") is not False]
     config_elements = plan_config.get("config_elements", [])
     plan_assertions = plan_config.get("assertions", [])
+    serialize = bool(plan_config.get("serialize_threadgroups", False))
     active_listeners = plan_config.get("listeners", [
         "summary_table", "latency_chart", "token_throughput",
         "error_log", "percentile_chart",
@@ -56,10 +58,8 @@ async def run_plan(
 
     result = PlanRunResult(plan_id=plan_id)
 
-    for tg in thread_groups:
+    async def _execute_tg(tg: dict) -> tuple[str, ThreadGroupResult]:
         run_id = str(_uuid.uuid4())
-        result.run_ids.append(run_id)
-
         # Apply config elements to this thread group's config
         tg_config, prompt_pool = apply_config_elements(tg, config_elements)
         think_min = tg_config.get("think_time_min_ms", 0)
@@ -100,21 +100,55 @@ async def run_plan(
             )
         except Exception as exc:
             log.error("plan_thread_group_error", plan_id=plan_id, tg_id=tg.get("id"), error=str(exc))
-            aggregates = {"error": str(exc)}
+            aggregates = {"error": str(exc), "total_requests": 0, "failed_requests": 1}
 
-        result.thread_group_results.append(ThreadGroupResult(
+        tg_res = ThreadGroupResult(
             thread_group_id=tg.get("id", run_id),
             thread_group_name=tg.get("name", "Thread Group"),
             aggregates=aggregates,
-        ))
+        )
+        return run_id, tg_res
+
+    if serialize:
+        for tg in thread_groups:
+            r_id, tg_res = await _execute_tg(tg)
+            result.run_ids.append(r_id)
+            result.thread_group_results.append(tg_res)
+    else:
+        # Run thread groups in parallel (concurrent load simulation)
+        if thread_groups:
+            gathered = await asyncio.gather(*[_execute_tg(tg) for tg in thread_groups])
+            for r_id, tg_res in gathered:
+                result.run_ids.append(r_id)
+                result.thread_group_results.append(tg_res)
 
     # Merge aggregates from all thread groups
     result.merged_aggregates = _merge_aggregates(
         [tgr.aggregates for tgr in result.thread_group_results]
     )
 
-    # Evaluate assertions against merged aggregates
-    result.assertion_results = evaluate_assertions(plan_assertions, result.merged_aggregates)
+    # Health check assertions: ensure no thread group crashed or produced 0 requests
+    health_assertions: list[AssertionResult] = []
+    for tgr in result.thread_group_results:
+        err = tgr.aggregates.get("error")
+        total_reqs = tgr.aggregates.get("total_requests", 0)
+        if err or total_reqs == 0:
+            health_assertions.append(AssertionResult(
+                name=f"[{tgr.thread_group_name}] Execution Health",
+                assertion_type="health",
+                passed=False,
+                actual_value=0.0,
+                threshold=1.0,
+                message=f"Thread group failed: {err if err else '0 requests completed'}",
+            ))
+
+    # Evaluate plan assertions against merged aggregates and scoped thread groups
+    evaluated_assertions = evaluate_assertions(
+        plan_assertions,
+        result.merged_aggregates,
+        group_results=result.thread_group_results,
+    )
+    result.assertion_results = health_assertions + evaluated_assertions
     result.overall_passed = all(ar.passed for ar in result.assertion_results)
 
     # Build listener reports

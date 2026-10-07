@@ -17,9 +17,14 @@ class AssertionResult:
     message: str
 
 
-def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[AssertionResult]:
+def evaluate_assertions(
+    plan_assertions: list[dict],
+    aggregates: dict,
+    group_results: Optional[list] = None,
+) -> list[AssertionResult]:
     """
     Evaluate a list of assertion configs against the aggregated run results.
+    Supports plan-wide ('all') as well as per-thread-group assertions ('scope': tg_id or tg_name).
     Returns a list of AssertionResult objects.
     """
     results: list[AssertionResult] = []
@@ -28,13 +33,28 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
         if a.get("enabled") is False:
             continue
         atype = a.get("type", "")
+        scope = a.get("scope", "all")
+        target_aggregates = aggregates
+        scope_prefix = ""
+
+        if scope and scope not in ("all", "plan") and group_results:
+            matching_tg = next(
+                (gr for gr in group_results if getattr(gr, "thread_group_id", None) == scope or getattr(gr, "thread_group_name", None) == scope),
+                None
+            )
+            if matching_tg:
+                target_aggregates = matching_tg.aggregates
+                scope_prefix = f"[{matching_tg.thread_group_name}] "
+
+        base_name = a.get("name", atype)
+        full_name = f"{scope_prefix}{base_name}" if scope_prefix and not base_name.startswith("[") else base_name
 
         if atype in ("latency", "p95_latency"):
             threshold = float(a.get("p95_max_ms", 2000))
-            actual = aggregates.get("p95_latency_ms")
+            actual = target_aggregates.get("p95_latency_ms")
             passed = actual is not None and actual <= threshold
             results.append(AssertionResult(
-                name=a.get("name", "Latency p95"),
+                name=full_name,
                 assertion_type="latency",
                 passed=passed,
                 actual_value=actual,
@@ -47,10 +67,10 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
 
         elif atype == "p99_latency":
             threshold = float(a.get("p99_max_ms", 3500))
-            actual = aggregates.get("p99_latency_ms")
+            actual = target_aggregates.get("p99_latency_ms")
             passed = actual is not None and actual <= threshold
             results.append(AssertionResult(
-                name=a.get("name", "Latency p99"),
+                name=full_name,
                 assertion_type=atype,
                 passed=passed,
                 actual_value=actual,
@@ -63,11 +83,11 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
 
         elif atype == "error_rate":
             threshold = float(a.get("max_pct", 5))
-            actual_rate = aggregates.get("error_rate")
+            actual_rate = target_aggregates.get("error_rate")
             actual = round(actual_rate * 100, 2) if actual_rate is not None else None
             passed = actual is not None and actual <= threshold
             results.append(AssertionResult(
-                name=a.get("name", "Error Rate"),
+                name=full_name,
                 assertion_type=atype,
                 passed=passed,
                 actual_value=actual,
@@ -80,10 +100,10 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
 
         elif atype == "quality":
             threshold = float(a.get("min_rate", 0.95))
-            actual = aggregates.get("quality_integrity_rate")
+            actual = target_aggregates.get("quality_integrity_rate")
             passed = actual is not None and actual >= threshold
             results.append(AssertionResult(
-                name=a.get("name", "Quality Integrity"),
+                name=full_name,
                 assertion_type=atype,
                 passed=passed,
                 actual_value=actual,
@@ -96,10 +116,10 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
 
         elif atype == "ttft":
             threshold = float(a.get("max_ms", 1000))
-            actual = aggregates.get("avg_ttft_ms")
+            actual = target_aggregates.get("avg_ttft_ms")
             passed = actual is not None and actual <= threshold
             results.append(AssertionResult(
-                name=a.get("name", "TTFT"),
+                name=full_name,
                 assertion_type=atype,
                 passed=passed,
                 actual_value=actual,
@@ -112,10 +132,10 @@ def evaluate_assertions(plan_assertions: list[dict], aggregates: dict) -> list[A
 
         elif atype == "tokens_per_second":
             threshold = float(a.get("min_tps", 10))
-            actual = aggregates.get("total_tokens_per_second")
+            actual = target_aggregates.get("total_tokens_per_second")
             passed = actual is not None and actual >= threshold
             results.append(AssertionResult(
-                name=a.get("name", "Token Throughput"),
+                name=full_name,
                 assertion_type=atype,
                 passed=passed,
                 actual_value=actual,

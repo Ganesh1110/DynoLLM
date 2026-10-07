@@ -183,3 +183,106 @@ def test_advanced_thread_group_fields_schema():
     assert tg.streaming is True
     assert tg.enabled is True
 
+
+def test_scoped_assertions_per_thread_group():
+    from app.loadtest.orchestrator import ThreadGroupResult
+
+    group_results = [
+        ThreadGroupResult(
+            thread_group_id="tg-fast",
+            thread_group_name="Fast Chat",
+            aggregates={
+                "p95_latency_ms": 300.0,
+                "error_rate": 0.0,
+                "avg_ttft_ms": 120.0,
+            },
+        ),
+        ThreadGroupResult(
+            thread_group_id="tg-slow",
+            thread_group_name="Heavy Document",
+            aggregates={
+                "p95_latency_ms": 4500.0,
+                "error_rate": 0.04,
+                "avg_ttft_ms": 1800.0,
+            },
+        ),
+    ]
+
+    merged_aggregates = {
+        "p95_latency_ms": 2800.0,
+        "error_rate": 0.02,
+        "avg_ttft_ms": 900.0,
+    }
+
+    assertions = [
+        # Scoped to tg-fast: should pass because 300 <= 500
+        {"type": "latency", "name": "Fast Latency", "scope": "tg-fast", "p95_max_ms": 500.0},
+        # Scoped to tg-slow: should fail because 4500 > 2000
+        {"type": "latency", "name": "Slow Latency", "scope": "tg-slow", "p95_max_ms": 2000.0},
+        # Plan-wide scope: checks merged aggregates (2800 <= 3000 -> passes)
+        {"type": "latency", "name": "Overall Latency", "scope": "all", "p95_max_ms": 3000.0},
+    ]
+
+    results = evaluate_assertions(assertions, merged_aggregates, group_results=group_results)
+    assert len(results) == 3
+    assert results[0].passed is True
+    assert "[Fast Chat]" in results[0].name
+    assert results[1].passed is False
+    assert "[Heavy Document]" in results[1].name
+    assert results[2].passed is True
+    assert results[2].name == "Overall Latency"
+
+
+@pytest.mark.asyncio
+async def test_run_plan_health_check_and_parallel_execution(monkeypatch):
+    from unittest.mock import AsyncMock
+    from app.loadtest import orchestrator
+
+    mock_run_load_test = AsyncMock()
+    # TG1 succeeds, TG2 raises an exception
+    async def side_effect(**kwargs):
+        if kwargs.get("model") == "model-fail":
+            raise RuntimeError("Connection refused by endpoint")
+        return {
+            "total_requests": 20,
+            "successful_requests": 20,
+            "failed_requests": 0,
+            "p95_latency_ms": 400.0,
+            "error_rate": 0.0,
+        }
+
+    mock_run_load_test.side_effect = side_effect
+    monkeypatch.setattr(orchestrator, "run_load_test", mock_run_load_test)
+
+    plan_config = {
+        "serialize_threadgroups": False,
+        "thread_groups": [
+            {
+                "id": "tg-1",
+                "name": "Working Group",
+                "runtime_type": "vllm",
+                "endpoint": "http://localhost:8000",
+                "model": "model-ok",
+            },
+            {
+                "id": "tg-2",
+                "name": "Failing Group",
+                "runtime_type": "vllm",
+                "endpoint": "http://localhost:8000",
+                "model": "model-fail",
+            },
+        ],
+        "assertions": [
+            {"type": "latency", "p95_max_ms": 1000.0},
+        ],
+    }
+
+    result = await orchestrator.run_plan("test-plan-1", plan_config)
+    # The overall plan must fail because Failing Group errored out
+    assert result.overall_passed is False
+    health_failures = [ar for ar in result.assertion_results if ar.assertion_type == "health"]
+    assert len(health_failures) == 1
+    assert "Failing Group" in health_failures[0].name
+    assert "Connection refused" in health_failures[0].message
+
+

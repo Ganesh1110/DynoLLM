@@ -153,6 +153,7 @@ class AssertionConfigSchema(BaseModel):
     # response_content / status_code
     content_pattern: Optional[str] = None
     expected_status: Optional[int] = 200
+    scope: Optional[str] = "all"       # 'all' | <thread_group_id>
 
 
 class ThreadGroupConfigSchema(BaseModel):

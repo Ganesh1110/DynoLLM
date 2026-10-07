@@ -467,34 +467,123 @@ function formatSecondsToMMSS(seconds) {
 export function exportPlanToJmx(plan, runtimes = []) {
   const planName = escapeXml(plan.name || 'DynoLLM Load Test Plan')
   const planDesc = escapeXml(plan.description || 'Exported from DynoLLM JMeter Orchestrator')
-  const threadGroups = plan.thread_groups || []
-  const configElements = plan.config_elements || []
-  const assertions = plan.assertions || []
+  const threadGroups = (plan.thread_groups || []).filter((tg) => tg.enabled !== false)
+  const configElements = (plan.config_elements || []).filter((c) => c.enabled !== false)
+  const assertions = (plan.assertions || []).filter((a) => a.enabled !== false)
+  const serializeThreadgroups = plan.serialize_threadgroups ? 'true' : 'false'
 
-  // Global variables / UDVs
+  // Extract User Defined Variables
   const udvElements = configElements.filter((c) => c.type === 'user_defined_variables')
-  let udvXml = ''
+  const definedVars = {}
   if (udvElements.length > 0) {
-    const vars = udvElements[0].variables || {}
-    const rows = Object.entries(vars)
-      .map(
-        ([k, v]) => `
+    Object.assign(definedVars, udvElements[0].variables || {})
+  }
+
+  // Ensure default fallback variables exist so samplers never fail with undefined ${var}
+  if (!definedVars.prompt) {
+    const csvEl = configElements.find((c) => c.type === 'csv_data_set')
+    const firstPrompt = csvEl?.data?.split('\n').filter(Boolean)[0]
+    definedVars.prompt = firstPrompt || 'Explain neural network attention mechanisms.'
+  }
+  if (!definedVars.API_KEY) {
+    const firstRt = runtimes.find((r) => r.id === threadGroups[0]?.runtime_id)
+    definedVars.API_KEY = firstRt?.api_key || '${__P(API_KEY,sk-default-key)}'
+  }
+
+  const udvRows = Object.entries(definedVars)
+    .map(
+      ([k, v]) => `
           <elementProp name="${escapeXml(k)}" elementType="Argument">
             <stringProp name="Argument.name">${escapeXml(k)}</stringProp>
             <stringProp name="Argument.value">${escapeXml(String(v))}</stringProp>
             <stringProp name="Argument.metadata">=</stringProp>
           </elementProp>`
-      )
-      .join('\n')
+    )
+    .join('\n')
 
-    udvXml = `
+  const udvXml = `
       <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
         <collectionProp name="Arguments.arguments">
-          ${rows}
+          ${udvRows}
         </collectionProp>
       </Arguments>
       <hashTree/>`
+
+  // CSV Data Set Config (if present)
+  const csvElement = configElements.find((c) => c.type === 'csv_data_set')
+  let csvDataSetXml = ''
+  if (csvElement) {
+    csvDataSetXml = `
+      <CSVDataSet guiclass="TestBeanGUI" testclass="CSVDataSet" testname="CSV Prompt Data Set" enabled="true">
+        <stringProp name="delimiter">\\n</stringProp>
+        <stringProp name="fileEncoding">UTF-8</stringProp>
+        <stringProp name="filename">prompts.csv</stringProp>
+        <boolProp name="ignoreFirstLine">false</boolProp>
+        <boolProp name="quotedData">false</boolProp>
+        <boolProp name="recycle">true</boolProp>
+        <stringProp name="shareMode">shareMode.all</stringProp>
+        <boolProp name="stopThread">false</boolProp>
+        <stringProp name="variableNames">${escapeXml(csvElement.column || 'prompt')}</stringProp>
+      </CSVDataSet>
+      <hashTree/>`
   }
+
+  // Think-time Timers
+  const timerElements = configElements.filter((c) => c.type === 'think_time')
+  const timersXml = timerElements
+    .map((timer) => {
+      const timerType = timer.timer_type || 'uniform'
+      if (timerType === 'constant') {
+        const delay = Number(timer.delay_ms) || Number(timer.min_ms) || 500
+        return `
+        <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Think Time (Constant ${delay}ms)" enabled="true">
+          <stringProp name="ConstantTimer.range">${delay}</stringProp>
+        </ConstantTimer>
+        <hashTree/>`
+      }
+      if (timerType === 'gaussian') {
+        const delay = Number(timer.delay_ms) || 500
+        const deviation = Number(timer.deviation_ms) || 150
+        return `
+        <GaussianRandomTimer guiclass="GaussianRandomTimerGui" testclass="GaussianRandomTimer" testname="Think Time (Gaussian ${delay}ms ±${deviation}ms)" enabled="true">
+          <stringProp name="ConstantTimer.range">${delay}</stringProp>
+          <stringProp name="RandomTimer.range">${deviation}</stringProp>
+        </GaussianRandomTimer>
+        <hashTree/>`
+      }
+      // uniform default
+      const min = Number(timer.min_ms) || 200
+      const max = Number(timer.max_ms) || 800
+      const range = Math.max(0, max - min)
+      return `
+      <UniformRandomTimer guiclass="UniformRandomTimerGui" testclass="UniformRandomTimer" testname="Think Time (Uniform ${min}-${max}ms)" enabled="true">
+        <stringProp name="ConstantTimer.range">${min}</stringProp>
+        <stringProp name="RandomTimer.range">${range}</stringProp>
+      </UniformRandomTimer>
+      <hashTree/>`
+    })
+    .join('\n')
+
+  // Header Manager from config elements if present
+  const headerElements = configElements.filter((c) => c.type === 'header_manager' || c.type === 'auth_header')
+  const extraHeadersRows = headerElements
+    .flatMap((el) => {
+      if (el.type === 'header_manager' && el.headers) {
+        return Object.entries(el.headers).map(([k, v]) => ({ name: k, value: v }))
+      }
+      if (el.type === 'auth_header' && el.key) {
+        return [{ name: el.key, value: el.value }]
+      }
+      return []
+    })
+    .map(
+      (h) => `
+            <elementProp name="" elementType="Header">
+              <stringProp name="Header.name">${escapeXml(h.name)}</stringProp>
+              <stringProp name="Header.value">${escapeXml(String(h.value))}</stringProp>
+            </elementProp>`
+    )
+    .join('\n')
 
   // Thread groups XML
   const threadGroupsXml = threadGroups
@@ -502,8 +591,11 @@ export function exportPlanToJmx(plan, runtimes = []) {
       const tgName = escapeXml(tg.name || `Thread Group ${idx + 1}`)
       const targetUsers = Number(tg.target_users) || 10
       const durationSeconds = Number(tg.duration_seconds) || 60
-      const rampupStepSeconds = Number(tg.rampup_step_seconds) || 10
-      const rampTime = tg.pattern === 'constant' ? 0 : rampupStepSeconds * 3
+      const stepUsers = Math.max(1, Number(tg.rampup_step_users) || 5)
+      const stepSeconds = Math.max(1, Number(tg.rampup_step_seconds) || 10)
+      const totalSteps = Math.ceil(targetUsers / stepUsers)
+      const rampTime = tg.pattern === 'constant' ? 0 : totalSteps * stepSeconds
+      const isStreaming = tg.streaming !== false
 
       // Find runtime endpoint
       const matchedRt = runtimes.find((r) => r.id === tg.runtime_id)
@@ -523,13 +615,24 @@ export function exportPlanToJmx(plan, runtimes = []) {
         // use defaults
       }
 
-      // Assertions XML inside thread group
-      const assertionsXml = assertions
+      // Assertions scoped to this thread group or plan-wide
+      const tgAssertions = assertions.filter(
+        (a) => !a.scope || a.scope === 'all' || a.scope === 'plan' || a.scope === tg.id || a.scope === tg.name
+      )
+
+      const assertionsXml = tgAssertions
         .map((a) => {
           if (a.type === 'latency') {
             return `
               <DurationAssertion guiclass="DurationAssertionGui" testclass="DurationAssertion" testname="${escapeXml(a.name || 'Latency SLA')}" enabled="true">
                 <stringProp name="DurationAssertion.duration">${Number(a.p95_max_ms) || 2000}</stringProp>
+              </DurationAssertion>
+              <hashTree/>`
+          }
+          if (a.type === 'p99_latency') {
+            return `
+              <DurationAssertion guiclass="DurationAssertionGui" testclass="DurationAssertion" testname="${escapeXml(a.name || 'p99 Latency SLA')}" enabled="true">
+                <stringProp name="DurationAssertion.duration">${Number(a.p99_max_ms) || 3500}</stringProp>
               </DurationAssertion>
               <hashTree/>`
           }
@@ -545,7 +648,9 @@ export function exportPlanToJmx(plan, runtimes = []) {
               </ResponseAssertion>
               <hashTree/>`
           }
-          return ''
+          // Note for LLM-specific assertions that require streaming parser
+          return `
+              <!-- DynoLLM Native Assertion: ${escapeXml(a.name || a.type)} (Evaluated in DynoLLM Studio report) -->`
         })
         .join('\n')
 
@@ -559,7 +664,7 @@ export function exportPlanToJmx(plan, runtimes = []) {
             ],
             temperature: Number(tg.temperature) || 0.7,
             max_tokens: Number(tg.max_tokens) || 256,
-            stream: false,
+            stream: isStreaming,
           },
           null,
           2
@@ -571,7 +676,7 @@ export function exportPlanToJmx(plan, runtimes = []) {
         <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
         <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller" enabled="true">
           <boolProp name="LoopController.continue_forever">false</boolProp>
-          <intProp name="LoopController.loops">-1</intProp>
+          <intProp name="LoopController.loops">${tg.loop_count && tg.loop_count > 0 ? tg.loop_count : -1}</intProp>
         </elementProp>
         <stringProp name="ThreadGroup.num_threads">${targetUsers}</stringProp>
         <stringProp name="ThreadGroup.ramp_time">${rampTime}</stringProp>
@@ -581,6 +686,7 @@ export function exportPlanToJmx(plan, runtimes = []) {
         <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
       </ThreadGroup>
       <hashTree>
+        ${timersXml}
         <!-- HTTP Header Manager -->
         <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP Header Manager" enabled="true">
           <collectionProp name="HeaderManager.headers">
@@ -592,6 +698,7 @@ export function exportPlanToJmx(plan, runtimes = []) {
               <stringProp name="Header.name">Authorization</stringProp>
               <stringProp name="Header.value">Bearer \${API_KEY}</stringProp>
             </elementProp>
+            ${extraHeadersRows}
           </collectionProp>
         </HeaderManager>
         <hashTree/>
@@ -674,7 +781,7 @@ export function exportPlanToJmx(plan, runtimes = []) {
       <stringProp name="TestPlan.comments">${planDesc}</stringProp>
       <boolProp name="TestPlan.functional_mode">false</boolProp>
       <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
-      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">${serializeThreadgroups}</boolProp>
       <elementProp name="TestPlan.user_defined_variables" elementType="Arguments" guiclass="ArgumentsPanel" testclass="Arguments" testname="User Defined Variables" enabled="true">
         <collectionProp name="Arguments.arguments"/>
       </elementProp>
@@ -682,6 +789,7 @@ export function exportPlanToJmx(plan, runtimes = []) {
     </TestPlan>
     <hashTree>
       ${udvXml}
+      ${csvDataSetXml}
       ${threadGroupsXml}
     </hashTree>
   </hashTree>
@@ -780,5 +888,102 @@ export default function () {
 `
 
   return { curl, python, k6, cli }
+}
+
+/**
+ * Pre-flight Plan Validator: analyzes the configured test plan before running or exporting,
+ * checking for common misconfigurations, missing models/runtimes, empty CSVs, or SLA timeouts.
+ */
+export function getPlanValidationWarnings(plan, runtimes = []) {
+  const warnings = []
+  const rawGroups = Array.isArray(plan?.thread_groups) ? plan.thread_groups : []
+  const enabledGroups = rawGroups.filter((g) => g.enabled !== false)
+
+  if (enabledGroups.length === 0) {
+    warnings.push({
+      id: 'no-active-groups',
+      type: 'error',
+      title: 'No Active Thread Groups',
+      desc: 'At least one Thread Group must be enabled before running the plan.',
+    })
+  }
+
+  enabledGroups.forEach((tg, idx) => {
+    const tgName = tg.name || `Thread Group ${idx + 1}`
+    if (!tg.runtime_id) {
+      warnings.push({
+        id: `missing-rt-${idx}`,
+        type: 'error',
+        title: `Missing Runtime (${tgName})`,
+        desc: `No target runtime selected for "${tgName}". Select an active inference runtime (vLLM, Ollama, TGI, etc.).`,
+      })
+    }
+    if (!tg.model) {
+      warnings.push({
+        id: `missing-model-${idx}`,
+        type: 'error',
+        title: `Missing Model (${tgName})`,
+        desc: `No model specified for "${tgName}". Specify or select an inference model.`,
+      })
+    }
+    if (tg.max_tokens > 4096) {
+      warnings.push({
+        id: `high-tokens-${idx}`,
+        type: 'info',
+        title: `High Max Tokens (${tgName}: ${tg.max_tokens})`,
+        desc: `Very high token generation budget may saturate KV cache during peak concurrency.`,
+      })
+    }
+    const timeoutMs = (Number(tg.request_timeout) || 120) * 1000
+    // Check if any latency assertion on this tg or plan-wide exceeds or nears timeout
+    const applicableAssertions = (plan.assertions || []).filter(
+      (a) => a.enabled !== false && (!a.scope || a.scope === 'all' || a.scope === 'plan' || a.scope === tg.id || a.scope === tg.name)
+    )
+    applicableAssertions.forEach((a) => {
+      const slaMs = Number(a.p95_max_ms || a.p99_max_ms || a.max_ms)
+      if (slaMs && slaMs >= timeoutMs) {
+        warnings.push({
+          id: `timeout-sla-mismatch-${idx}`,
+          type: 'warning',
+          title: `Timeout Lower Than SLA (${tgName})`,
+          desc: `Request timeout (${tg.request_timeout}s) is smaller than or equal to assertion threshold (${slaMs}ms). Requests may time out before reaching SLA limit.`,
+        })
+      }
+    })
+  })
+
+  // Check CSV Data Set elements
+  const csvElements = (plan.config_elements || []).filter((c) => c.enabled !== false && c.type === 'csv_data_set')
+  csvElements.forEach((ce, cIdx) => {
+    if (!ce.data || !ce.data.trim()) {
+      warnings.push({
+        id: `empty-csv-${cIdx}`,
+        type: 'warning',
+        title: 'Empty CSV Prompt Dataset',
+        desc: 'CSV Data Set element is enabled but contains no prompts. Sampler will fall back to default prompt mix.',
+      })
+    }
+  })
+
+  // Concurrency notice
+  if (enabledGroups.length > 1) {
+    if (plan.serialize_threadgroups) {
+      warnings.push({
+        id: 'serialize-notice',
+        type: 'info',
+        title: 'Sequential Execution Mode Active',
+        desc: 'Thread Groups will execute sequentially one after another. Uncheck "Run consecutive" to simulate simultaneous mixed traffic.',
+      })
+    } else {
+      warnings.push({
+        id: 'parallel-notice',
+        type: 'info',
+        title: 'Parallel Mixed Traffic Mode Active',
+        desc: `${enabledGroups.length} Thread Groups will run concurrently in parallel to test mixed workload contention.`,
+      })
+    }
+  }
+
+  return warnings
 }
 
