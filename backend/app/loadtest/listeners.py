@@ -86,16 +86,59 @@ def _summary_table(thread_group_results: list, merged_aggregates: dict) -> list[
 
 
 def _latency_chart(thread_group_results: list) -> list[dict]:
-    """Latency Chart listener: concurrency breakdown data for charting avg + p95 latency."""
+    """Latency Chart listener: multi-point progression data for charting avg + p95 latency curve.
+    Prefers time_series timeline slices for continuous curve rendering, falling back to
+    concurrency_breakdown with baseline interpolation if only 1 point is present."""
     chart_data = []
     for tgr in thread_group_results:
+        time_series = tgr.aggregates.get("time_series") or []
         breakdown = tgr.aggregates.get("concurrency_breakdown") or []
-        for row in breakdown:
+
+        if len(time_series) >= 2:
+            for row in time_series:
+                chart_data.append({
+                    "thread_group": tgr.thread_group_name,
+                    "time": row.get("time_label"),
+                    "elapsed_s": row.get("elapsed_s"),
+                    "concurrency": row.get("concurrency"),
+                    "avg_latency_ms": row.get("avg_latency_ms"),
+                    "p95_latency_ms": row.get("p95_latency_ms"),
+                    "total_requests": row.get("total_requests"),
+                    "error_rate_pct": row.get("error_rate_pct"),
+                })
+        elif len(breakdown) >= 2:
+            for row in breakdown:
+                chart_data.append({
+                    "thread_group": tgr.thread_group_name,
+                    "time": f"VU {row.get('concurrency')}",
+                    "elapsed_s": row.get("concurrency"),
+                    "concurrency": row.get("concurrency"),
+                    "avg_latency_ms": row.get("avg_latency_ms") or row.get("avg_ttft_ms"),
+                    "p95_latency_ms": row.get("p95_latency_ms") or row.get("p95_ttft_ms"),
+                    "total_requests": row.get("total_requests"),
+                    "error_rate_pct": row.get("error_rate_pct"),
+                })
+        elif len(breakdown) == 1:
+            row = breakdown[0]
+            avg_l = row.get("avg_latency_ms") or row.get("avg_ttft_ms")
+            p95_l = row.get("p95_latency_ms") or row.get("p95_ttft_ms")
             chart_data.append({
                 "thread_group": tgr.thread_group_name,
+                "time": "00:00",
+                "elapsed_s": 0,
+                "concurrency": 0,
+                "avg_latency_ms": avg_l,
+                "p95_latency_ms": p95_l,
+                "total_requests": 0,
+                "error_rate_pct": 0.0,
+            })
+            chart_data.append({
+                "thread_group": tgr.thread_group_name,
+                "time": f"VU {row.get('concurrency')}",
+                "elapsed_s": row.get("concurrency"),
                 "concurrency": row.get("concurrency"),
-                "avg_latency_ms": row.get("avg_ttft_ms"),   # use TTFT as proxy for avg
-                "p95_latency_ms": row.get("p95_ttft_ms"),
+                "avg_latency_ms": avg_l,
+                "p95_latency_ms": p95_l,
                 "total_requests": row.get("total_requests"),
                 "error_rate_pct": row.get("error_rate_pct"),
             })
@@ -149,13 +192,57 @@ def _error_log(thread_group_results: list) -> list[dict]:
 
 
 def _percentile_chart(thread_group_results: list) -> list[dict]:
-    """Percentile Chart listener: p50/p95/p99 latency per concurrency tier."""
+    """Percentile Chart listener: TTFT and TPOT percentile degradation curves.
+    Prefers time_series timeline slices for continuous curve rendering, falling back to
+    concurrency_breakdown with baseline interpolation if only 1 point is present."""
     rows = []
     for tgr in thread_group_results:
+        time_series = tgr.aggregates.get("time_series") or []
         breakdown = tgr.aggregates.get("concurrency_breakdown") or []
-        for b in breakdown:
+
+        if len(time_series) >= 2:
+            for b in time_series:
+                rows.append({
+                    "thread_group": tgr.thread_group_name,
+                    "time": b.get("time_label"),
+                    "elapsed_s": b.get("elapsed_s"),
+                    "concurrency": b.get("concurrency"),
+                    "p95_ttft_ms": b.get("p95_ttft_ms"),
+                    "avg_ttft_ms": b.get("avg_ttft_ms"),
+                    "avg_tpot_ms": b.get("avg_tpot_ms"),
+                    "tokens_per_second": b.get("tokens_per_second"),
+                    "error_rate_pct": b.get("error_rate_pct"),
+                })
+        elif len(breakdown) >= 2:
+            for b in breakdown:
+                rows.append({
+                    "thread_group": tgr.thread_group_name,
+                    "time": f"VU {b.get('concurrency')}",
+                    "elapsed_s": b.get("concurrency"),
+                    "concurrency": b.get("concurrency"),
+                    "p95_ttft_ms": b.get("p95_ttft_ms"),
+                    "avg_ttft_ms": b.get("avg_ttft_ms"),
+                    "avg_tpot_ms": b.get("avg_tpot_ms"),
+                    "tokens_per_second": b.get("tokens_per_second"),
+                    "error_rate_pct": b.get("error_rate_pct"),
+                })
+        elif len(breakdown) == 1:
+            b = breakdown[0]
             rows.append({
                 "thread_group": tgr.thread_group_name,
+                "time": "00:00",
+                "elapsed_s": 0,
+                "concurrency": 0,
+                "p95_ttft_ms": b.get("p95_ttft_ms"),
+                "avg_ttft_ms": b.get("avg_ttft_ms"),
+                "avg_tpot_ms": b.get("avg_tpot_ms"),
+                "tokens_per_second": b.get("tokens_per_second"),
+                "error_rate_pct": 0.0,
+            })
+            rows.append({
+                "thread_group": tgr.thread_group_name,
+                "time": f"VU {b.get('concurrency')}",
+                "elapsed_s": b.get("concurrency"),
                 "concurrency": b.get("concurrency"),
                 "p95_ttft_ms": b.get("p95_ttft_ms"),
                 "avg_ttft_ms": b.get("avg_ttft_ms"),

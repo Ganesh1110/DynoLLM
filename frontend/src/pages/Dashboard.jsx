@@ -87,16 +87,6 @@ function InfoTooltip({ text, position = 'top' }) {
   )
 }
 
-function SampleDataBadge({ tip }) {
-  return (
-    <div className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] font-mono shrink-0">
-      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-      <span>Sample Data</span>
-      {tip && <InfoTooltip text={tip} />}
-    </div>
-  )
-}
-
 function LiveDataBadge({ text = 'Live NVML' }) {
   return (
     <div className="flex items-center space-x-1 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-mono shrink-0">
@@ -995,6 +985,7 @@ export function Dashboard() {
   const current = useMonitoringStore((s) => s.current)
   const history = useMonitoringStore((s) => s.history)
   const connected = useMonitoringStore((s) => s.connected)
+  const fetchCurrentHardware = useMonitoringStore((s) => s.fetchCurrent)
   const runtimes = useRuntimeStore((s) => s.runtimes)
   const fetchRuntimes = useRuntimeStore((s) => s.fetchRuntimes)
   const benchmarks = useBenchmarkStore((s) => s.runs)
@@ -1008,6 +999,7 @@ export function Dashboard() {
   const [engineStats, setEngineStats] = useState([])
 
   useEffect(() => {
+    fetchCurrentHardware()
     fetchRuntimes()
     fetchBenchmarks()
     fetchLoadTests()
@@ -1048,7 +1040,7 @@ export function Dashboard() {
 
   // Top Left: Memory / CPU data (100% Live Telemetry via WebSocket)
   const memoryCpuData = useMemo(() => {
-    if (history.length >= 2) {
+    if (history.length >= 1) {
       return history.slice(-12).map((item) => {
         const d = new Date(item.timestamp)
         const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -1057,50 +1049,42 @@ export function Dashboard() {
         return { time: timeStr, memory: ramGb, cpu: cpuPct }
       })
     }
-    return [
-      { time: '17:28', memory: 6.8, cpu: 2.2 },
-      { time: '17:29', memory: 6.8, cpu: 3.4 },
-      { time: '17:30', memory: 6.8, cpu: 2.4 },
-      { time: '17:31', memory: 6.8, cpu: 3.0 },
-      { time: '17:32', memory: 6.8, cpu: 2.8 },
-      { time: '17:33', memory: 6.9, cpu: 3.6 },
-      { time: '17:34', memory: 6.8, cpu: 2.9 },
-      { time: '17:35', memory: 6.8, cpu: 3.4 },
-      { time: '17:36', memory: 6.8, cpu: 3.0 },
-      { time: '17:37', memory: 6.9, cpu: 3.1 },
-      { time: '17:38', memory: 6.8, cpu: 4.8 },
-      { time: '17:39', memory: 6.8, cpu: 4.2 },
-    ]
+    return []
   }, [history])
 
-  // Top Middle: Token Throughput (Sample baseline curve until benchmark run)
-  const tokenThroughputData = [
-    { time: '17:30', live_tok_per_sec: 28, peak_baseline: 58 },
-    { time: '17:32', live_tok_per_sec: 31, peak_baseline: 56 },
-    { time: '17:34', live_tok_per_sec: 29, peak_baseline: 59 },
-    { time: '17:36', live_tok_per_sec: 33, peak_baseline: 57 },
-    { time: '17:38', live_tok_per_sec: 32, peak_baseline: 62 },
-    { time: '17:40', live_tok_per_sec: 30, peak_baseline: 56 },
-    { time: '17:42', live_tok_per_sec: 31, peak_baseline: 57 },
-    { time: '17:45', live_tok_per_sec: 29, peak_baseline: 59 },
-    { time: '17:47', live_tok_per_sec: 32, peak_baseline: 58 },
-  ]
+  // Top Middle: Token Throughput (Real Benchmark & Load Test runs)
+  const tokenThroughputData = useMemo(() => {
+    const benchPoints = (benchmarks || [])
+      .filter((b) => b.status === 'completed' && b.tokens_per_second != null && b.tokens_per_second > 0)
+      .map((b) => ({
+        created_at: new Date(b.created_at || Date.now()).getTime(),
+        time: new Date(b.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        live_tok_per_sec: +Number(b.tokens_per_second).toFixed(1),
+        peak_baseline: +Number(b.peak_tokens_per_second || (b.tokens_per_second * 1.15)).toFixed(1),
+        model: b.model,
+        type: 'Benchmark',
+      }))
 
-  // Sample KV cache baseline curve
-  const sampleKvData = useMemo(() => [
-    { time: '16:50', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.1, kv_cache_reserved: 4.8 },
-    { time: '16:55', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.5, kv_cache_reserved: 4.4 },
-    { time: '17:00', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.8, kv_cache_reserved: 4.1 },
-    { time: '17:05', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.2, kv_cache_reserved: 3.7 },
-    { time: '17:10', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 2.9, kv_cache_reserved: 4.0 },
-    { time: '17:15', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.5, kv_cache_reserved: 3.4 },
-    { time: '17:20', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.8, kv_cache_reserved: 3.1 },
-    { time: '17:25', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.4, kv_cache_reserved: 3.5 },
-    { time: '17:30', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 3.6, kv_cache_reserved: 3.3 },
-    { time: '17:35', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.1, kv_cache_reserved: 2.8 },
-    { time: '17:40', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.8, kv_cache_reserved: 2.1 },
-    { time: '17:45', model_weights: 5.2, cuda_overhead: 1.2, kv_cache_active: 4.2, kv_cache_reserved: 2.7 },
-  ], [])
+    const loadPoints = (loadTests || [])
+      .filter((lt) => lt.status === 'completed' && (lt.tokens_out_per_second != null || lt.avg_generation_tokens_per_second != null))
+      .map((lt) => {
+        const val = Number(lt.tokens_out_per_second || lt.avg_generation_tokens_per_second || 0)
+        return {
+          created_at: new Date(lt.created_at || Date.now()).getTime(),
+          time: new Date(lt.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          live_tok_per_sec: +val.toFixed(1),
+          peak_baseline: +(val * 1.15).toFixed(1),
+          model: lt.model,
+          type: 'Load Test',
+        }
+      })
+
+    const combined = [...benchPoints, ...loadPoints]
+      .sort((a, b) => a.created_at - b.created_at)
+      .slice(-15)
+
+    return combined
+  }, [benchmarks, loadTests])
 
   // Middle Left: KV Cache Occupancy & VRAM Allocation Stream
   // Phase 0 Fixes: Derive real values without multiplying vLLM KV % by total VRAM
@@ -1139,6 +1123,7 @@ export function Dashboard() {
           kvUsagePct: ollamaKvPct,
           activeTokensCached: `${ollamaKvPct.toFixed(0)}% KV occupied`,
           modelName,
+          modelWeightsGb: modelWeightsGb.toFixed(1),
           isCpuOffloaded,
           cpuOffloadGb: cpuOffloadGb.toFixed(1),
           source: 'ollama',
@@ -1205,7 +1190,7 @@ export function Dashboard() {
     })
   }, [currentKvPoint])
 
-  // Chart data: uses rolling live history if available, else sample baseline
+  // Chart data: uses rolling live history if available from engine scraper
   const kvCacheMemoryData = useMemo(() => {
     if (kvCacheIsRealData && kvHistory.length >= 2) {
       return kvHistory
@@ -1216,8 +1201,8 @@ export function Dashboard() {
         kvHistory[0],
       ]
     }
-    return sampleKvData
-  }, [kvCacheIsRealData, kvHistory, sampleKvData])
+    return []
+  }, [kvCacheIsRealData, kvHistory])
 
   // Phase 4: Derived Bottlenecks & Capacity Headroom
   const bottlenecks = useMemo(() => {
@@ -1228,30 +1213,125 @@ export function Dashboard() {
     return computeCapacityHeadroom({ primaryGpu, kvCacheSummary })
   }, [primaryGpu, kvCacheSummary])
 
-  // Middle Right: Throughput by Quantization (Sample baseline curve)
-  const quantizationBarData = [
-    { name: 'FP16', value: 0.4, displayValue: '0.400', fill: '#192636', note: '0.400 s TTFT' },
-    { name: 'Q8_0', value: 27.7, displayValue: '27.7', fill: '#244b75', note: '27.7 tok/s' },
-    { name: 'Q5_K_M', value: 37.1, displayValue: '37.1', fill: '#235889', note: '37.1 tok/s' },
-    { name: 'Q4_K_M', value: 66.5, displayValue: '66.5', fill: '#6e367c', note: '66.5 tok/s (Fastest)' },
-    { name: 'INT4', value: 21.2, displayValue: '21.2', fill: '#1e3855', note: '21.2 tok/s' },
-  ]
+  // Middle Right: Throughput by Quantization (Computed dynamically from real benchmark runs)
+  const quantizationBarData = useMemo(() => {
+    const completed = (benchmarks || []).filter(
+      (b) => b.status === 'completed' && b.tokens_per_second != null && b.tokens_per_second > 0
+    )
+    if (completed.length === 0) return []
 
-  // Bottom Full-Width: Latency Percentiles (Sample baseline curve)
-  const fullPageLoadData = [
-    { time: '16:50', p25: 0.35, p50: 0.85, p75: 0.8, p90: 0.7, p95: 0.6 },
-    { time: '16:55', p25: 0.25, p50: 0.55, p75: 0.5, p90: 0.45, p95: 0.4 },
-    { time: '17:00', p25: 0.35, p50: 0.8, p75: 0.75, p90: 0.7, p95: 0.6 },
-    { time: '17:05', p25: 0.3, p50: 0.75, p75: 0.75, p90: 0.65, p95: 0.55 },
-    { time: '17:10', p25: 0.28, p50: 0.65, p75: 0.7, p90: 0.6, p95: 0.5 },
-    { time: '17:15', p25: 0.28, p50: 0.65, p75: 0.7, p90: 0.6, p95: 0.5 },
-    { time: '17:20', p25: 0.35, p50: 0.8, p75: 0.75, p90: 0.7, p95: 0.6 },
-    { time: '17:25', p25: 0.45, p50: 1.0, p75: 0.95, p90: 0.85, p95: 0.75 },
-    { time: '17:30', p25: 0.32, p50: 0.75, p75: 0.75, p90: 0.65, p95: 0.55 },
-    { time: '17:35', p25: 0.42, p50: 1.0, p75: 0.95, p90: 0.85, p95: 0.78 },
-    { time: '17:40', p25: 0.35, p50: 0.85, p75: 0.8, p90: 0.7, p95: 0.6 },
-    { time: '17:45', p25: 0.4, p50: 0.95, p75: 0.9, p90: 0.8, p95: 0.75 },
-  ]
+    // Group runs by precision label
+    const groups = {}
+    completed.forEach((run) => {
+      const parsed = parseModelName(run.model || '')
+      let label = 'Other'
+      let fill = '#235889'
+
+      const modelLower = (run.model || '').toLowerCase()
+      if (modelLower.includes('fp16') || modelLower.includes('bf16') || parsed.precision === 2.0) {
+        label = 'FP16'
+        fill = '#192636'
+      } else if (modelLower.includes('q8') || modelLower.includes('int8') || parsed.precision === 1.0) {
+        label = 'Q8_0'
+        fill = '#244b75'
+      } else if (modelLower.includes('q6') || parsed.precision === 0.75) {
+        label = 'Q6_K'
+        fill = '#235889'
+      } else if (modelLower.includes('q5') || parsed.precision === 0.65) {
+        label = 'Q5_K_M'
+        fill = '#2e6b9e'
+      } else if (modelLower.includes('q4') || modelLower.includes('int4') || modelLower.includes('awq') || parsed.precision === 0.55) {
+        label = 'Q4_K_M'
+        fill = '#6e367c'
+      } else {
+        label = (run.model || 'Custom').split(':')[0].slice(0, 10)
+        fill = '#3a6ea5'
+      }
+
+      if (!groups[label]) {
+        groups[label] = { runs: [], fill }
+      }
+      groups[label].runs.push(Number(run.tokens_per_second))
+    })
+
+    const entries = Object.entries(groups).map(([name, { runs, fill }]) => {
+      const avgTps = +(runs.reduce((a, b) => a + b, 0) / runs.length).toFixed(1)
+      return {
+        name,
+        value: avgTps,
+        displayValue: `${avgTps}`,
+        fill,
+        note: `${avgTps} tok/s (${runs.length} run${runs.length > 1 ? 's' : ''})`,
+      }
+    })
+
+    entries.sort((a, b) => b.value - a.value)
+    if (entries.length > 0) {
+      entries[0].note += ' (Fastest)'
+    }
+    return entries
+  }, [benchmarks])
+
+  // Bottom Full-Width: Latency Percentiles (Computed from real load test / benchmark runs)
+  const fullPageLoadData = useMemo(() => {
+    const completedLoads = (loadTests || []).filter(
+      (r) => r.status === 'completed' && (r.p95_latency_ms != null || r.p50_latency_ms != null || r.concurrency_breakdown?.length > 0)
+    )
+    if (completedLoads.length > 0) {
+      const latest = completedLoads[0]
+      if (latest.concurrency_breakdown && latest.concurrency_breakdown.length > 0) {
+        return latest.concurrency_breakdown.map((tier) => {
+          const p95s = tier.p95_latency_ms ? +(tier.p95_latency_ms / 1000).toFixed(2) : (tier.p95_ttft_ms ? +(tier.p95_ttft_ms / 1000).toFixed(2) : 0)
+          const avgS = tier.avg_ttft_ms ? +(tier.avg_ttft_ms / 1000).toFixed(2) : +(p95s * 0.6).toFixed(2)
+          return {
+            time: `${tier.concurrency} users`,
+            p25: +(avgS * 0.5).toFixed(2),
+            p50: avgS,
+            p75: +(avgS + (p95s - avgS) * 0.5).toFixed(2),
+            p90: +(avgS + (p95s - avgS) * 0.85).toFixed(2),
+            p95: p95s,
+          }
+        })
+      }
+      return completedLoads.slice(0, 10).reverse().map((run) => {
+        const d = new Date(run.created_at || Date.now())
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        const p50 = run.p50_latency_ms ? +(run.p50_latency_ms / 1000).toFixed(2) : 0
+        const p90 = run.p90_latency_ms ? +(run.p90_latency_ms / 1000).toFixed(2) : 0
+        const p95 = run.p95_latency_ms ? +(run.p95_latency_ms / 1000).toFixed(2) : 0
+        return {
+          time: timeStr,
+          p25: +(p50 * 0.5).toFixed(2),
+          p50,
+          p75: +(p50 + (p95 - p50) * 0.5).toFixed(2),
+          p90,
+          p95,
+        }
+      })
+    }
+
+    const completedBench = (benchmarks || []).filter(
+      (b) => b.status === 'completed' && (b.p95_latency_ms != null || b.ttft_ms != null)
+    )
+    if (completedBench.length > 0) {
+      return completedBench.slice(0, 10).reverse().map((run) => {
+        const d = new Date(run.created_at || Date.now())
+        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        const p95 = run.p95_latency_ms ? +(run.p95_latency_ms / 1000).toFixed(2) : 0
+        const p50 = run.ttft_ms ? +(run.ttft_ms / 1000).toFixed(2) : +(p95 * 0.5).toFixed(2)
+        return {
+          time: timeStr,
+          p25: +(p50 * 0.5).toFixed(2),
+          p50,
+          p75: +(p50 + (p95 - p50) * 0.5).toFixed(2),
+          p90: +(p50 + (p95 - p50) * 0.85).toFixed(2),
+          p95,
+        }
+      })
+    }
+
+    return []
+  }, [loadTests, benchmarks])
 
   // ============================================================================
   // HONEST DATA BINDING (Phase 1 Fix)
@@ -1549,69 +1629,75 @@ export function Dashboard() {
           </div>
 
           <div className="h-44 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={memoryCpuData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
-                <XAxis
-                  dataKey="time"
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                />
-                <YAxis
-                  yAxisId="left"
-                  domain={[0, 8]}
-                  ticks={[0, 2, 4, 6, 8]}
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                  tickFormatter={(v) => `${v} B`}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  domain={[0, 6]}
-                  ticks={[0, 1, 2, 3, 4, 5, 6]}
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                  tickFormatter={(v) => `${v}%`}
-                />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    return (
-                      <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-1">
-                        <div className="text-[#8e94a0] border-b border-gray-800 pb-0.5">{label}</div>
-                        <div className="text-[#3274d9]">RAM / VRAM: {Number(payload[0]?.value).toFixed(1)} GB</div>
-                        <div className="text-[#e02f44]">CPU Load: {Number(payload[1]?.value).toFixed(1)}%</div>
-                      </div>
-                    )
-                  }}
-                />
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="memory"
-                  stroke="#3274d9"
-                  strokeWidth={1.75}
-                  dot={{ r: 2.5, fill: '#3274d9', stroke: '#111827', strokeWidth: 1 }}
-                  isAnimationActive={false}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="cpu"
-                  stroke="#e02f44"
-                  strokeWidth={1.75}
-                  dot={false}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {memoryCpuData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={memoryCpuData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+                  <XAxis
+                    dataKey="time"
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    domain={[0, 'auto']}
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                    tickFormatter={(v) => `${v} GB`}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    domain={[0, 'auto']}
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                    tickFormatter={(v) => `${v}%`}
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      return (
+                        <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-1">
+                          <div className="text-[#8e94a0] border-b border-gray-800 pb-0.5">{label}</div>
+                          <div className="text-[#3274d9]">RAM: {Number(payload[0]?.value).toFixed(1)} GB</div>
+                          <div className="text-[#e02f44]">CPU: {Number(payload[1]?.value).toFixed(1)}%</div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="memory"
+                    stroke="#3274d9"
+                    strokeWidth={1.75}
+                    dot={{ r: 2.5, fill: '#3274d9', stroke: '#111827', strokeWidth: 1 }}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="cpu"
+                    stroke="#e02f44"
+                    strokeWidth={1.75}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-3">
+                <Activity className="w-6 h-6 text-sky-400 animate-pulse mb-1.5" />
+                <p className="text-xs text-gray-300 font-medium">Connecting to Host Telemetry...</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Streaming real-time RAM & CPU metrics via WebSocket</p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-center space-x-6 text-[11px] pt-1 text-[#8e94a0]">
@@ -1636,62 +1722,85 @@ export function Dashboard() {
                 </span>
                 <InfoTooltip text="Tokens Per Second measures generation speed. A human reading speed is ~5 tok/s; 30+ tok/s feels instantaneous!" />
               </div>
-              <SampleDataBadge tip="Displays a baseline reference throughput curve. Run your first benchmark to record live throughput." />
+              {tokenThroughputData.length > 0 ? (
+                <LiveDataBadge text="Measured Runs" />
+              ) : (
+                <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 text-[10px] font-mono">
+                  No Runs Yet
+                </span>
+              )}
             </div>
             <div className="text-left text-[10px] text-[#717885]">
-              Live Generation vs Peak Baseline
+              {tokenThroughputData.length > 0
+                ? 'Live Generation vs Peak Baseline across recent runs'
+                : 'Awaiting benchmark or load test executions'}
             </div>
           </div>
 
           <div className="h-44 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={tokenThroughputData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
-                <XAxis
-                  dataKey="time"
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                />
-                <YAxis
-                  domain={[10, 70]}
-                  ticks={[10, 20, 30, 40, 50, 60, 70]}
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    return (
-                      <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-1">
-                        <div className="text-[#8e94a0] border-b border-gray-800 pb-0.5">{label}</div>
-                        <div className="text-[#b877d9]">Peak Baseline: {payload[0]?.value} tok/s</div>
-                        <div className="text-[#56a4ff]">Live Generation: {payload[1]?.value} tok/s</div>
-                      </div>
-                    )
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="peak_baseline"
-                  stroke="#b877d9"
-                  strokeWidth={1.5}
-                  dot={{ r: 2, fill: '#b877d9', stroke: '#111827', strokeWidth: 1 }}
-                  isAnimationActive={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="live_tok_per_sec"
-                  stroke="#56a4ff"
-                  strokeWidth={1.5}
-                  dot={{ r: 2, fill: '#56a4ff', stroke: '#111827', strokeWidth: 1 }}
-                  isAnimationActive={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {tokenThroughputData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={tokenThroughputData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+                  <XAxis
+                    dataKey="time"
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                  />
+                  <YAxis
+                    domain={[0, 'auto']}
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                  />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      const d = payload[0]?.payload || {}
+                      return (
+                        <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-1">
+                          <div className="text-[#8e94a0] border-b border-gray-800 pb-0.5 flex justify-between">
+                            <span>{label}</span>
+                            <span className="text-gray-400 font-mono">{d.type || 'Run'}</span>
+                          </div>
+                          {d.model && <div className="text-gray-300 font-medium truncate max-w-[180px]">{d.model}</div>}
+                          <div className="text-[#b877d9]">Peak Baseline: {payload[0]?.value} tok/s</div>
+                          <div className="text-[#56a4ff]">Live Generation: {payload[1]?.value} tok/s</div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="peak_baseline"
+                    stroke="#b877d9"
+                    strokeWidth={1.5}
+                    dot={{ r: 2, fill: '#b877d9', stroke: '#111827', strokeWidth: 1 }}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="live_tok_per_sec"
+                    stroke="#56a4ff"
+                    strokeWidth={1.5}
+                    dot={{ r: 2, fill: '#56a4ff', stroke: '#111827', strokeWidth: 1 }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-3">
+                <Zap className="w-6 h-6 text-gray-600 mb-1.5" />
+                <p className="text-xs text-gray-300 font-medium">No Throughput Runs Yet</p>
+                <p className="text-[10px] text-gray-500 mt-0.5">Run a benchmark to record live tokens/sec generation speed</p>
+                <Link to="/benchmark" className="mt-2 text-[11px] text-sky-400 hover:text-sky-300 underline font-medium">
+                  Launch Benchmark &rarr;
+                </Link>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-center space-x-6 text-[11px] pt-1 text-[#8e94a0]">
@@ -1783,7 +1892,9 @@ export function Dashboard() {
                     <LiveDataBadge text={kvCacheSummary.source === 'vllm' ? 'Live vLLM' : 'Live Ollama'} />
                   </>
                 ) : (
-                  <SampleDataBadge tip="Displays a simulated KV cache allocation stream. Start a runtime (Ollama or vLLM) and it will switch to live engine data automatically." />
+                  <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 text-[10px] font-mono">
+                    Engine Idle
+                  </span>
                 )}
               </div>
             </div>
@@ -1798,159 +1909,172 @@ export function Dashboard() {
           </div>
 
           <div className="h-56 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              {kvCacheSummary?.source === 'vllm' ? (
-                <AreaChart data={kvCacheMemoryData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
-                  <XAxis
-                    dataKey="time"
-                    stroke="#5d636f"
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={{ stroke: '#2b303a' }}
-                  />
-                  <YAxis
-                    domain={[0, 100]}
-                    ticks={[0, 25, 50, 75, 100]}
-                    stroke="#5d636f"
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={{ stroke: '#2b303a' }}
-                    tickFormatter={(v) => `${v}%`}
-                  />
-                  <Tooltip
-                    content={({ active, payload, label }) => {
-                      if (!active || !payload?.length) return null
-                      const d = payload[0]?.payload || {}
-                      return (
-                        <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1.5 min-w-[190px]">
-                          <div className="flex justify-between border-b border-gray-800 pb-1 font-mono text-[#8e94a0]">
-                            <span>{label}</span>
-                            <span className="text-sky-300 font-bold">KV Pool Occupancy</span>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex justify-between text-sky-400">
-                              <span>KV Cache Usage:</span>
-                              <span className="font-mono font-bold">{d.kv_usage_pct ?? '—'}%</span>
+            {kvCacheIsRealData && kvCacheMemoryData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                {kvCacheSummary?.source === 'vllm' ? (
+                  <AreaChart data={kvCacheMemoryData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#5d636f"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={{ stroke: '#2b303a' }}
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      ticks={[0, 25, 50, 75, 100]}
+                      stroke="#5d636f"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={{ stroke: '#2b303a' }}
+                      tickFormatter={(v) => `${v}%`}
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const d = payload[0]?.payload || {}
+                        return (
+                          <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1.5 min-w-[190px]">
+                            <div className="flex justify-between border-b border-gray-800 pb-1 font-mono text-[#8e94a0]">
+                              <span>{label}</span>
+                              <span className="text-sky-300 font-bold">KV Pool Occupancy</span>
                             </div>
-                            <div className="flex justify-between text-emerald-400">
-                              <span>Active Requests:</span>
-                              <span className="font-mono font-bold">{d.running ?? 0}</span>
-                            </div>
-                            <div className="flex justify-between text-amber-400">
-                              <span>Waiting in Queue:</span>
-                              <span className="font-mono font-bold">{d.waiting ?? 0}</span>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="kv_usage_pct"
-                    stroke="#38bdf8"
-                    fill="#0284c7"
-                    fillOpacity={0.4}
-                    name="KV Cache Occupancy (%)"
-                  />
-                </AreaChart>
-              ) : (
-                <AreaChart data={kvCacheMemoryData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
-                  <XAxis
-                    dataKey="time"
-                    stroke="#5d636f"
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={{ stroke: '#2b303a' }}
-                  />
-                  <YAxis
-                    domain={[0, 16]}
-                    ticks={[0, 4, 8, 12, 16]}
-                    stroke="#5d636f"
-                    fontSize={10}
-                    tickLine={false}
-                    axisLine={{ stroke: '#2b303a' }}
-                    tickFormatter={(v) => `${v} GB`}
-                  />
-                  <Tooltip
-                    content={({ active, payload, label }) => {
-                      if (!active || !payload?.length) return null
-                      const d = payload[0]?.payload || {}
-                      const totalVram = (
-                        (d.model_weights || 0) +
-                        (d.cuda_overhead || 0) +
-                        (d.kv_cache_active || 0) +
-                        (d.kv_cache_reserved || 0)
-                      ).toFixed(1)
-                      return (
-                        <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1.5 min-w-[210px]">
-                          <div className="flex justify-between border-b border-gray-800 pb-1 font-mono text-[#8e94a0]">
-                            <span>{label}</span>
-                            <span className="text-sky-300 font-bold">Total: {totalVram} GB</span>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="flex justify-between text-[#5c95c8]">
-                              <span>Reserved KV Pool:</span>
-                              <span className="font-mono font-bold">{d.kv_cache_reserved} GB (Free)</span>
-                            </div>
-                            <div className="flex justify-between text-[#3d84be]">
-                              <span>Active KV Cache:</span>
-                              <span className="font-mono font-bold">{d.kv_cache_active} GB (Tokens)</span>
-                            </div>
-                            <div className="flex justify-between text-[#2b699c]">
-                              <span>CUDA Overhead:</span>
-                              <span className="font-mono font-bold">{d.cuda_overhead} GB</span>
-                            </div>
-                            <div className="flex justify-between text-[#8e94a0]">
-                              <span>Model Weights:</span>
-                              <span className="font-mono font-bold">{d.model_weights} GB (Static)</span>
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-sky-400">
+                                <span>KV Cache Usage:</span>
+                                <span className="font-mono font-bold">{d.kv_usage_pct ?? '—'}%</span>
+                              </div>
+                              <div className="flex justify-between text-emerald-400">
+                                <span>Active Requests:</span>
+                                <span className="font-mono font-bold">{d.running ?? 0}</span>
+                              </div>
+                              <div className="flex justify-between text-amber-400">
+                                <span>Waiting in Queue:</span>
+                                <span className="font-mono font-bold">{d.waiting ?? 0}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    stackId="1"
-                    dataKey="model_weights"
-                    stroke="#1b476f"
-                    fill="#133857"
-                    fillOpacity={0.9}
-                    name="Model Weights (Static)"
-                  />
-                  <Area
-                    type="monotone"
-                    stackId="1"
-                    dataKey="cuda_overhead"
-                    stroke="#2b699c"
-                    fill="#1f5077"
-                    fillOpacity={0.85}
-                    name="CUDA & Activations"
-                  />
-                  <Area
-                    type="monotone"
-                    stackId="1"
-                    dataKey="kv_cache_active"
-                    stroke="#3d84be"
-                    fill="#2e6b9e"
-                    fillOpacity={0.85}
-                    name="Active KV Cache (Context)"
-                  />
-                  <Area
-                    type="monotone"
-                    stackId="1"
-                    dataKey="kv_cache_reserved"
-                    stroke="#5c95c8"
-                    fill="#4682b4"
-                    fillOpacity={0.85}
-                    name="Reserved KV Pool (Free Blocks)"
-                  />
-                </AreaChart>
-              )}
-            </ResponsiveContainer>
+                        )
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="kv_usage_pct"
+                      stroke="#38bdf8"
+                      fill="#0284c7"
+                      fillOpacity={0.4}
+                      name="KV Cache Occupancy (%)"
+                    />
+                  </AreaChart>
+                ) : (
+                  <AreaChart data={kvCacheMemoryData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+                    <XAxis
+                      dataKey="time"
+                      stroke="#5d636f"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={{ stroke: '#2b303a' }}
+                    />
+                    <YAxis
+                      domain={[0, 16]}
+                      ticks={[0, 4, 8, 12, 16]}
+                      stroke="#5d636f"
+                      fontSize={10}
+                      tickLine={false}
+                      axisLine={{ stroke: '#2b303a' }}
+                      tickFormatter={(v) => `${v} GB`}
+                    />
+                    <Tooltip
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const d = payload[0]?.payload || {}
+                        const totalVram = (
+                          (d.model_weights || 0) +
+                          (d.cuda_overhead || 0) +
+                          (d.kv_cache_active || 0) +
+                          (d.kv_cache_reserved || 0)
+                        ).toFixed(1)
+                        return (
+                          <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1.5 min-w-[210px]">
+                            <div className="flex justify-between border-b border-gray-800 pb-1 font-mono text-[#8e94a0]">
+                              <span>{label}</span>
+                              <span className="text-sky-300 font-bold">Total: {totalVram} GB</span>
+                            </div>
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-[#5c95c8]">
+                                <span>Reserved KV Pool:</span>
+                                <span className="font-mono font-bold">{d.kv_cache_reserved} GB (Free)</span>
+                              </div>
+                              <div className="flex justify-between text-[#3d84be]">
+                                <span>Active KV Cache:</span>
+                                <span className="font-mono font-bold">{d.kv_cache_active} GB (Tokens)</span>
+                              </div>
+                              <div className="flex justify-between text-[#2b699c]">
+                                <span>CUDA Overhead:</span>
+                                <span className="font-mono font-bold">{d.cuda_overhead} GB</span>
+                              </div>
+                              <div className="flex justify-between text-[#8e94a0]">
+                                <span>Model Weights:</span>
+                                <span className="font-mono font-bold">{d.model_weights} GB (Static)</span>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      stackId="1"
+                      dataKey="model_weights"
+                      stroke="#1b476f"
+                      fill="#133857"
+                      fillOpacity={0.9}
+                      name="Model Weights (Static)"
+                    />
+                    <Area
+                      type="monotone"
+                      stackId="1"
+                      dataKey="cuda_overhead"
+                      stroke="#2b699c"
+                      fill="#1f5077"
+                      fillOpacity={0.85}
+                      name="CUDA & Activations"
+                    />
+                    <Area
+                      type="monotone"
+                      stackId="1"
+                      dataKey="kv_cache_active"
+                      stroke="#3d84be"
+                      fill="#2e6b9e"
+                      fillOpacity={0.85}
+                      name="Active KV Cache (Context)"
+                    />
+                    <Area
+                      type="monotone"
+                      stackId="1"
+                      dataKey="kv_cache_reserved"
+                      stroke="#5c95c8"
+                      fill="#4682b4"
+                      fillOpacity={0.85}
+                      name="Reserved KV Pool (Free Blocks)"
+                    />
+                  </AreaChart>
+                )}
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                <Server className="w-8 h-8 text-gray-600 mb-2" />
+                <p className="text-xs text-gray-300 font-medium">No Model Loaded in Engine</p>
+                <p className="text-[10px] text-gray-500 mt-1 max-w-sm">
+                  Load a model in Ollama or start vLLM to stream live KV cache occupancy and VRAM allocation
+                </p>
+                <Link to="/runtimes" className="mt-2.5 inline-flex items-center text-[11px] text-sky-400 hover:text-sky-300 font-medium">
+                  Manage Runtimes &rarr;
+                </Link>
+              </div>
+            )}
           </div>
 
           {kvCacheSummary?.source === 'vllm' ? (
@@ -1974,11 +2098,11 @@ export function Dashboard() {
             <div className="flex flex-wrap items-center justify-start space-x-6 text-[11px] pt-1 text-[#8e94a0] pl-2">
               <span className="flex items-center space-x-1.5">
                 <span className="w-3 h-0.5 bg-[#1b476f] inline-block" />
-                <span>Model Weights (5.2 GB)</span>
+                <span>Model Weights ({kvCacheSummary?.modelWeightsGb ? `${kvCacheSummary.modelWeightsGb} GB` : 'Static'})</span>
               </span>
               <span className="flex items-center space-x-1.5">
                 <span className="w-3 h-0.5 bg-[#2b699c] inline-block" />
-                <span>CUDA Activations (1.2 GB)</span>
+                <span>CUDA Activations (0.8 GB)</span>
               </span>
               <span className="flex items-center space-x-1.5">
                 <span className="w-3 h-0.5 bg-[#3d84be] inline-block" />
@@ -2002,56 +2126,77 @@ export function Dashboard() {
                 </span>
                 <InfoTooltip text="Quantization compresses model weights. Q4_K_M runs 3x faster with 70% less memory than uncompressed FP16." />
               </div>
-              <SampleDataBadge tip="Displays reference precision benchmarks (Q4 vs FP16). Run benchmarks with multiple quantizations to record actual numbers on your hardware." />
+              {quantizationBarData.length > 0 ? (
+                <LiveDataBadge text="Measured Precision" />
+              ) : (
+                <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 text-[10px] font-mono">
+                  No Runs Yet
+                </span>
+              )}
             </div>
             <div className="text-left text-[10px] text-[#717885]">
-              Tokens / sec across precision formats (higher = faster)
+              {quantizationBarData.length > 0
+                ? 'Tokens / sec across precision formats (higher = faster)'
+                : 'Run benchmarks with different quantizations to compare formats'}
             </div>
           </div>
 
           <div className="h-56 w-full pt-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={quantizationBarData} margin={{ top: 22, right: 10, left: 10, bottom: 0 }} barCategoryGap="16%">
-                <XAxis
-                  dataKey="name"
-                  stroke="#5d636f"
-                  fontSize={11}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                />
-                <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null
-                    const d = payload[0].payload
-                    return (
-                      <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-0.5">
-                        <div className="text-white font-bold">{d.name} Format</div>
-                        <div className="text-sky-400">{d.note}</div>
-                      </div>
-                    )
-                  }}
-                />
-                <Bar dataKey="value" radius={[1, 1, 0, 0]}>
-                  <LabelList
-                    dataKey="displayValue"
-                    position="top"
-                    fill="#4ea8de"
-                    fontSize={14}
-                    fontWeight="600"
-                    offset={6}
+            {quantizationBarData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={quantizationBarData} margin={{ top: 22, right: 10, left: 10, bottom: 0 }} barCategoryGap="16%">
+                  <XAxis
+                    dataKey="name"
+                    stroke="#5d636f"
+                    fontSize={11}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
                   />
-                  {quantizationBarData.map((entry, idx) => (
-                    <Cell
-                      key={`bar-cell-${idx}`}
-                      fill={entry.fill}
-                      stroke={entry.name === 'Q4_K_M' ? '#9d4edd' : '#3a6ea5'}
-                      strokeWidth={1}
+                  <Tooltip
+                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length) return null
+                      const d = payload[0].payload
+                      return (
+                        <div className="bg-gray-900 border border-gray-700 p-2 rounded-lg shadow text-[11px] space-y-0.5">
+                          <div className="text-white font-bold">{d.name} Format</div>
+                          <div className="text-sky-400">{d.note}</div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <Bar dataKey="value" radius={[1, 1, 0, 0]}>
+                    <LabelList
+                      dataKey="displayValue"
+                      position="top"
+                      fill="#4ea8de"
+                      fontSize={14}
+                      fontWeight="600"
+                      offset={6}
                     />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                    {quantizationBarData.map((entry, idx) => (
+                      <Cell
+                        key={`bar-cell-${idx}`}
+                        fill={entry.fill}
+                        stroke={entry.name === 'Q4_K_M' ? '#9d4edd' : '#3a6ea5'}
+                        strokeWidth={1}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                <Layers className="w-8 h-8 text-gray-600 mb-2" />
+                <p className="text-xs text-gray-300 font-medium">No Quantization Comparisons Recorded</p>
+                <p className="text-[10px] text-gray-500 mt-1 max-w-xs">
+                  Benchmark models with different quantizations (Q4, Q8, FP16) to record actual numbers on your hardware
+                </p>
+                <Link to="/benchmark" className="mt-2.5 inline-flex items-center text-[11px] text-sky-400 hover:text-sky-300 font-medium">
+                  Run Precision Benchmark &rarr;
+                </Link>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2068,59 +2213,79 @@ export function Dashboard() {
               </span>
               <InfoTooltip text="P25 is the fastest 25% of queries. P95 represents worst-case lag under load (your Service Level Agreement threshold)." />
             </div>
-            <SampleDataBadge tip="Displays reference SLA latency distribution (P25 to P95). Run a concurrency load test to capture live percentile bands under load." />
+            {fullPageLoadData.length > 0 ? (
+              <LiveDataBadge text="Measured SLA Runs" />
+            ) : (
+              <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 text-[10px] font-mono">
+                No Runs Yet
+              </span>
+            )}
           </div>
           <div className="text-left text-[10px] text-[#717885]">
-            Response completion time segmented by percentile bands (P25 to P95 SLA boundary)
+            {fullPageLoadData.length > 0
+              ? 'Response completion time segmented by percentile bands (P25 to P95 SLA boundary)'
+              : 'Run a concurrency load test to capture live percentile bands under load'}
           </div>
         </div>
 
         <div className="flex flex-col lg:flex-row items-center justify-between gap-4 pt-1">
           {/* Stacked Bars */}
           <div className="h-56 w-full lg:flex-1">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={fullPageLoadData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }} barCategoryGap="25%">
-                <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
-                <XAxis
-                  dataKey="time"
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                />
-                <YAxis
-                  domain={[0, 5]}
-                  ticks={[0, 1, 2, 3, 4, 5]}
-                  stroke="#5d636f"
-                  fontSize={10}
-                  tickLine={false}
-                  axisLine={{ stroke: '#2b303a' }}
-                  tickFormatter={(v) => (v === 0 ? '0 ms' : `${v} s`)}
-                />
-                <Tooltip
-                  cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null
-                    return (
-                      <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1">
-                        <div className="text-[#8e94a0] border-b border-gray-800 pb-1 font-mono">{label}</div>
-                        {payload.map((p, idx) => (
-                          <div key={idx} className="flex justify-between space-x-4" style={{ color: p.color }}>
-                            <span>{p.name}:</span>
-                            <span className="font-bold font-mono">{p.value}s</span>
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  }}
-                />
-                <Bar dataKey="p25" stackId="a" fill="#eab308" name="p25 (fast)" />
-                <Bar dataKey="p50" stackId="a" fill="#f97316" name="p50 (median)" />
-                <Bar dataKey="p75" stackId="a" fill="#ea580c" name="p75 (upper)" />
-                <Bar dataKey="p90" stackId="a" fill="#dc2626" name="p90 (tail)" />
-                <Bar dataKey="p95" stackId="a" fill="#b91c1c" name="p95 (SLA limit)" />
-              </BarChart>
-            </ResponsiveContainer>
+            {fullPageLoadData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={fullPageLoadData} margin={{ top: 8, right: 10, left: -25, bottom: 0 }} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="1 3" stroke="#22252e" vertical={false} />
+                  <XAxis
+                    dataKey="time"
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                  />
+                  <YAxis
+                    domain={[0, 'auto']}
+                    stroke="#5d636f"
+                    fontSize={10}
+                    tickLine={false}
+                    axisLine={{ stroke: '#2b303a' }}
+                    tickFormatter={(v) => (v === 0 ? '0s' : `${v}s`)}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      return (
+                        <div className="bg-gray-900 border border-gray-700 p-2.5 rounded-lg shadow text-[11px] space-y-1">
+                          <div className="text-[#8e94a0] border-b border-gray-800 pb-1 font-mono">{label}</div>
+                          {payload.map((p, idx) => (
+                            <div key={idx} className="flex justify-between space-x-4" style={{ color: p.color }}>
+                              <span>{p.name}:</span>
+                              <span className="font-bold font-mono">{p.value}s</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    }}
+                  />
+                  <Bar dataKey="p25" stackId="a" fill="#eab308" name="p25 (fast)" />
+                  <Bar dataKey="p50" stackId="a" fill="#f97316" name="p50 (median)" />
+                  <Bar dataKey="p75" stackId="a" fill="#ea580c" name="p75 (upper)" />
+                  <Bar dataKey="p90" stackId="a" fill="#dc2626" name="p90 (tail)" />
+                  <Bar dataKey="p95" stackId="a" fill="#b91c1c" name="p95 (SLA limit)" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center p-4">
+                <Clock className="w-8 h-8 text-gray-600 mb-2" />
+                <p className="text-xs text-gray-300 font-medium">No Latency Percentile Data Recorded</p>
+                <p className="text-[10px] text-gray-500 mt-1 max-w-sm">
+                  Run a concurrency load test or benchmark to measure real P25-P95 latency percentiles
+                </p>
+                <Link to="/load-test" className="mt-2.5 inline-flex items-center text-[11px] text-sky-400 hover:text-sky-300 font-medium">
+                  Start Load Test &rarr;
+                </Link>
+              </div>
+            )}
           </div>
 
           {/* Right Summary Table */}

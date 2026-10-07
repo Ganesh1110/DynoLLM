@@ -8,6 +8,20 @@ export const useMonitoringStore = create((set) => ({
 
   setConnected: (v) => set({ connected: v }),
 
+  fetchCurrent: async () => {
+    try {
+      const data = await monitoringApi.current()
+      if (data) {
+        set((s) => ({
+          current: data,
+          history: s.history.length === 0 ? [data] : s.history,
+        }))
+      }
+    } catch {
+      // ignore startup errors
+    }
+  },
+
   handleMetrics: (data) => {
     if (data.type !== 'hardware') return
     set((s) => ({

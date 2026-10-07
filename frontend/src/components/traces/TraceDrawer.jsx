@@ -87,14 +87,6 @@ export default function TraceDrawer({ isOpen, onClose, trace }) {
 
   const isSuccess = !trace.error && trace.finish_reason !== 'error' && trace.finish_reason !== 'abort'
 
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
-
   return (
     <div className="fixed inset-0 z-50 overflow-hidden font-sans">
       {/* Dimmed backdrop */}

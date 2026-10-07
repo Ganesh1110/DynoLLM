@@ -47,15 +47,69 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
   const report = propReport || storeReport
 
   const [activeTab, setActiveTab] = useState('summary_table')
+  const [latencyViewMode, setLatencyViewMode] = useState('auto')
+  const [percentileViewMode, setPercentileViewMode] = useState('auto')
 
   const listenerReports = report?.listener_reports || {}
   const summaryTable = listenerReports.summary_table || []
-  const latencyChartData = listenerReports.latency_chart || []
+  const rawLatency = listenerReports.latency_chart || []
   const tokenThroughputData = listenerReports.token_throughput || []
   const errorLogData = listenerReports.error_log || []
-  const percentileChartData = listenerReports.percentile_chart || []
+  const rawPercentile = listenerReports.percentile_chart || []
   const assertionResults =
     listenerReports.assertion_report || report?.assertion_results || []
+
+  // Ensure processed data has at least 2 points so Recharts renders a continuous curve
+  const latencyChartData = useMemo(() => {
+    if (!rawLatency || rawLatency.length === 0) return []
+    if (rawLatency.length === 1) {
+      const single = rawLatency[0]
+      return [
+        {
+          ...single,
+          time: '00:00',
+          elapsed_s: 0,
+          concurrency: 0,
+          avg_latency_ms: single.avg_latency_ms,
+          p95_latency_ms: single.p95_latency_ms,
+        },
+        single,
+      ]
+    }
+    return rawLatency
+  }, [rawLatency])
+
+  const percentileChartData = useMemo(() => {
+    if (!rawPercentile || rawPercentile.length === 0) return []
+    if (rawPercentile.length === 1) {
+      const single = rawPercentile[0]
+      return [
+        {
+          ...single,
+          time: '00:00',
+          elapsed_s: 0,
+          concurrency: 0,
+          p95_ttft_ms: single.p95_ttft_ms,
+          avg_ttft_ms: single.avg_ttft_ms,
+          avg_tpot_ms: single.avg_tpot_ms,
+        },
+        single,
+      ]
+    }
+    return rawPercentile
+  }, [rawPercentile])
+
+  const latencyHasTime = useMemo(
+    () => latencyChartData.some((d) => d.time != null && d.time !== ''),
+    [latencyChartData]
+  )
+  const latencyEffectiveXAxis = latencyViewMode === 'auto' ? (latencyHasTime ? 'time' : 'concurrency') : latencyViewMode
+
+  const percentileHasTime = useMemo(
+    () => percentileChartData.some((d) => d.time != null && d.time !== ''),
+    [percentileChartData]
+  )
+  const percentileEffectiveXAxis = percentileViewMode === 'auto' ? (percentileHasTime ? 'time' : 'concurrency') : percentileViewMode
 
   // Check how many assertions passed
   const assertionSummary = useMemo(() => {
@@ -429,9 +483,41 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
       {/* 2. Latency Chart */}
       {activeTab === 'latency_chart' && (
         <div className="card space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-white">Latency vs Concurrency Curve</h3>
-            <span className="text-xs text-gray-500">Average &amp; p95 latency by concurrent users</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-white">Latency Progression Curve</h3>
+              <span className="text-xs text-gray-500">
+                {latencyEffectiveXAxis === 'time'
+                  ? 'Response time over test timeline (JMeter Response Time Over Time)'
+                  : 'Average & p95 latency across concurrent user tiers'}
+              </span>
+            </div>
+
+            {/* Axis Switcher Toggle */}
+            <div className="flex items-center space-x-1 bg-gray-950 p-0.5 rounded-lg border border-gray-800 text-[11px] self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setLatencyViewMode('time')}
+                className={`px-2.5 py-1 rounded font-medium transition-colors ${
+                  latencyEffectiveXAxis === 'time'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Over Time (Timeline)
+              </button>
+              <button
+                type="button"
+                onClick={() => setLatencyViewMode('concurrency')}
+                className={`px-2.5 py-1 rounded font-medium transition-colors ${
+                  latencyEffectiveXAxis === 'concurrency'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                By Concurrency (VU)
+              </button>
+            </div>
           </div>
 
           {latencyChartData.length === 0 ? (
@@ -442,9 +528,14 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                 <LineChart data={latencyChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                   <XAxis
-                    dataKey="concurrency"
+                    dataKey={latencyEffectiveXAxis}
                     stroke="#6b7280"
-                    label={{ value: 'Concurrent Users (VU)', position: 'insideBottom', offset: -5, fill: '#9ca3af' }}
+                    label={{
+                      value: latencyEffectiveXAxis === 'time' ? 'Timeline (mm:ss)' : 'Concurrent Users (VU)',
+                      position: 'insideBottom',
+                      offset: -5,
+                      fill: '#9ca3af',
+                    }}
                   />
                   <YAxis
                     stroke="#6b7280"
@@ -453,11 +544,17 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                   <Tooltip
                     contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', borderRadius: '0.5rem' }}
                     labelStyle={{ color: '#e5e7eb', fontWeight: 'bold' }}
-                    formatter={(val, name) => [`${fmt(val, 0)} ms`, name === 'avg_latency_ms' ? 'Avg Latency' : 'p95 Latency']}
-                    labelFormatter={(val) => `${val} Concurrent Users`}
+                    formatter={(val, name) => [
+                      `${fmt(val, 0)} ms`,
+                      name === 'avg_latency_ms' ? 'Avg Latency' : 'p95 Latency',
+                    ]}
+                    labelFormatter={(val) =>
+                      latencyEffectiveXAxis === 'time' ? `Time: ${val}` : `${val} Concurrent Users`
+                    }
                   />
                   <Legend verticalAlign="top" height={36} />
                   <Line
+                    connectNulls={true}
                     type="monotone"
                     dataKey="avg_latency_ms"
                     name="Avg Latency"
@@ -467,6 +564,7 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                     activeDot={{ r: 6 }}
                   />
                   <Line
+                    connectNulls={true}
                     type="monotone"
                     dataKey="p95_latency_ms"
                     name="p95 Latency"
@@ -596,9 +694,41 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
       {/* 6. Percentile Chart */}
       {activeTab === 'percentile_chart' && (
         <div className="card space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-semibold text-white">TTFT &amp; TPOT Percentile Degradation</h3>
-            <span className="text-xs text-gray-500">Latency variance across concurrency levels</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-white">TTFT &amp; TPOT Percentile Degradation</h3>
+              <span className="text-xs text-gray-500">
+                {percentileEffectiveXAxis === 'time'
+                  ? 'TTFT & TPOT latency progression over test timeline'
+                  : 'Latency variance across concurrency levels'}
+              </span>
+            </div>
+
+            {/* Axis Switcher Toggle */}
+            <div className="flex items-center space-x-1 bg-gray-950 p-0.5 rounded-lg border border-gray-800 text-[11px] self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setPercentileViewMode('time')}
+                className={`px-2.5 py-1 rounded font-medium transition-colors ${
+                  percentileEffectiveXAxis === 'time'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Over Time (Timeline)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPercentileViewMode('concurrency')}
+                className={`px-2.5 py-1 rounded font-medium transition-colors ${
+                  percentileEffectiveXAxis === 'concurrency'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 font-bold shadow-sm'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                By Concurrency (VU)
+              </button>
+            </div>
           </div>
 
           {percentileChartData.length === 0 ? (
@@ -610,9 +740,14 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                   <LineChart data={percentileChartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                     <XAxis
-                      dataKey="concurrency"
+                      dataKey={percentileEffectiveXAxis}
                       stroke="#6b7280"
-                      label={{ value: 'Concurrency (VU)', position: 'insideBottom', offset: -5, fill: '#9ca3af' }}
+                      label={{
+                        value: percentileEffectiveXAxis === 'time' ? 'Timeline (mm:ss)' : 'Concurrency (VU)',
+                        position: 'insideBottom',
+                        offset: -5,
+                        fill: '#9ca3af',
+                      }}
                     />
                     <YAxis
                       stroke="#6b7280"
@@ -620,10 +755,14 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                     />
                     <Tooltip
                       contentStyle={{ backgroundColor: '#111827', borderColor: '#374151', borderRadius: '0.5rem' }}
+                      labelFormatter={(val) =>
+                        percentileEffectiveXAxis === 'time' ? `Time: ${val}` : `${val} Concurrent Users`
+                      }
                       formatter={(val, name) => [`${fmt(val, 1)} ms`, name]}
                     />
                     <Legend verticalAlign="top" height={36} />
                     <Line
+                      connectNulls={true}
                       type="monotone"
                       dataKey="p95_ttft_ms"
                       name="p95 TTFT (ms)"
@@ -632,6 +771,7 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                       dot={{ r: 3 }}
                     />
                     <Line
+                      connectNulls={true}
                       type="monotone"
                       dataKey="avg_ttft_ms"
                       name="Avg TTFT (ms)"
@@ -640,6 +780,7 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                       dot={{ r: 3 }}
                     />
                     <Line
+                      connectNulls={true}
                       type="monotone"
                       dataKey="avg_tpot_ms"
                       name="Avg TPOT (ms/tok)"
@@ -652,13 +793,15 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                 </ResponsiveContainer>
               </div>
 
-              {/* Concurrency table */}
+              {/* Concurrency / Progression table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-gray-950/80 text-gray-400 uppercase text-[10px] border-b border-gray-800">
                     <tr>
                       <th className="py-2 px-3">Thread Group</th>
-                      <th className="py-2 px-3 text-right">Concurrency (VU)</th>
+                      <th className="py-2 px-3 text-right">
+                        {percentileEffectiveXAxis === 'time' ? 'Time' : 'Concurrency (VU)'}
+                      </th>
                       <th className="py-2 px-3 text-right">p95 TTFT (ms)</th>
                       <th className="py-2 px-3 text-right">Avg TTFT (ms)</th>
                       <th className="py-2 px-3 text-right">Avg TPOT (ms/tok)</th>
@@ -670,7 +813,9 @@ export function ReportViewer({ report: propReport, onSwitchToBuilder }) {
                     {percentileChartData.map((row, idx) => (
                       <tr key={idx} className="hover:bg-gray-800/30 text-gray-300">
                         <td className="py-2 px-3 font-sans font-medium text-white">{row.thread_group}</td>
-                        <td className="py-2 px-3 text-right font-bold text-sky-400">{row.concurrency}</td>
+                        <td className="py-2 px-3 text-right font-bold text-sky-400">
+                          {percentileEffectiveXAxis === 'time' ? row.time || `${row.elapsed_s}s` : row.concurrency}
+                        </td>
                         <td className="py-2 px-3 text-right text-rose-300">{fmtMs(row.p95_ttft_ms)}</td>
                         <td className="py-2 px-3 text-right text-cyan-300">{fmtMs(row.avg_ttft_ms)}</td>
                         <td className="py-2 px-3 text-right text-purple-300">{fmt(row.avg_tpot_ms, 1)}</td>

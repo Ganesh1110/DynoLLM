@@ -691,6 +691,7 @@ def _compute_aggregates(
             "input_token_ratio": None,
             "cost_estimate": None,
             "concurrency_breakdown": None,
+            "time_series": [],
         }
 
     latencies = [r.total_latency_ms for r in all_results if getattr(r, "total_latency_ms", None)]
@@ -778,7 +779,8 @@ def _compute_aggregates(
 
         avg_ttft = float(np.mean(tier_ttfts)) if tier_ttfts else None
         p95_ttft = float(np.percentile(tier_ttfts, 95)) if len(tier_ttfts) >= 2 else (avg_ttft if tier_ttfts else None)
-        p95_lat = float(np.percentile(tier_latencies, 95)) if len(tier_latencies) >= 2 else (float(np.mean(tier_latencies)) if tier_latencies else None)
+        avg_lat = float(np.mean(tier_latencies)) if tier_latencies else None
+        p95_lat = float(np.percentile(tier_latencies, 95)) if len(tier_latencies) >= 2 else avg_lat
         avg_decode_tps = float(np.mean(tier_tps)) if tier_tps else None
 
         # Issue 8: This is the client-observed end-to-end TPOT (1000 / avg_decode_tps).
@@ -807,6 +809,8 @@ def _compute_aggregates(
             "error_rate": float(err_rate),
             "error_rate_pct": float(round(err_rate * 100.0, 1)),
             "quality_integrity_rate": float(round(quality_rate, 3)),
+            "avg_latency_ms": float(round(avg_lat, 1)) if avg_lat is not None else None,
+            "p95_latency_ms": float(round(p95_lat, 1)) if p95_lat is not None else None,
             "avg_ttft_ms": float(round(avg_ttft, 1)) if avg_ttft is not None else None,
             "p95_ttft_ms": float(round(p95_ttft, 1)) if p95_ttft is not None else None,
             # avg_tpot_ms: client-observed mean TPOT (1000 / decode_tps). See Issue 8 note above.
@@ -814,7 +818,6 @@ def _compute_aggregates(
             "tokens_per_second": float(round(avg_decode_tps, 1)) if avg_decode_tps is not None else None,
             # aggregate_tokens_per_sec: theoretical upper bound (linear scaling assumed). See Issue 7 note above.
             "aggregate_tokens_per_sec": float(round(aggregate_tokens_per_sec, 1)) if aggregate_tokens_per_sec is not None else None,
-            "p95_latency_ms": float(round(p95_lat, 1)) if p95_lat is not None else None,
             "sla_status": "PASS" if passes_sla else "BREACH",
             "is_safe": bool(passes_sla and (cu <= safe_max_concurrency)),
         })
@@ -822,6 +825,91 @@ def _compute_aggregates(
     # Issue 6: is_ceiling = True only if a tier actually breached SLA.
     # If False, safe_max_concurrency equals the highest tier tested — not a measured limit.
     safe_max_concurrency_is_ceiling = sla_broken
+
+    # -----------------------------------------------------------------------
+    # Time-Series Progression (Response Times Over Time / JMeter Listener)
+    # Divides the test span into chronological buckets to yield a continuous
+    # line curve across the test run duration for latency & percentile charts.
+    # -----------------------------------------------------------------------
+    time_series: list[dict] = []
+    if all_results:
+        ts_valid = [r.timestamp for r in all_results if getattr(r, "timestamp", None)]
+        if ts_valid and len(ts_valid) > 1:
+            t0 = min(ts_valid)
+            t_max_ts = max(ts_valid)
+            actual_span = max((t_max_ts - t0).total_seconds(), 1.0)
+        else:
+            t0 = None
+            actual_span = span_s
+
+        target_buckets = min(20, max(6, int(actual_span / 4)))
+        bucket_width = max(1.0, actual_span / target_buckets)
+
+        buckets: dict[int, list] = {}
+        for idx, r in enumerate(all_results):
+            if t0 and getattr(r, "timestamp", None):
+                offset = max(0.0, (r.timestamp - t0).total_seconds())
+            else:
+                offset = (idx / max(1, len(all_results) - 1)) * actual_span
+            b_idx = min(target_buckets - 1, int(offset / bucket_width))
+            buckets.setdefault(b_idx, []).append(r)
+
+        prev_pt = None
+        for b_idx in range(target_buckets):
+            group = buckets.get(b_idx, [])
+            elapsed_sec = round((b_idx + 1) * bucket_width, 1)
+            mins = int(elapsed_sec // 60)
+            secs = int(elapsed_sec % 60)
+            time_label = f"{mins:02d}:{secs:02d}"
+
+            if not group:
+                if prev_pt:
+                    time_series.append({
+                        **prev_pt,
+                        "elapsed_s": elapsed_sec,
+                        "time_label": time_label,
+                        "total_requests": 0,
+                    })
+                continue
+
+            n_b = len(group)
+            failed_b = sum(1 for r in group if not r.success)
+            b_err_pct = round((failed_b / n_b) * 100.0, 1) if n_b else 0.0
+
+            b_lats = [r.total_latency_ms for r in group if getattr(r, "total_latency_ms", None)]
+            b_ttfts = [r.ttft_ms for r in group if getattr(r, "ttft_ms", None)]
+            b_tps = [r.generation_tokens_per_second for r in group if getattr(r, "generation_tokens_per_second", None)]
+            b_cus = [r.concurrent_users for r in group if getattr(r, "concurrent_users", None)]
+
+            b_avg_lat = float(np.mean(b_lats)) if b_lats else (prev_pt.get("avg_latency_ms") if prev_pt else None)
+            b_p95_lat = float(np.percentile(b_lats, 95)) if len(b_lats) >= 2 else b_avg_lat
+            b_avg_ttft = float(np.mean(b_ttfts)) if b_ttfts else (prev_pt.get("avg_ttft_ms") if prev_pt else None)
+            b_p95_ttft = float(np.percentile(b_ttfts, 95)) if len(b_ttfts) >= 2 else b_avg_ttft
+            b_avg_tps = float(np.mean(b_tps)) if b_tps else None
+            b_tpot = float(1000.0 / b_avg_tps) if b_avg_tps and b_avg_tps > 0 else (prev_pt.get("avg_tpot_ms") if prev_pt else None)
+            b_cu = max(b_cus) if b_cus else (prev_pt.get("concurrency", 1) if prev_pt else 1)
+
+            pt = {
+                "elapsed_s": elapsed_sec,
+                "time_label": time_label,
+                "concurrency": b_cu,
+                "total_requests": n_b,
+                "error_rate_pct": b_err_pct,
+                "avg_latency_ms": float(round(b_avg_lat, 1)) if b_avg_lat is not None else None,
+                "p95_latency_ms": float(round(b_p95_lat, 1)) if b_p95_lat is not None else None,
+                "avg_ttft_ms": float(round(b_avg_ttft, 1)) if b_avg_ttft is not None else None,
+                "p95_ttft_ms": float(round(b_p95_ttft, 1)) if b_p95_ttft is not None else None,
+                "avg_tpot_ms": float(round(b_tpot, 2)) if b_tpot is not None else None,
+                "tokens_per_second": float(round(b_avg_tps, 1)) if b_avg_tps is not None else None,
+            }
+            time_series.append(pt)
+            prev_pt = pt
+
+        if len(time_series) == 1:
+            p0 = dict(time_series[0])
+            p0["elapsed_s"] = 0.0
+            p0["time_label"] = "00:00"
+            time_series.insert(0, p0)
 
     return {
         "total_requests": len(all_results),  # Issue 2 fix: full in-memory list, matches DB count
@@ -856,4 +944,5 @@ def _compute_aggregates(
         "input_token_ratio": input_token_ratio,
         "cost_estimate": cost_estimate,
         "concurrency_breakdown": concurrency_breakdown,
+        "time_series": time_series,
     }

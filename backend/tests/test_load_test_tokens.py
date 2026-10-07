@@ -192,3 +192,65 @@ async def test_compute_aggregates_concurrency_breakdown():
     # Safe max concurrency should halt at 8
     assert agg["safe_max_concurrency"] == 8
 
+
+@pytest.mark.asyncio
+async def test_time_series_progression_and_line_chart_continuity():
+    """Verify that constant-concurrency runs generate multi-point progression curves
+    so latency and percentile graphs in JMeter report render continuous lines instead of single dots."""
+    from app.loadtest.listeners import _latency_chart, _percentile_chart
+    from app.loadtest.orchestrator import ThreadGroupResult
+
+    t0 = datetime.now(timezone.utc)
+    results = []
+    # 6 requests spread across 30 seconds at a constant 10 concurrent users
+    for i in range(6):
+        results.append(
+            LoadTestResult(
+                id=f"r-{i}",
+                run_id="run-const",
+                timestamp=t0 + timedelta(seconds=i * 5),
+                concurrent_users=10,
+                ttft_ms=50.0 + i * 10.0,
+                total_latency_ms=200.0 + i * 20.0,
+                prompt_tokens=100,
+                completion_tokens=50,
+                generation_tokens_per_second=25.0,
+                success=True,
+                quality_valid=True,
+            )
+        )
+
+    agg = _compute_aggregates(results, run_wall_seconds=30.0)
+
+    # Concurrency breakdown has only 1 tier because load was constant
+    assert len(agg["concurrency_breakdown"]) == 1
+
+    # But time_series timeline slices must contain multiple chronological points
+    assert "time_series" in agg
+    assert len(agg["time_series"]) >= 2
+    for pt in agg["time_series"]:
+        assert "time_label" in pt
+        assert "elapsed_s" in pt
+        assert "avg_latency_ms" in pt
+        assert "p95_latency_ms" in pt
+        assert "avg_ttft_ms" in pt
+        assert "p95_ttft_ms" in pt
+
+    # Listener chart outputs must also contain >= 2 points for SVG line drawing
+    tgr = ThreadGroupResult(
+        thread_group_id="tg-1",
+        thread_group_name="Thread Group 1",
+        aggregates=agg,
+    )
+
+    lat_chart = _latency_chart([tgr])
+    assert len(lat_chart) >= 2
+    assert lat_chart[0]["time"] is not None
+    assert lat_chart[0]["avg_latency_ms"] is not None
+
+    pct_chart = _percentile_chart([tgr])
+    assert len(pct_chart) >= 2
+    assert pct_chart[0]["p95_ttft_ms"] is not None
+    assert pct_chart[0]["avg_ttft_ms"] is not None
+    assert pct_chart[0]["avg_tpot_ms"] is not None
+
