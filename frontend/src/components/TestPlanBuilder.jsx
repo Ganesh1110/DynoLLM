@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Play,
   Save,
@@ -73,6 +73,24 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
   const [formError, setFormError] = useState('')
   const [isExecuting, setIsExecuting] = useState(false)
+  const [showConfigDropdown, setShowConfigDropdown] = useState(false)
+  const [showAssertionDropdown, setShowAssertionDropdown] = useState(false)
+  const configDropdownRef = useRef(null)
+  const assertionDropdownRef = useRef(null)
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (configDropdownRef.current && !configDropdownRef.current.contains(event.target)) {
+        setShowConfigDropdown(false)
+      }
+      if (assertionDropdownRef.current && !assertionDropdownRef.current.contains(event.target)) {
+        setShowAssertionDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Local plan form state
   const [planForm, setPlanForm] = useState({
@@ -870,49 +888,106 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
           </div>
 
           {/* Add Dropdown */}
-          <div className="relative group">
+          <div className="relative" ref={configDropdownRef}>
             <button
               type="button"
-              className="btn-secondary text-xs py-1.5 px-3 flex items-center space-x-1.5 border border-emerald-500/30 text-emerald-300 hover:text-white"
+              onClick={() => {
+                setShowConfigDropdown((prev) => !prev)
+                setShowAssertionDropdown(false)
+              }}
+              className={`btn-secondary text-xs py-1.5 px-3 flex items-center space-x-1.5 border transition-all ${
+                showConfigDropdown
+                  ? 'border-emerald-500 bg-emerald-950/50 text-white shadow-sm ring-1 ring-emerald-500/50'
+                  : 'border-emerald-500/30 text-emerald-300 hover:text-white hover:bg-emerald-950/30'
+              }`}
+              aria-haspopup="true"
+              aria-expanded={showConfigDropdown}
             >
               <Plus className="w-3.5 h-3.5 text-emerald-400" />
               <span>Add Config Element</span>
-              <ChevronDown className="w-3 h-3 text-emerald-400" />
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-emerald-400 transition-transform duration-200 ${
+                  showConfigDropdown ? 'rotate-180' : ''
+                }`}
+              />
             </button>
-            <div className="absolute right-0 mt-1 w-56 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-20 py-1 hidden group-hover:block hover:block">
-              <button
-                type="button"
-                onClick={() => handleAddConfigElement('csv_data_set')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2"
-              >
-                <Database className="w-3.5 h-3.5 text-emerald-400" />
-                <span>CSV Prompt Data Set</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddConfigElement('think_time')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2"
-              >
-                <Clock className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Think Time (Pacing Jitter)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddConfigElement('auth_header')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2"
-              >
-                <Key className="w-3.5 h-3.5 text-amber-400" />
-                <span>Custom Auth Header</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddConfigElement('token_budget')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 flex items-center space-x-2"
-              >
-                <Sliders className="w-3.5 h-3.5 text-purple-400" />
-                <span>Token Budget Override</span>
-              </button>
-            </div>
+
+            {showConfigDropdown && (
+              <div className="absolute right-0 mt-1.5 w-64 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-30 py-1.5 divide-y divide-gray-800">
+                <div className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-gray-500">
+                  Select Configuration Type
+                </div>
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddConfigElement('csv_data_set')
+                      setShowConfigDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 group-hover:border-emerald-500">
+                      <Database className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">CSV Prompt Data Set</div>
+                      <div className="text-[10px] text-gray-400">Custom user prompts from file or list</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddConfigElement('think_time')
+                      setShowConfigDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-cyan-950/80 border border-cyan-800/60 text-cyan-400 group-hover:border-cyan-500">
+                      <Clock className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Think Time (Pacing Jitter)</div>
+                      <div className="text-[10px] text-gray-400">Random delay between requests (ms)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddConfigElement('auth_header')
+                      setShowConfigDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-amber-950/80 border border-amber-800/60 text-amber-400 group-hover:border-amber-500">
+                      <Key className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Custom Auth Header</div>
+                      <div className="text-[10px] text-gray-400">Custom Bearer or API token headers</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddConfigElement('token_budget')
+                      setShowConfigDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-purple-950/80 border border-purple-800/60 text-purple-400 group-hover:border-purple-500">
+                      <Sliders className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Token Budget Override</div>
+                      <div className="text-[10px] text-gray-400">Plan-wide max_tokens &amp; temperature</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1122,52 +1197,123 @@ export function TestPlanBuilder({ onPlanStarted, onViewReport }) {
           </div>
 
           {/* Add Assertion Dropdown */}
-          <div className="relative group">
+          <div className="relative" ref={assertionDropdownRef}>
             <button
               type="button"
-              className="btn-secondary text-xs py-1.5 px-3 flex items-center space-x-1.5 border border-amber-500/30 text-amber-300 hover:text-white"
+              onClick={() => {
+                setShowAssertionDropdown((prev) => !prev)
+                setShowConfigDropdown(false)
+              }}
+              className={`btn-secondary text-xs py-1.5 px-3 flex items-center space-x-1.5 border transition-all ${
+                showAssertionDropdown
+                  ? 'border-amber-500 bg-amber-950/50 text-white shadow-sm ring-1 ring-amber-500/50'
+                  : 'border-amber-500/30 text-amber-300 hover:text-white hover:bg-amber-950/30'
+              }`}
+              aria-haspopup="true"
+              aria-expanded={showAssertionDropdown}
             >
               <Plus className="w-3.5 h-3.5 text-amber-400" />
               <span>Add SLA Assertion</span>
-              <ChevronDown className="w-3 h-3 text-amber-400" />
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-amber-400 transition-transform duration-200 ${
+                  showAssertionDropdown ? 'rotate-180' : ''
+                }`}
+              />
             </button>
-            <div className="absolute right-0 mt-1 w-56 bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-20 py-1 hidden group-hover:block hover:block">
-              <button
-                type="button"
-                onClick={() => handleAddAssertion('latency')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800"
-              >
-                Latency p95 (max ms)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddAssertion('error_rate')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800"
-              >
-                Error Rate (max %)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddAssertion('ttft')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800"
-              >
-                Average TTFT (max ms)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddAssertion('tokens_per_second')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800"
-              >
-                Token Throughput (min TPS)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAddAssertion('quality')}
-                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800"
-              >
-                Quality Integrity (min %)
-              </button>
-            </div>
+
+            {showAssertionDropdown && (
+              <div className="absolute right-0 mt-1.5 w-64 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-30 py-1.5 divide-y divide-gray-800">
+                <div className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider text-gray-500">
+                  Select SLA Assertion Metric
+                </div>
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddAssertion('latency')
+                      setShowAssertionDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-amber-950/80 border border-amber-800/60 text-amber-400 group-hover:border-amber-500">
+                      <Clock className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Latency p95</div>
+                      <div className="text-[10px] text-gray-400">Maximum p95 response time (ms)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddAssertion('error_rate')
+                      setShowAssertionDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-rose-950/80 border border-rose-800/60 text-rose-400 group-hover:border-rose-500">
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Error Rate</div>
+                      <div className="text-[10px] text-gray-400">Maximum allowed error percentage (%)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddAssertion('ttft')
+                      setShowAssertionDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-cyan-950/80 border border-cyan-800/60 text-cyan-400 group-hover:border-cyan-500">
+                      <Zap className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Average TTFT</div>
+                      <div className="text-[10px] text-gray-400">Maximum time to first token (ms)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddAssertion('tokens_per_second')
+                      setShowAssertionDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 group-hover:border-emerald-500">
+                      <BarChart3 className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Token Throughput</div>
+                      <div className="text-[10px] text-gray-400">Minimum generated tokens / sec (TPS)</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleAddAssertion('quality')
+                      setShowAssertionDropdown(false)
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-gray-800 hover:text-white flex items-center space-x-2.5 transition-colors group"
+                  >
+                    <div className="p-1.5 rounded-md bg-indigo-950/80 border border-indigo-800/60 text-indigo-400 group-hover:border-indigo-500">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-white">Quality Integrity</div>
+                      <div className="text-[10px] text-gray-400">Minimum valid non-empty response (%)</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
