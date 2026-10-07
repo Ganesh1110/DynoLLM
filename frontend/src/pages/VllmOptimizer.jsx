@@ -89,7 +89,6 @@ import {
   buildRooflineModel,
   buildConcurrencyChartData,
   buildVramBreakdown,
-  buildMatchmakerRecommendations,
   getRecommendedGpuForModel,
   generateVllmCommand,
   generateRayCluster,
@@ -266,10 +265,6 @@ export function VllmOptimizer() {
   // 8. Live Binary Help Output Parser & Source-of-Truth Diff State
   const [helpInputText, setHelpInputText] = useState('')
   const [binaryDiffResult, setBinaryDiffResult] = useState(null)
-
-  // 9. Model & GPU Matchmaker SLA State
-  const [matchmakerGoal, setMatchmakerGoal] = useState('value') // 'value' | 'latency' | 'throughput'
-  const [matchmakerSlaConcurrency, setMatchmakerSlaConcurrency] = useState(10)
 
   const analyzeHelpOutput = (overrideText = null) => {
     const text = overrideText ?? helpInputText
@@ -789,29 +784,6 @@ export function VllmOptimizer() {
       setCopiedRay(true)
       setTimeout(() => setCopiedRay(false), 2000)
     }
-  }
-
-  // Model & GPU Matchmaker Recommendation Engine
-  const matchmakerRecommendations = useMemo(
-    () => buildMatchmakerRecommendations({ selectedModel }),
-    [selectedModel]
-  )
-
-  const applyMatchmakerConfig = (rec) => {
-    setTargetGpu(rec.gpu)
-    setSelectedRecipe(rec.recipe)
-    setScalingMode(rec.scaling)
-    updateFlag('tensorParallelSize', rec.tp)
-    updateFlag(
-      'quantization',
-      rec.recipe.id === 'fp8'
-        ? 'fp8'
-        : rec.recipe.id.includes('gptq')
-        ? 'gptq'
-        : rec.recipe.id.includes('awq')
-        ? 'awq'
-        : 'none'
-    )
   }
 
   return (
@@ -1364,96 +1336,6 @@ export function VllmOptimizer() {
               ? 'Splits 1 model across NVLink GPUs'
               : 'N standalone workers behind Load Balancer'}
           </span>
-        </div>
-      </div>
-
-      {/* ======================================================== */}
-      {/* 🎯 MODEL & GPU MATCHMAKER (EMPIRICAL HARDWARE SIZING)    */}
-      {/* ======================================================== */}
-      <div className="card bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 border-sky-500/20 p-5 space-y-4 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-800 pb-3">
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-sky-400" />
-              Model &amp; GPU Matchmaker
-              <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/30">
-                Auto-Sizing Engine
-              </span>
-            </h3>
-            <p className="text-[11px] text-gray-400 mt-0.5">
-              Empirically ranked hardware architectures &amp; quantization recipes for <strong className="text-white">{selectedModel.name}</strong> ({selectedModel.params}B params). Click to auto-configure in 1-click.
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 text-[11px] font-mono text-gray-400">
-            <span>SLA Target:</span>
-            <span className="px-2 py-0.5 rounded bg-gray-800 text-sky-300 font-bold border border-gray-700">Dynamic Multi-Objective</span>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {matchmakerRecommendations.map((rec, i) => (
-            <div
-              key={i}
-              className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
-                rec.tagColor === 'emerald'
-                  ? 'bg-emerald-950/20 border-emerald-500/30 hover:border-emerald-500/60'
-                  : rec.tagColor === 'amber'
-                  ? 'bg-amber-950/20 border-amber-500/30 hover:border-amber-500/60'
-                  : 'bg-sky-950/20 border-sky-500/30 hover:border-sky-500/60'
-              }`}
-            >
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
-                      rec.tagColor === 'emerald'
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                        : rec.tagColor === 'amber'
-                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                        : 'bg-sky-500/10 text-sky-400 border-sky-500/30'
-                    }`}
-                  >
-                    {rec.tag}
-                  </span>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
-                    <Cpu className="w-4 h-4 text-gray-400" />
-                    {rec.gpu.name}
-                  </h4>
-                  <div className="flex items-center gap-2 mt-1 text-[11px] font-mono text-gray-400">
-                    <span className="text-gray-300">{rec.tp > 1 ? `TP = ${rec.tp}` : 'Single GPU'}</span>
-                    <span>•</span>
-                    <span className="text-sky-300 font-semibold">{rec.recipe.name.split(' ')[0]}</span>
-                    <span>•</span>
-                    <span className="text-emerald-400 font-semibold">{rec.estDecode}</span>
-                  </div>
-                </div>
-
-                <p className="text-[11px] text-gray-400 leading-relaxed">
-                  {rec.rationale}
-                </p>
-              </div>
-
-              <div className="pt-4 mt-3 border-t border-gray-800/80">
-                <button
-                  type="button"
-                  onClick={() => applyMatchmakerConfig(rec)}
-                  className={`w-full py-1.5 px-3 rounded-lg text-xs font-bold font-mono transition-colors flex items-center justify-center gap-1.5 shadow-sm ${
-                    rec.tagColor === 'emerald'
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                      : rec.tagColor === 'amber'
-                      ? 'bg-amber-600 hover:bg-amber-500 text-white'
-                      : 'bg-sky-600 hover:bg-sky-500 text-white'
-                  }`}
-                >
-                  <Zap className="w-3.5 h-3.5" />
-                  Apply Hardware &amp; Config
-                </button>
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 
