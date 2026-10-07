@@ -44,6 +44,8 @@ export const MODEL_PRESETS = [
   { name: 'mistral:7b-instruct-v0.3', params: 7, precision: 0.55, overhead: 25, label: 'Mistral 7B (Q4_K_M)', layers: 32, kvHeads: 8, headDim: 128 },
   { name: 'gemma2:9b', params: 9, precision: 0.55, overhead: 25, label: 'Gemma 2 9B (Q4_K_M)', layers: 42, kvHeads: 8, headDim: 256 },
   { name: 'gemma2:27b', params: 27, precision: 0.55, overhead: 25, label: 'Gemma 2 27B (Q4_K_M)', layers: 46, kvHeads: 16, headDim: 128 },
+  { name: 'google/gemma-3-12b-it', params: 12, precision: 2.0, overhead: 25, label: 'Gemma 3 12B Instruct (BF16)', layers: 40, kvHeads: 8, headDim: 256 },
+  { name: 'gemma3:12b', params: 12, precision: 2.0, overhead: 25, label: 'Gemma 3 12B Instruct (BF16)', layers: 40, kvHeads: 8, headDim: 256 },
   { name: 'phi3.5:3.8b', params: 3.8, precision: 0.55, overhead: 20, label: 'Phi 3.5 3.8B (Q4_K_M)', layers: 32, kvHeads: 32, headDim: 96 },
 ]
 
@@ -207,7 +209,7 @@ export function parseModelName(name) {
   }
 
   // 3. Extract precision / quantization
-  let precision = matchedPreset?.precision || 0.55
+  let precision = matchedPreset?.precision || 2.0
   if (!matchedPreset) {
     if (clean.includes('fp16') || clean.includes('bf16') || clean.includes('16bit')) {
       precision = 2.0
@@ -225,6 +227,8 @@ export function parseModelName(name) {
       clean.includes('4bit')
     ) {
       precision = 0.55
+    } else {
+      precision = 2.0 // Standard Hugging Face model repository default is FP16/BF16
     }
   }
 

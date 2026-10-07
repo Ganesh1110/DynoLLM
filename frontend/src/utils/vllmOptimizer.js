@@ -373,43 +373,71 @@ export function buildVramBreakdown({
  */
 export function getRecommendedGpuForModel(model, gpuCatalog = GPU_CATALOG) {
   const params = Number(model?.params) || 8
+  const precision = Number(model?.precision) || 2.0 // default uncompressed FP16
+  const bytesPerParam = precision >= 1.5 ? 2.0 : (precision >= 0.9 ? 1.0 : 0.55)
 
-  let preferredName = 'NVIDIA RTX 3090 / 4090'
+  // Real VRAM requirements:
+  // 1. Model weights
+  const weightsGb = Math.round((params * bytesPerParam) * 10) / 10
+  // 2. PyTorch CUDA context, activations, and scratchpad
+  const cudaOverheadGb = 2.0
+  // 3. Minimum baseline KV cache buffer for vLLM
+  const baselineKvGb = Math.max(3.0, Math.round(params * 0.35 * 10) / 10)
+  // Total minimum VRAM to avoid OOM
+  const minVramRequired = Math.ceil(weightsGb + cudaOverheadGb + baselineKvGb)
+
+  let preferredName = 'NVIDIA L4 (24GB Ada)'
   let suggestedTp = 1
   let reason = ''
 
   if (params <= 4) {
-    preferredName = 'NVIDIA RTX 4060 Ti (16GB)'
+    // 1B - 4B models: Fits comfortably on 16GB cards
+    preferredName = 'NVIDIA RTX 4070 Ti Super'
     suggestedTp = 1
-    reason = `Compact ${params}B model fits comfortably on 16GB VRAM with fast single-user latency.`
+    reason = `Compact ${params}B model requires ~${weightsGb}GB weights (~${minVramRequired}GB total). Runs smoothly on 16GB VRAM with fast single-user decode.`
   } else if (params <= 9) {
-    preferredName = 'NVIDIA RTX 3090 / 4090'
+    // 7B - 9B models: e.g. Llama 3.1 8B, Gemma 2 9B, Mistral 7B
+    // In FP16: ~16GB weights + 5GB overhead = 21GB. Fits on 24GB.
+    preferredName = 'NVIDIA L4 (24GB Ada)'
     suggestedTp = 1
-    reason = `Standard 24GB VRAM provides optimal buffer for ${params}B models with full KV cache and high concurrency.`
+    reason = `Standard ${params}B model requires ~${weightsGb}GB weights (~${minVramRequired}GB total VRAM). 24GB enterprise GPU (L4 / A10G / RTX 4090) provides optimal throughput with multi-user KV cache.`
   } else if (params <= 16) {
-    preferredName = 'NVIDIA RTX 3090 / 4090'
+    // 10B - 16B models: e.g. Google Gemma 3 12B, Qwen 2.5 14B!
+    // In uncompressed FP16: weights are 24-32GB! Cannot fit on a single 24GB card!
+    preferredName = 'NVIDIA L40S (48GB)'
     suggestedTp = 1
-    reason = `24GB VRAM runs ${params}B in FP8 or AWQ quantization (~9–14GB weights) with ample KV headroom.`
+    reason = `For ${params}B (e.g. Gemma 3 12B / Qwen 14B), uncompressed FP16 weights require ${weightsGb}GB (~${minVramRequired}GB total VRAM). An NVIDIA L40S (48GB) is recommended for full 16-bit precision, or an NVIDIA L4 (24GB) / A10G if using FP8 / AWQ quantization.`
   } else if (params <= 35) {
-    preferredName = 'Dual RTX 3090 / 4090 (2x24GB)'
+    // 27B - 35B models: e.g. Gemma 2 27B, Qwen 2.5 32B
+    preferredName = 'NVIDIA A100 (80GB HBM2e)'
+    suggestedTp = 1
+    reason = `Large ${params}B model requires ${weightsGb}GB weights (~${minVramRequired}GB total in FP16). NVIDIA A100 (80GB) or L40S (48GB with FP8) provides adequate high-bandwidth memory for multi-user inference.`
+  } else if (params <= 72) {
+    // 70B class: Llama 3.3 70B, Qwen 2.5 72B
+    preferredName = 'NVIDIA H100 (80GB SXM5)'
     suggestedTp = 2
-    reason = `Dual 24GB cards (TP=2) or 48GB VRAM splits ${params}B weights to ~9GB/card with 1.9 TB/s aggregate bandwidth.`
+    reason = `Flagship ${params}B model requires ~140GB in full FP16 (TP=2 on 2x 80GB SXM) or fits on a single 80GB GPU (H100 / A100) using FP8 or INT4 quantization.`
   } else {
-    preferredName = 'Dual RTX 3090 / 4090 (2x24GB)'
-    suggestedTp = 2
-    reason = `Large ${params}B model requires multi-GPU (TP=2) or 48GB+ memory pool to host quantized weights.`
+    // 100B+ MoE: DeepSeek-V3 / R1 (671B MoE)
+    preferredName = 'NVIDIA H100 (80GB SXM5)'
+    suggestedTp = 8
+    reason = `Ultra-scale ${params}B model requires multi-node tensor parallelism (TP=8) across 80GB SXM5 GPUs for distributed inference.`
   }
 
-  const matchedGpu =
-    gpuCatalog.find((g) => g.name === preferredName) ||
-    gpuCatalog.find((g) => g.vramGb >= (params > 35 ? 48 : params > 16 ? 32 : params > 8 ? 20 : 12)) ||
-    gpuCatalog[0]
+  // Match GPU in catalog
+  let matchedGpu = gpuCatalog.find((g) => g.name === preferredName)
+  if (!matchedGpu) {
+    matchedGpu =
+      gpuCatalog.find((g) => g.vramGb >= minVramRequired) ||
+      gpuCatalog.find((g) => g.vramGb >= Math.ceil(minVramRequired / suggestedTp)) ||
+      gpuCatalog[gpuCatalog.length - 1]
+  }
 
   return {
     gpu: matchedGpu,
     suggestedTp,
     reason,
-    minVramRequired: params > 35 ? 40 : params > 16 ? 24 : params > 8 ? 16 : 8,
+    minVramRequired,
   }
 }
 
@@ -424,32 +452,37 @@ export function buildMatchmakerRecommendations({
   const params = selectedModel?.params || 8
 
   // 1. Best Value / Budget Pick
-  let valueGpuName = 'NVIDIA A10G (24GB)'
+  let valueGpuName = 'NVIDIA L4 (24GB Ada)'
   let valueRecipeId = 'int4_awq'
   let valueTp = 1
   let valueScaling = 'tp'
   let valueReason = 'Efficient single-node deployment with INT4 AWQ fitting smoothly on a 24GB VRAM GPU.'
 
-  if (params <= 9) {
+  if (params <= 4) {
+    valueGpuName = 'NVIDIA RTX 4070 Ti Super'
+    valueRecipeId = 'fp16'
+    valueTp = 1
+    valueReason = 'Compact model fits cleanly in full FP16 on 16GB VRAM with fast single-user decode.'
+  } else if (params <= 9) {
     valueGpuName = 'NVIDIA L4 (24GB Ada)'
     valueRecipeId = 'int4_awq'
     valueTp = 1
-    valueReason = 'High-efficiency deployment with INT4 AWQ. Fits comfortably on 24GB VRAM with ample KV headroom.'
+    valueReason = 'High-efficiency 72W datacenter GPU with INT4 AWQ. Fits comfortably on 24GB VRAM with ample KV headroom.'
   } else if (params <= 16) {
-    valueGpuName = 'NVIDIA RTX 3090 / 4090'
+    valueGpuName = 'NVIDIA L40S (48GB)'
+    valueRecipeId = 'fp8'
+    valueTp = 1
+    valueReason = 'Single 48GB datacenter card running native FP8, providing 30GB+ dedicated headroom for deep KV cache.'
+  } else if (params <= 35) {
+    valueGpuName = 'NVIDIA L40S (48GB)'
     valueRecipeId = 'int4_awq'
     valueTp = 1
-    valueReason = 'Single 24GB workstation card with AWQ quantization (~9GB weights), leaving 15GB VRAM for concurrent KV cache.'
-  } else if (params <= 35) {
-    valueGpuName = 'Dual RTX 3090 / 4090 (2x24GB)'
-    valueRecipeId = 'int4_awq'
-    valueTp = 2
-    valueReason = 'Dual 24GB cards with TP=2 splits 32B weights to ~9GB/card with 1.9 TB/s aggregate bandwidth.'
+    valueReason = 'Single 48GB GPU with INT4 AWQ fits 32B model weights (~18GB), leaving 30GB for multi-user concurrency.'
   } else {
-    valueGpuName = 'Dual RTX 3090 / 4090 (2x24GB)'
+    valueGpuName = 'NVIDIA A100 (80GB HBM2e)'
     valueRecipeId = 'int4_awq'
-    valueTp = 2
-    valueReason = 'Dual 24GB or L40S with INT4 AWQ fits 70B (~38.5 GB weights) across two GPUs without needing an 80GB SXM cluster.'
+    valueTp = 1
+    valueReason = 'Single 80GB card with INT4 AWQ fits 70B (~38.5 GB weights) with 40GB+ memory for deep context without multi-GPU overhead.'
   }
 
   // 2. Lowest Latency / Pure Speed Pick
